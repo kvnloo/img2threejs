@@ -383,7 +383,9 @@ def sync_from_spec(state: dict[str, Any], spec: dict[str, Any], current_pass: st
     current_pass_reviews = [
         entry
         for entry in history
-        if isinstance(entry, dict) and entry.get("passId") == current_pass
+        if isinstance(entry, dict)
+        and entry.get("passId") == current_pass
+        and entry.get("outOfSequence") is not True
     ]
     latest_current_action = (
         current_pass_reviews[-1].get("action") if current_pass_reviews else None
