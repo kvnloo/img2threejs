@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import zlib
 import io
+import json
 from contextlib import redirect_stderr
 from pathlib import Path
 
@@ -97,17 +98,53 @@ class AnalyzeTextureTest(unittest.TestCase):
         self.assertAlmostEqual(r["recipe"]["metalness"], 1.0)
         self.assertAlmostEqual(r["recipe"]["anisotropy"], 1.0)
 
-    def test_apply_to_material_writes_recipe(self):
+    def test_apply_to_material_preserves_authored_roughness(self):
         from analyze_texture import apply_to_material
         img = self._mk("paint2.png", lambda x, y: (230, 150, 50))
         result = analyze(img)
         mat = {"id": "frame", "roughness": {"base": 0.3, "variation": 0.1}}
-        apply_to_material(mat, result)
+        apply_to_material(mat, result, family="coating")
         self.assertEqual(mat["finishClass"], "painted-metal")
-        self.assertEqual(mat["roughness"]["base"], result["recipe"]["roughness"])  # layer shape kept
+        self.assertEqual(mat["roughness"]["base"], 0.3)
         self.assertEqual(mat["roughness"]["variation"], 0.1)
         self.assertIn("texturePalette", mat)
         self.assertEqual(mat["clearcoat"]["base"], result["recipe"]["clearcoat"])
+
+    def test_apply_to_material_refuses_unrepresented_family(self):
+        from analyze_texture import apply_to_material
+        img = self._mk("fabric.png", lambda x, y: (180, 165, 145))
+        result = analyze(img)
+        mat = {"id": "cloth", "materialFamily": "fabric", "roughness": {"base": 0.92}}
+        before = json.loads(json.dumps(mat))
+        with self.assertRaisesRegex(ValueError, "does not cover material family 'fabric'"):
+            apply_to_material(mat, result, family="fabric")
+        self.assertEqual(mat, before)
+
+    def test_cli_refuses_fabric_patch_without_mutating_spec(self):
+        img = self._mk("cloth-cli.png", lambda x, y: (180, 165, 145))
+        spec_path = self.d / "spec.json"
+        spec = {
+            "materials": [
+                {"id": "cloth", "materialFamily": "fabric", "roughness": {"base": 0.92}}
+            ],
+            "componentTree": [],
+        }
+        spec_path.write_text(json.dumps(spec, indent=2), encoding="utf-8")
+        before = spec_path.read_text(encoding="utf-8")
+
+        with redirect_stderr(io.StringIO()) as stderr:
+            code = main([
+                str(img),
+                "--spec",
+                str(spec_path),
+                "--material-id",
+                "cloth",
+                "--in-place",
+            ])
+
+        self.assertEqual(code, 2)
+        self.assertIn("does not cover material family 'fabric'", stderr.getvalue())
+        self.assertEqual(spec_path.read_text(encoding="utf-8"), before)
 
     def test_all_recipes_have_required_scalars(self):
         keys = {"metalness", "roughness", "clearcoat", "clearcoatRoughness", "transmission",
