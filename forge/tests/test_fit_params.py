@@ -53,6 +53,40 @@ class FitParamsTest(unittest.TestCase):
         self.assertEqual(history[0]["defectTags"], ["detail-gap"])
         self.assertFalse(history[0]["reverted"])
 
+    def test_coordinate_order_can_prioritize_high_gain_dimension_at_same_budget(self):
+        objective = lambda values: values[1]
+        bounds = ((-1.0, 1.0), (-1.0, 1.0))
+        default = fit(
+            (0.0, 0.0),
+            bounds,
+            objective,
+            FitConfig(max_iterations=1, max_evaluations=3),
+        )
+        prioritized = fit(
+            (0.0, 0.0),
+            bounds,
+            objective,
+            FitConfig(max_iterations=1, max_evaluations=3, coordinate_order=(1, 0)),
+        )
+
+        self.assertEqual(default.evaluations, prioritized.evaluations)
+        self.assertGreater(prioritized.best_score, default.best_score)
+        self.assertEqual(default.coordinate_order, (0, 1))
+        self.assertEqual(prioritized.coordinate_order, (1, 0))
+        self.assertEqual(prioritized.to_json()["coordinateOrder"], [1, 0])
+
+    def test_coordinate_order_must_be_complete_permutation(self):
+        for order in ((0,), (0, 0), (0, 2), (True, 0)):
+            with self.subTest(order=order):
+                with self.assertRaises(FitInputError) as raised:
+                    fit(
+                        (0.0, 0.0),
+                        ((-1.0, 1.0), (-1.0, 1.0)),
+                        quadratic((0.5, -0.5)),
+                        FitConfig(coordinate_order=order),
+                    )
+                self.assertEqual(raised.exception.field, "config.coordinate_order")
+
     def test_stops_at_max_evaluations(self):
         result = fit((0.0,), ((-1.0, 1.0),), quadratic((0.8,)), FitConfig(max_iterations=20, max_evaluations=2))
 
