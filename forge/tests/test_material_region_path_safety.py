@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -27,9 +28,10 @@ class MaterialRegionPathSafetyTest(unittest.TestCase):
                 self.assertNotEqual(safe, ".")
                 self.assertNotEqual(safe, "..")
 
-                root = Path("/tmp/material-output").resolve()
-                candidate = (root / f"00-{safe}.png").resolve()
-                self.assertEqual(candidate.parent, root)
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory).resolve()
+                    candidate = (root / f"00-{safe}.png").resolve()
+                    self.assertEqual(candidate.parent, root)
 
     def test_normal_region_id_stays_readable(self) -> None:
         self.assertEqual(_safe_filename_component("paint-main_02"), "paint-main_02")
