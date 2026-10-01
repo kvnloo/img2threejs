@@ -137,7 +137,7 @@ class MaterialPipelineTest(unittest.TestCase):
                 "regionId": "cream-leather",
                 "sourceImage": str(interior),
                 "bbox": {"x": 0, "y": 0, "width": 160, "height": 160},
-                "materialId": "organic.leather",
+                "materialId": "leather.matte",
                 "materialSpecId": "cream-leather",
                 "confidence": 1.0,
             }],
