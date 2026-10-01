@@ -223,7 +223,9 @@ are `beauty`, `alpha-silhouette`, `semantic-id`, `depth`, `normal`, and
 ## stage1_intake/extract_pbr_evidence.py
 `stage1_intake/extract_pbr_evidence.py <crop> --out-dir DIR --material-id ID [--target-threshold 0.7] [--size N]
 [--palette-size N] [--spec spec.json --in-place | --out-spec p.json] [--report r.json]
-[--allow-low-confidence] [--multi-view-reference]`
+[--allow-low-confidence] [--multi-view-reference] [--interior-crop]`
+Use `--interior-crop` only when the input crop is material edge-to-edge with no background; it treats every opaque pixel as material evidence instead of applying corner-background segmentation. `material_region_analysis.py` sets this automatically for its verified region crops.
+
 Extracts reference-derived evidence: albedo palette, de-lit albedo, roughness estimate, height,
 normal, AO. **Inference, not inverse rendering** — pixels include baked lighting. Exits non-zero
 and refuses to patch the spec when confidence < `--target-threshold` (default 0.7) unless
