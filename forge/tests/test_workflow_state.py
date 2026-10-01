@@ -404,6 +404,37 @@ class WorkflowStateTest(unittest.TestCase):
             self.assertEqual(result.returncode, 3, result.stderr)
             self.assertIn("STOP: max-correction-loops-reached", result.stdout)
 
+    def test_next_cli_hard_stops_on_review_action_stop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            spec_path = Path(directory) / "spec.json"
+            state = new_state("reference.png", spec=str(spec_path))
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+            spec_path.write_text(
+                json.dumps(
+                    {
+                        "buildPasses": [{"id": "blockout", "acceptance": []}],
+                        "reviewHistory": [{"passId": "blockout", "action": "stop"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "forge" / "next.py"), "--state", str(state_path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 3, result.stderr)
+            self.assertIn("STOP: review-action-stop:blockout", result.stdout)
+
+            repeated = subprocess.run(
+                [sys.executable, str(ROOT / "forge" / "next.py"), "--state", str(state_path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(repeated.returncode, 3, repeated.stderr)
+            self.assertIn("STOP: review-action-stop:blockout", repeated.stdout)
+
     def test_skill_router_keeps_mandatory_state_and_reference_gates_visible(self):
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("forge/next.py --state .img2threejs/state.json", skill)
