@@ -35,7 +35,6 @@ sys.path.insert(0, str(ROOT / "forge"))
 from materials.reference import build_assignment, load_reference  # noqa: E402
 
 
-
 _SAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
 
 
