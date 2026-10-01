@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from argparse import Namespace
 from pathlib import Path
@@ -32,6 +33,12 @@ from extract_pbr_evidence import extract, load_image, write_png_rgb  # noqa: E40
 
 sys.path.insert(0, str(ROOT / "forge"))
 from materials.reference import build_assignment, load_reference  # noqa: E402
+
+
+def _artifact_slug(value: str) -> str:
+    """Return one bounded filesystem component for an untrusted region id."""
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", value).strip("-")
+    return (slug or "region")[:80]
 
 
 def _bounded_bbox(raw: Any, width: int, height: int) -> tuple[int, int, int, int]:
@@ -117,10 +124,11 @@ def analyze_manifest(
             source = (manifest_path.parent / source).resolve()
         if not source.exists():
             raise ValueError(f"region {region_id!r} source image does not exist: {source}")
-        crop_path = out_dir / f"{index:02d}-{region_id.replace('/', '-').replace(' ', '-')}.png"
+        artifact_slug = _artifact_slug(region_id)
+        crop_path = out_dir / f"{index:02d}-{artifact_slug}.png"
         crop_info = crop_region(source, region.get("bbox"), crop_path)
         texture_report = analyze(crop_path)
-        pbr_dir = out_dir / f"pbr-{index:02d}-{region_id.replace('/', '-').replace(' ', '-')}"
+        pbr_dir = out_dir / f"pbr-{index:02d}-{artifact_slug}"
         args = Namespace(
             image=crop_path,
             out_dir=pbr_dir,

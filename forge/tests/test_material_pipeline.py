@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / "stage4_review"))
 
 from materials.compatibility import check_compatibility  # noqa: E402
 from materials.reference import build_assignment, load_reference, resolve_material  # noqa: E402
-from material_region_analysis import analyze_manifest  # noqa: E402
+from material_region_analysis import _artifact_slug, analyze_manifest  # noqa: E402
 from apply_material_analysis import apply_material_analysis  # noqa: E402
 from material_comparator import compare_material_crops  # noqa: E402
 from material_feedback import apply_material_feedback  # noqa: E402
@@ -56,6 +56,15 @@ class MaterialPipelineTest(unittest.TestCase):
                 80 + (x * 13 + y * 17) % 150,
             ),
         )
+
+    def test_region_artifact_slug_cannot_escape_output_directory(self) -> None:
+        for region_id in ("../../secret", r"..\\..\\secret", "a/b\\c:paint", "..."):
+            slug = _artifact_slug(region_id)
+            self.assertTrue(slug)
+            self.assertNotIn("/", slug)
+            self.assertNotIn("\\", slug)
+            self.assertNotIn("..", slug)
+            self.assertEqual(Path(slug).name, slug)
 
     def test_phase_one_resolver_preserves_authority_and_ambiguity(self) -> None:
         exact = resolve_material({"materialId": "coating.painted-metal", "confidence": 0.2}, self.registry)
