@@ -146,6 +146,36 @@ class AnalyzeTextureTest(unittest.TestCase):
         self.assertIn("does not cover material family 'fabric'", stderr.getvalue())
         self.assertEqual(spec_path.read_text(encoding="utf-8"), before)
 
+    def test_cli_infers_fabric_family_from_component_recipe(self):
+        img = self._mk("cloth-component.png", lambda x, y: (180, 165, 145))
+        spec_path = self.d / "component-spec.json"
+        spec = {
+            "materials": [{"id": "cloth", "roughness": {"base": 0.92}}],
+            "componentTree": [
+                {
+                    "id": "jacket",
+                    "material": "cloth",
+                    "colorMaterialRecipe": {"materialClass": "fabric"},
+                }
+            ],
+        }
+        spec_path.write_text(json.dumps(spec, indent=2), encoding="utf-8")
+        before = spec_path.read_text(encoding="utf-8")
+
+        with redirect_stderr(io.StringIO()) as stderr:
+            code = main([
+                str(img),
+                "--spec",
+                str(spec_path),
+                "--material-id",
+                "cloth",
+                "--in-place",
+            ])
+
+        self.assertEqual(code, 2)
+        self.assertIn("does not cover material family 'fabric'", stderr.getvalue())
+        self.assertEqual(spec_path.read_text(encoding="utf-8"), before)
+
     def test_all_recipes_have_required_scalars(self):
         keys = {"metalness", "roughness", "clearcoat", "clearcoatRoughness", "transmission",
                 "ior", "envMapIntensity", "anisotropy", "procedural"}
