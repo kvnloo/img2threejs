@@ -201,6 +201,7 @@ def learn_coordinate_priority(worlds: Iterable[World], *, root_only: bool = True
     gains: dict[int, list[float]] = {}
     for world in worlds:
         by_id = world.index()
+        best_by_parent_coordinate: dict[tuple[str, int], float] = {}
         for node in world.nodes:
             if node.parent_id is None or node.coordinate is None or not node.clean:
                 continue
@@ -209,7 +210,11 @@ def learn_coordinate_priority(worlds: Iterable[World], *, root_only: bool = True
             parent = by_id[node.parent_id]
             if not parent.clean:
                 continue
-            gains.setdefault(node.coordinate, []).append(node.silhouette_iou - parent.silhouette_iou)
+            key = (node.parent_id, node.coordinate)
+            gain = node.silhouette_iou - parent.silhouette_iou
+            best_by_parent_coordinate[key] = max(best_by_parent_coordinate.get(key, float("-inf")), gain)
+        for (_parent_id, coordinate), gain in best_by_parent_coordinate.items():
+            gains.setdefault(coordinate, []).append(gain)
     if not gains:
         return ()
     return tuple(sorted(gains, key=lambda coordinate: (-mean(gains[coordinate]), coordinate)))
