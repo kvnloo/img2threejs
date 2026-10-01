@@ -118,6 +118,11 @@ class AnalyzeTextureTest(unittest.TestCase):
         self.assertIsNotNone(result["finishClassCandidate"])
         self.assertIn("fabric", result["reason"])
 
+    def test_standalone_family_refusal_returns_nonzero(self):
+        img = self._mk("fabric-standalone.png", lambda x, y: (148, 142, 134))
+        rc = main([str(img), "--family", "fabric", "--json"])
+        self.assertEqual(rc, 2)
+
     def test_in_place_refusal_leaves_fabric_spec_unchanged(self):
         img = self._mk("fabric-patch.png", lambda x, y: (145 + ((x // 5) % 2) * 8, 140, 132))
         spec = self.d / "spec.json"
