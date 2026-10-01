@@ -119,7 +119,7 @@ def analyze_manifest(
             raise ValueError(f"region {region_id!r} source image does not exist: {source}")
         crop_path = out_dir / f"{index:02d}-{region_id.replace('/', '-').replace(' ', '-')}.png"
         crop_info = crop_region(source, region.get("bbox"), crop_path)
-        texture_report = analyze(crop_path)
+        texture_report = analyze(crop_path, interior_crop=True)
         pbr_dir = out_dir / f"pbr-{index:02d}-{region_id.replace('/', '-').replace(' ', '-')}"
         args = Namespace(
             image=crop_path,
@@ -130,6 +130,7 @@ def analyze_manifest(
             target_threshold=target_threshold,
             url_prefix="",
             multi_view_reference=multi_view_reference,
+            interior_crop=True,
         )
         pbr_report, pbr_patch = extract(args)
         hypothesis = {
