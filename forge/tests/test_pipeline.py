@@ -135,6 +135,16 @@ class PipelineTest(unittest.TestCase):
         self.assertNotEqual(strict.returncode, 0)
         self.assertIn("strict quality failure", strict.stdout + strict.stderr)
 
+    def test_validate_rejects_completed_passes_not_credited_by_review_history(self):
+        run("stage2_spec/new_sculpt_spec.py", "Oak", "--out", self.spec)
+        spec = json.loads(self.spec.read_text())
+        spec["sculptPipeline"]["completedPasses"] = ["blockout"]
+        self.assertEqual(spec.get("reviewHistory"), [])
+        self.spec.write_text(json.dumps(spec))
+        result = run("stage2_spec/validate_sculpt_spec.py", self.spec)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("completedPasses is out of sync with reviewHistory", result.stdout + result.stderr)
+
     def test_topology_rejects_missing_classification(self):
         run("stage2_spec/new_sculpt_spec.py", "Oak", "--out", self.spec)
         spec = json.loads(self.spec.read_text())
