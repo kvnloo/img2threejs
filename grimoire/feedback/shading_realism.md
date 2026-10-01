@@ -30,6 +30,7 @@ Before implementing or accepting `material-pass`, the spec must contain:
 - projection/UV intent: state UV, triplanar, cylindrical, planar, or another projection strategy, plus repeat/texel-density intent so detail does not stretch across scaled components.
 - quality-first resolution: use at least 1024px procedural maps for important close-up materials and prefer 2048px when reference fidelity is the priority.
 - geometric relief: if a ridge, crack, seam, chip, bark plate, fold, or dent affects the visible silhouette, represent it with geometry or displacement-capable topology instead of texture alone.
+- low-albedo matte relief: do not require a normal map to create highlight contrast the material cannot physically provide. When the reference carries visible relief on a dark, high-roughness surface, prefer displacement/geometry relief. If a numeric high-frequency comparison is used, normalize by the lit region's own mean and measure a flat relief-free reference region first so compression/sensor noise becomes the baseline rather than "detail".
 
 Do not accept "brown bark", "gold leaves", "dark metal", or "rough stone" as sufficient. Translate it into PBR terms: albedo palette, roughness, normal/bump, AO, dirt/wear, and local masks.
 
