@@ -197,12 +197,14 @@ def replay(world: World, policy: Policy, budget: int, target_iou: float = 0.85) 
     )
 
 
-def learn_coordinate_priority(worlds: Iterable[World]) -> tuple[int, ...]:
+def learn_coordinate_priority(worlds: Iterable[World], *, root_only: bool = True) -> tuple[int, ...]:
     gains: dict[int, list[float]] = {}
     for world in worlds:
         by_id = world.index()
         for node in world.nodes:
             if node.parent_id is None or node.coordinate is None or not node.clean:
+                continue
+            if root_only and node.parent_id != world.root_id:
                 continue
             parent = by_id[node.parent_id]
             if not parent.clean:
