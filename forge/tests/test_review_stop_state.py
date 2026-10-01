@@ -35,6 +35,19 @@ class ReviewStopStateTest(unittest.TestCase):
 
         self.assertEqual(status_payload(state)["stopReason"], "review-action-stop:blockout")
 
+    def test_out_of_sequence_stop_does_not_hard_stop_current_pass(self) -> None:
+        state = new_state("reference.png")
+        spec = {
+            "reviewHistory": [
+                {"passId": "blockout", "action": "stop", "outOfSequence": True}
+            ]
+        }
+
+        sync_from_spec(state, spec, "blockout")
+
+        self.assertEqual(status_payload(state)["status"], "active")
+        self.assertIsNone(status_payload(state)["stopReason"])
+
     def test_next_cli_returns_stopped_exit_code_after_stop_review(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
