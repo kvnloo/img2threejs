@@ -76,6 +76,45 @@ def load_json_argument(value: str | None, label: str) -> object | None:
         raise ValueError(f"{label} must be valid inline JSON or a JSON file path") from exc
 
 
+def _workspace_profile(spec_path: Path, explicit_state: Path | None) -> str | None:
+    """Return the local workflow profile when a state file is available.
+
+    State-less callers remain backward-compatible. If a state file is present, however, a
+    malformed profile must fail loud rather than silently disabling a domain-owned review gate.
+    """
+    candidates: list[tuple[Path, bool]] = []
+    if explicit_state is not None:
+        candidates.append((explicit_state.expanduser().resolve(), True))
+    candidates.extend(
+        [
+            ((spec_path.parent / ".img2threejs" / "state.json").resolve(), False),
+            ((Path.cwd() / ".img2threejs" / "state.json").resolve(), False),
+        ]
+    )
+    seen: set[Path] = set()
+    for candidate, required in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if not candidate.is_file():
+            if required:
+                raise FileNotFoundError(f"--state does not exist: {candidate}")
+            continue
+        try:
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"workflow state is not valid JSON: {candidate}") from exc
+        if not isinstance(payload, dict):
+            raise ValueError(f"workflow state must be a JSON object: {candidate}")
+        profile = payload.get("profile", "generic")
+        if profile is None:
+            return "generic"
+        if not isinstance(profile, str):
+            raise ValueError(f"workflow state profile must be a string: {candidate}")
+        return profile.strip() or "generic"
+    return None
+
+
 def clamp_score(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
 
@@ -254,6 +293,11 @@ def main(argv: list[str]) -> int:
         help="Machine-readable review report from a domain plugin's review gate, JSON or a file path",
     )
     parser.add_argument(
+        "--state",
+        type=Path,
+        help="Local workflow state; when omitted, discover .img2threejs/state.json beside the spec or cwd",
+    )
+    parser.add_argument(
         "--review-scene-json",
         help="Versioned review-scene metadata JSON used to validate the report",
     )
@@ -360,6 +404,12 @@ def main(argv: list[str]) -> int:
                 )
 
     domain_review = load_json_argument(args.domain_review_json, "--domain-review-json")
+    if args.action == "continue":
+        workspace_profile = _workspace_profile(spec_path, args.state)
+        if workspace_profile not in {None, "generic"} and domain_review is None:
+            raise ValueError(
+                f"profile {workspace_profile!r} requires --domain-review-json before action=continue"
+            )
     if domain_review is not None:
         if not isinstance(domain_review, dict):
             raise ValueError("--domain-review-json must be a JSON object")
