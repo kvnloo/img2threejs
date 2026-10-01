@@ -52,6 +52,7 @@ class FitConfig:
     plateau_iterations: int = 3
     oscillation_flips: int = 2
     seed: int | None = None
+    coordinate_order: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +72,7 @@ class FitResult:
     iterations: int
     evaluations: int
     seed: int | None
+    coordinate_order: tuple[int, ...]
     history: tuple[FitTelemetry, ...]
 
     def to_correction_history(self, defect_tags: Sequence[str] = ()) -> list[dict[str, float | bool | list[str]]]:
@@ -92,6 +94,7 @@ class FitResult:
             "iterations": self.iterations,
             "evaluations": self.evaluations,
             "seed": self.seed,
+            "coordinateOrder": list(self.coordinate_order),
             "history": [
                 {
                     "iteration": record.iteration,
@@ -200,6 +203,7 @@ def fit(initial: Sequence[float], bounds: Sequence[Sequence[float]], objective: 
         raise FitInputError("objective", "must be callable")
     parameters, normalized_bounds = _normalize_inputs(initial, bounds)
     _validate_config(config)
+    coordinate_order = _resolve_coordinate_order(config.coordinate_order, len(parameters))
     current_score = _finite_score(objective(parameters))
     evaluations = 1
     step_sizes = tuple((upper - lower) / 4.0 for lower, upper in normalized_bounds)
@@ -211,7 +215,8 @@ def fit(initial: Sequence[float], bounds: Sequence[Sequence[float]], objective: 
         iteration_start = current_score
         improved = False
         iteration_directions: dict[int, int] = {}
-        for index, (lower, upper) in enumerate(normalized_bounds):
+        for index in coordinate_order:
+            lower, upper = normalized_bounds[index]
             coordinate_start = parameters[index]
             candidate_parameters = parameters
             candidate_score = current_score
@@ -224,8 +229,8 @@ def fit(initial: Sequence[float], bounds: Sequence[Sequence[float]], objective: 
                     if candidate_direction:
                         parameters, current_score = candidate_parameters, candidate_score
                         history.append(FitTelemetry(iteration, evaluations, current_score, True, step_sizes))
-                        return _result(parameters, current_score, "max-evaluations", iteration, evaluations, config, history)
-                    return _result(parameters, current_score, "max-evaluations", iteration - 1, evaluations, config, history)
+                        return _result(parameters, current_score, "max-evaluations", iteration, evaluations, config, history, coordinate_order)
+                    return _result(parameters, current_score, "max-evaluations", iteration - 1, evaluations, config, history, coordinate_order)
                 proposal = _replace_coordinate(parameters, index, value)
                 proposal_score = _finite_score(objective(proposal))
                 evaluations += 1
@@ -249,12 +254,12 @@ def fit(initial: Sequence[float], bounds: Sequence[Sequence[float]], objective: 
             direction_by_coordinate = {}
         history.append(FitTelemetry(iteration, evaluations, current_score, improved, step_sizes))
         if direction_flips >= config.oscillation_flips:
-            return _result(parameters, current_score, "oscillation", iteration, evaluations, config, history)
+            return _result(parameters, current_score, "oscillation", iteration, evaluations, config, history, coordinate_order)
         if plateau_count >= config.plateau_iterations:
-            return _result(parameters, current_score, "plateau", iteration, evaluations, config, history)
+            return _result(parameters, current_score, "plateau", iteration, evaluations, config, history, coordinate_order)
         if not improved:
             step_sizes = tuple(step / 2.0 for step in step_sizes)
-    return _result(parameters, current_score, "max-iterations", config.max_iterations, evaluations, config, history)
+    return _result(parameters, current_score, "max-iterations", config.max_iterations, evaluations, config, history, coordinate_order)
 
 
 def _result(
@@ -265,8 +270,9 @@ def _result(
     evaluations: int,
     config: FitConfig,
     history: list[FitTelemetry],
+    coordinate_order: tuple[int, ...],
 ) -> FitResult:
-    return FitResult(parameters, best_score, status, iterations, evaluations, config.seed, tuple(history))
+    return FitResult(parameters, best_score, status, iterations, evaluations, config.seed, coordinate_order, tuple(history))
 
 
 def _normalize_inputs(initial: Sequence[float], bounds: Sequence[Sequence[float]]) -> tuple[ParameterVector, Bounds]:
@@ -293,6 +299,19 @@ def _normalize_inputs(initial: Sequence[float], bounds: Sequence[Sequence[float]
             raise FitInputError(f"initial[{index}]", "must be within its bounds")
         normalized_bounds.append((lower, upper))
     return parameters, tuple(normalized_bounds)
+
+
+def _resolve_coordinate_order(raw: tuple[int, ...] | None, dimensions: int) -> tuple[int, ...]:
+    if raw is None:
+        return tuple(range(dimensions))
+    if isinstance(raw, (str, bytes)) or not isinstance(raw, (tuple, list)):
+        raise FitInputError("config.coordinate_order", "must be a sequence of coordinate indices or null")
+    order = tuple(raw)
+    if any(isinstance(index, bool) or not isinstance(index, int) for index in order):
+        raise FitInputError("config.coordinate_order", "must contain integer coordinate indices")
+    if len(order) != dimensions or set(order) != set(range(dimensions)):
+        raise FitInputError("config.coordinate_order", f"must be a permutation of 0..{dimensions - 1}")
+    return order
 
 
 def _finite_parameter(value: float, field: str) -> float:
@@ -325,6 +344,11 @@ def _validate_config(config: FitConfig) -> None:
         raise FitInputError("config.min_improvement", "must be a finite non-negative number")
     if config.seed is not None and (isinstance(config.seed, bool) or not isinstance(config.seed, int)):
         raise FitInputError("config.seed", "must be an integer or null")
+    if config.coordinate_order is not None and (
+        isinstance(config.coordinate_order, (str, bytes))
+        or not isinstance(config.coordinate_order, (tuple, list))
+    ):
+        raise FitInputError("config.coordinate_order", "must be a sequence of coordinate indices or null")
 
 
 def _is_positive_integer(value: int) -> bool:
@@ -336,11 +360,13 @@ def _quadratic_objective(target: ParameterVector) -> Objective:
 
 
 def _cli_config(raw: Mapping[str, object]) -> FitConfig:
-    names = {"maxIterations": "max_iterations", "maxEvaluations": "max_evaluations", "minImprovement": "min_improvement", "plateauIterations": "plateau_iterations", "oscillationFlips": "oscillation_flips", "seed": "seed"}
+    names = {"maxIterations": "max_iterations", "maxEvaluations": "max_evaluations", "minImprovement": "min_improvement", "plateauIterations": "plateau_iterations", "oscillationFlips": "oscillation_flips", "seed": "seed", "coordinateOrder": "coordinate_order"}
     unknown = sorted(set(raw) - set(names))
     if unknown:
         raise FitInputError("config", f"unknown key(s): {', '.join(unknown)}")
     values = {names[key]: value for key, value in raw.items() if key in names}
+    if "coordinate_order" in values and isinstance(values["coordinate_order"], list):
+        values["coordinate_order"] = tuple(values["coordinate_order"])
     return FitConfig(**values)
 
 
