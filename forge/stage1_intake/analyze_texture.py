@@ -280,6 +280,10 @@ def main(argv=None) -> int:
         material = mats[0]
         if expected_family is None:
             expected_family = material.get("materialFamily") or material.get("family")
+        if expected_family is None:
+            reference_material_id = material.get("referenceMaterialId")
+            if isinstance(reference_material_id, str) and "." in reference_material_id:
+                expected_family = reference_material_id.split(".", 1)[0]
     result = analyze(args.image, expected_family=expected_family)
 
     if has_patch_target:
