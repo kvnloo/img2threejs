@@ -37,6 +37,21 @@ class ReplayTest(unittest.TestCase):
         order = learn_coordinate_priority((world("a"), world("b", 0.20)))
         self.assertEqual(order[0], 1)
 
+    def test_root_only_learning_ignores_deep_branch_selection_bias(self):
+        biased = World(
+            id="biased",
+            root_id="root",
+            nodes=(
+                Node("root", None, None, None, None, 0.50),
+                Node("c0", "root", 0, 1, 0.25, 0.55),
+                Node("c1", "root", 1, 1, 0.25, 0.65),
+                Node("c0-deep-1", "c0", 0, 1, 0.125, 0.90),
+                Node("c0-deep-2", "c0-deep-1", 0, 1, 0.0625, 0.99),
+            ),
+        )
+        self.assertEqual(learn_coordinate_priority((biased,))[0], 1)
+        self.assertEqual(learn_coordinate_priority((biased,), root_only=False)[0], 0)
+
     def test_learned_order_improves_iou_at_equal_budget(self):
         target = world("holdout")
         fixed = CoordinatePriorityPolicy((0, 1), name="fixed")
