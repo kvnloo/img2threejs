@@ -37,6 +37,20 @@ class ReplayTest(unittest.TestCase):
         order = learn_coordinate_priority((world("a"), world("b", 0.20)))
         self.assertEqual(order[0], 1)
 
+    def test_coordinate_learning_uses_best_direction_instead_of_cancelling(self):
+        directional = World(
+            id="directional",
+            root_id="root",
+            nodes=(
+                Node("root", None, None, None, None, 0.50),
+                Node("c0-", "root", 0, -1, 0.25, 0.49),
+                Node("c0+", "root", 0, 1, 0.25, 0.70),
+                Node("c1-", "root", 1, -1, 0.25, 0.58),
+                Node("c1+", "root", 1, 1, 0.25, 0.58),
+            ),
+        )
+        self.assertEqual(learn_coordinate_priority((directional,))[0], 0)
+
     def test_root_only_learning_ignores_deep_branch_selection_bias(self):
         biased = World(
             id="biased",
