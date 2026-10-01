@@ -2231,7 +2231,7 @@ def validate_sculpt_pipeline(
     if isinstance(completed, list):
         expected = completed_passes_from_history(spec, pass_order_ids or build_pass_ids)
         if list(completed) != expected:
-            warnings.append("sculptPipeline.completedPasses is out of sync with reviewHistory; run stage3_build/orchestrate_passes.py sync")
+            warnings.append("quality: sculptPipeline.completedPasses is out of sync with reviewHistory; run stage3_build/orchestrate_passes.py sync")
         for pass_id in completed:
             if pass_id not in (pass_order_ids or build_pass_ids):
                 errors.append(f"sculptPipeline.completedPasses contains unknown pass {pass_id!r}")
