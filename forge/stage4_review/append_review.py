@@ -404,15 +404,12 @@ def main(argv: list[str]) -> int:
                 )
 
     domain_review = load_json_argument(args.domain_review_json, "--domain-review-json")
-    workspace_profile = _workspace_profile(spec_path, args.state)
-    if (
-        args.action == "continue"
-        and workspace_profile not in {None, "generic"}
-        and domain_review is None
-    ):
-        raise ValueError(
-            f"profile {workspace_profile!r} requires --domain-review-json before action=continue"
-        )
+    if args.action == "continue":
+        workspace_profile = _workspace_profile(spec_path, args.state)
+        if workspace_profile not in {None, "generic"} and domain_review is None:
+            raise ValueError(
+                f"profile {workspace_profile!r} requires --domain-review-json before action=continue"
+            )
     if domain_review is not None:
         if not isinstance(domain_review, dict):
             raise ValueError("--domain-review-json must be a JSON object")
