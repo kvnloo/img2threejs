@@ -6,8 +6,10 @@ material recipe (MeshPhysicalMaterial scalars + palette + procedural hints) that
 `generate_threejs_factory.py`'s procedural texture generator consumes. This replaces the
 per-object hand-crafting of albedo/roughness maps with a repeatable analysis→recipe step.
 
-finishClass ∈ { gem-metal, gemstone, painted-metal, worn-composite, brushed-steel, plastic }
-Recipe scalars grounded in grimoire/build/threejs_texture_reference.md (notebooklm/three.js docs).
+finishClass candidates come from { gem-metal, gemstone, painted-metal, worn-composite, brushed-steel, plastic }.
+When a known semantic family is incompatible with that legacy vocabulary, the result is `status=probe`
+and no finish class is applied. Recipe scalars are grounded in
+grimoire/build/threejs_texture_reference.md (notebooklm/three.js docs).
 
 CLI:  analyze_texture.py <crop.png> [--json]
 API:  analyze(path) -> dict
@@ -301,10 +303,13 @@ def main(argv=None) -> int:
     if args.json:
         print(json.dumps(result, indent=2))
     else:
+        print(f"status:      {result['status']}")
         print(f"finishClass: {result['finishClass']}")
+        if result.get("reason"):
+            print(f"reason:      {result['reason']}")
         print(f"palette:     {result['palette']}")
         print(f"stats:       {result['stats']}")
-    return 0
+    return 0 if result.get("status") == "proceed" else 2
 
 
 if __name__ == "__main__":
