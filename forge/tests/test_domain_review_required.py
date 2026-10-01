@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -15,6 +16,7 @@ from append_review import main as append_review_main  # noqa: E402
 class DomainReviewRequiredTest(unittest.TestCase):
     def _workspace(self, profile: str) -> tuple[Path, Path]:
         root = Path(tempfile.mkdtemp(prefix="img2threejs-domain-review-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
         spec = root / "spec.json"
         spec.write_text(
             json.dumps(
