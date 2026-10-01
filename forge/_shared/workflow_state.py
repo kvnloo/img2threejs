@@ -380,14 +380,18 @@ def sync_from_spec(state: dict[str, Any], spec: dict[str, Any], current_pass: st
         history = []
     review_cursor = min(int(state.get("reviewCursor", 0)), len(history))
     new_reviews = history[review_cursor:]
-    refinements = [
+    current_pass_reviews = [
         entry
         for entry in new_reviews
-        if isinstance(entry, dict)
-        and entry.get("passId") == current_pass
-        and entry.get("action") in REFINE_ACTIONS
+        if isinstance(entry, dict) and entry.get("passId") == current_pass
     ]
-    if current_pass != "complete" and refinements:
+    latest_action = current_pass_reviews[-1].get("action") if current_pass_reviews else None
+    refinements = [
+        entry
+        for entry in current_pass_reviews
+        if entry.get("action") in REFINE_ACTIONS
+    ]
+    if current_pass != "complete" and refinements and latest_action in REFINE_ACTIONS:
         state.setdefault("passHistory", []).append(
             {
                 "passId": current_pass,
@@ -413,7 +417,11 @@ def sync_from_spec(state: dict[str, Any], spec: dict[str, Any], current_pass: st
     loops["perPass"] = per_pass
     loops["total"] = total
     pass_count = per_pass.get(current_pass, 0)
-    if pass_count >= loops["maxPerPass"]:
+    if current_pass != "complete" and latest_action == "stop":
+        state["status"] = "stopped"
+        state["currentStep"] = "stopped"
+        state["stopReason"] = f"review-action-stop:{current_pass}"
+    elif pass_count >= loops["maxPerPass"]:
         state["status"] = "stopped"
         state["currentStep"] = "stopped"
         state["stopReason"] = f"max-correction-loops-reached:{current_pass}:{pass_count}/{loops['maxPerPass']}"
