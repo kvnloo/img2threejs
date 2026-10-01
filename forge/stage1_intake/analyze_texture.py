@@ -242,9 +242,9 @@ def apply_to_material(
         )
 
     r = result["recipe"]
-    material.setdefault("finishClass", result["finishClass"])
-    material.setdefault("texturePalette", result["palette"])
-    material.setdefault("proceduralTexture", r["procedural"])
+    material["finishClass"] = result["finishClass"]
+    material["texturePalette"] = result["palette"]
+    material["proceduralTexture"] = r["procedural"]
     for key in ("metalness", "roughness", "clearcoat", "clearcoatRoughness", "transmission"):
         _set_layer_default(material, key, r[key])
 
