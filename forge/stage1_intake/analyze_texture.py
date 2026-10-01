@@ -40,6 +40,10 @@ RECIPES: dict[str, dict[str, Any]] = {
 
 N = 64  # downsample grid for stats
 
+# This classifier's vocabulary is deliberately narrow. Families with dedicated registry profiles
+# must not be coerced into the nearest metal/plastic-like finish when the CLI patches a spec.
+PATCHABLE_FAMILIES = {"metal", "coating", "plastic", "rubber", "gemstone", "unknown"}
+
 
 def _sample(pixels, w, h, mask):
     minx = miny = 1 << 30
@@ -193,22 +197,66 @@ def analyze(path: str | Path) -> dict[str, Any]:
     }
 
 
-def apply_to_material(material: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
-    """Write the analysed recipe onto a spec material (doc-grounded MeshPhysicalMaterial scalars).
-    Layer-shaped fields ({'base': v}) are preserved so validators stay happy."""
+def _declared_material_family(spec: dict[str, Any], material: dict[str, Any]) -> str | None:
+    for key in ("materialFamily", "family"):
+        value = material.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().lower()
+    reference_id = material.get("referenceMaterialId")
+    if isinstance(reference_id, str) and "." in reference_id:
+        return reference_id.split(".", 1)[0].strip().lower() or None
+
+    material_id = material.get("id")
+    component_families = {
+        str(recipe.get("materialClass")).strip().lower()
+        for component in spec.get("componentTree", [])
+        if isinstance(component, dict)
+        and component.get("material") == material_id
+        and isinstance((recipe := component.get("colorMaterialRecipe")), dict)
+        and isinstance(recipe.get("materialClass"), str)
+        and str(recipe.get("materialClass")).strip()
+    }
+    return next(iter(component_families)) if len(component_families) == 1 else None
+
+
+def _set_layer_default(material: dict[str, Any], key: str, value: float) -> None:
+    existing = material.get(key)
+    if existing is None:
+        material[key] = {"base": value, "variation": 0.0}
+    elif isinstance(existing, dict):
+        existing.setdefault("base", value)
+
+
+def apply_to_material(
+    material: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    family: str | None = None,
+) -> dict[str, Any]:
+    """Apply inferred defaults without overwriting authored PBR values."""
+    normalized_family = family.strip().lower() if isinstance(family, str) and family.strip() else None
+    if normalized_family is not None and normalized_family not in PATCHABLE_FAMILIES:
+        raise ValueError(
+            f"analyze_texture finish vocabulary does not cover material family {normalized_family!r}; "
+            "use the material registry/profile evidence instead of coercing it to a metal/plastic finish"
+        )
+
     r = result["recipe"]
-    material["finishClass"] = result["finishClass"]
-    material["texturePalette"] = result["palette"]
-    material["proceduralTexture"] = r["procedural"]
+    material.setdefault("finishClass", result["finishClass"])
+    material.setdefault("texturePalette", result["palette"])
+    material.setdefault("proceduralTexture", r["procedural"])
     for key in ("metalness", "roughness", "clearcoat", "clearcoatRoughness", "transmission"):
-        existing = material.get(key)
-        if isinstance(existing, dict):
-            existing["base"] = r[key]
-        else:
-            material[key] = {"base": r[key], "variation": 0.0}
-    material["ior"] = {"base": r["ior"], "value": r["ior"]}
-    material["envMapIntensity"] = r["envMapIntensity"]
-    if r["anisotropy"] > 0:
+        _set_layer_default(material, key, r[key])
+
+    existing_ior = material.get("ior")
+    if existing_ior is None:
+        material["ior"] = {"base": r["ior"], "value": r["ior"]}
+    elif isinstance(existing_ior, dict):
+        existing_ior.setdefault("base", r["ior"])
+        existing_ior.setdefault("value", r["ior"])
+
+    material.setdefault("envMapIntensity", r["envMapIntensity"])
+    if r["anisotropy"] > 0 and "anisotropy" not in material:
         material["anisotropy"] = {"base": r["anisotropy"]}
     return material
 
@@ -234,7 +282,12 @@ def main(argv=None) -> int:
         if not mats:
             print(f"material {args.material_id!r} not found in spec", file=sys.stderr)
             return 2
-        apply_to_material(mats[0], result)
+        family = _declared_material_family(spec, mats[0])
+        try:
+            apply_to_material(mats[0], result, family=family)
+        except ValueError as exc:
+            print(f"refusing texture patch: {exc}", file=sys.stderr)
+            return 2
         if args.in_place:
             args.spec.write_text(json.dumps(spec, indent=2), encoding="utf-8")
             print(f"applied {result['finishClass']} recipe to material {args.material_id!r} in {args.spec.name}")
