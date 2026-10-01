@@ -1808,7 +1808,7 @@ def make_spec(target_name: str, image: str | None, assessment_payload: dict | No
                 "componentRefs": ["root"],
                 "acceptance": [
                     "Every required material feature group has local overrides or surfaceDetail tied to evidenceRefs.",
-                    "A grazing-angle close-up proves that normal/height detail breaks highlights naturally and does not read as smooth plastic.",
+                    "A grazing-angle close-up proves surface relief at reference-relative contrast. For low-albedo matte materials, normal mapping alone is not sufficient when the reference carries visible relief: use displacement/geometry relief, or measure a flat reference region first and judge high-frequency residual relative to that noise floor.",
                     "AI vision comparison score meets selfCorrectLoop.visualAcceptance.threshold.",
                 ],
             },
