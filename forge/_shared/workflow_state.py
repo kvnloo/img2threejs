@@ -413,7 +413,17 @@ def sync_from_spec(state: dict[str, Any], spec: dict[str, Any], current_pass: st
     loops["perPass"] = per_pass
     loops["total"] = total
     pass_count = per_pass.get(current_pass, 0)
-    if pass_count >= loops["maxPerPass"]:
+    current_pass_reviews = [
+        entry
+        for entry in history
+        if isinstance(entry, dict) and entry.get("passId") == current_pass
+    ]
+    latest_action = current_pass_reviews[-1].get("action") if current_pass_reviews else None
+    if current_pass != "complete" and latest_action == "stop":
+        state["status"] = "stopped"
+        state["currentStep"] = "stopped"
+        state["stopReason"] = f"review-action-stop:{current_pass}"
+    elif pass_count >= loops["maxPerPass"]:
         state["status"] = "stopped"
         state["currentStep"] = "stopped"
         state["stopReason"] = f"max-correction-loops-reached:{current_pass}:{pass_count}/{loops['maxPerPass']}"
