@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from argparse import Namespace
 from pathlib import Path
@@ -32,6 +33,18 @@ from extract_pbr_evidence import extract, load_image, write_png_rgb  # noqa: E40
 
 sys.path.insert(0, str(ROOT / "forge"))
 from materials.reference import build_assignment, load_reference  # noqa: E402
+
+
+
+_SAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _safe_filename_component(value: str) -> str:
+    """Return a stable single path component for a user-authored region id."""
+    cleaned = _SAFE_FILENAME_CHARS.sub("-", value).strip(".-")
+    while ".." in cleaned:
+        cleaned = cleaned.replace("..", ".")
+    return cleaned or "region"
 
 
 def _bounded_bbox(raw: Any, width: int, height: int) -> tuple[int, int, int, int]:
@@ -117,10 +130,11 @@ def analyze_manifest(
             source = (manifest_path.parent / source).resolve()
         if not source.exists():
             raise ValueError(f"region {region_id!r} source image does not exist: {source}")
-        crop_path = out_dir / f"{index:02d}-{region_id.replace('/', '-').replace(' ', '-')}.png"
+        safe_region_id = _safe_filename_component(region_id)
+        crop_path = out_dir / f"{index:02d}-{safe_region_id}.png"
         crop_info = crop_region(source, region.get("bbox"), crop_path)
         texture_report = analyze(crop_path)
-        pbr_dir = out_dir / f"pbr-{index:02d}-{region_id.replace('/', '-').replace(' ', '-')}"
+        pbr_dir = out_dir / f"pbr-{index:02d}-{safe_region_id}"
         args = Namespace(
             image=crop_path,
             out_dir=pbr_dir,
