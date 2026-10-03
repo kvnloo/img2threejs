@@ -123,6 +123,25 @@ def load_bundle(manifest_path: str | Path) -> ReconstructionEvidenceBundle:
         raise EvidenceBundleError("producer.runtime", "must be a non-empty string")
     if not isinstance(producer.get("node"), str) or not producer["node"].strip():
         raise EvidenceBundleError("producer.node", "must be a non-empty string")
+    allowed_producer_keys = {"runtime", "node", "modelLabel", "workflowShapeSha256"}
+    unknown_producer_keys = sorted(set(producer) - allowed_producer_keys)
+    if unknown_producer_keys:
+        raise EvidenceBundleError(
+            "producer",
+            f"unknown key(s): {', '.join(unknown_producer_keys)}",
+        )
+    model_label = producer.get("modelLabel")
+    if model_label is not None and (
+        not isinstance(model_label, str)
+        or not model_label
+        or "/" in model_label
+        or "\\" in model_label
+        or len(model_label) > 128
+    ):
+        raise EvidenceBundleError(
+            "producer.modelLabel",
+            "must be a bounded filename-only label when present",
+        )
     shape_hash = producer.get("workflowShapeSha256")
     if shape_hash is not None and (not isinstance(shape_hash, str) or not _SHA256_RE.fullmatch(shape_hash)):
         raise EvidenceBundleError("producer.workflowShapeSha256", "must be a lowercase SHA-256 hex digest")
