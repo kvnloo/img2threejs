@@ -1,6 +1,6 @@
 from copy import deepcopy
 
-import pytest
+import unittest
 
 from forge.stage4_review.reconstruction_evidence_ab import compare_shadow_runs
 
@@ -60,55 +60,52 @@ def _with_receipt(payload):
     return result
 
 
-def test_shadow_receipt_only_run_has_exact_behavioral_parity():
-    baseline = _run()
-    evidence = _with_receipt(baseline)
+class ReconstructionEvidenceABTests(unittest.TestCase):
+    def test_shadow_receipt_only_run_has_exact_behavioral_parity(self):
+        baseline = _run()
+        evidence = _with_receipt(baseline)
 
-    report = compare_shadow_runs(baseline, evidence)
+        report = compare_shadow_runs(baseline, evidence)
 
-    assert report["parity"] is True
-    assert report["candidateSequenceParity"] is True
-    assert report["candidateCount"] == 2
-    assert report["baseline"]["bestObjectiveScore"] == 0.9
-    assert report["evidence"]["bundleId"] == "chair-0123456789abcdef"
+        self.assertIs(report["parity"], True)
+        self.assertIs(report["candidateSequenceParity"], True)
+        self.assertEqual(report["candidateCount"], 2)
+        self.assertEqual(report["baseline"]["bestObjectiveScore"], 0.9)
+        self.assertEqual(report["evidence"]["bundleId"], "chair-0123456789abcdef")
 
+    def test_shadow_gate_detects_candidate_sequence_change(self):
+        baseline = _run()
+        evidence = _with_receipt(baseline)
+        evidence["divineEyeResults"][1]["fitCandidateParameters"] = [-0.5]
 
-def test_shadow_gate_detects_candidate_sequence_change():
-    baseline = _run()
-    evidence = _with_receipt(baseline)
-    evidence["divineEyeResults"][1]["fitCandidateParameters"] = [-0.5]
+        report = compare_shadow_runs(baseline, evidence)
 
-    report = compare_shadow_runs(baseline, evidence)
+        self.assertIs(report["parity"], False)
+        self.assertIs(report["candidateSequenceParity"], False)
 
-    assert report["parity"] is False
-    assert report["candidateSequenceParity"] is False
+    def test_shadow_gate_detects_score_change_even_with_same_candidates(self):
+        baseline = _run()
+        evidence = _with_receipt(baseline)
+        evidence["fitResult"]["bestScore"] = 0.91
+        evidence["fitResult"]["bestObjectiveScore"] = 0.91
+        evidence["bestObjectiveScore"] = 0.91
 
+        report = compare_shadow_runs(baseline, evidence)
 
-def test_shadow_gate_detects_score_change_even_with_same_candidates():
-    baseline = _run()
-    evidence = _with_receipt(baseline)
-    evidence["fitResult"]["bestScore"] = 0.91
-    evidence["fitResult"]["bestObjectiveScore"] = 0.91
-    evidence["bestObjectiveScore"] = 0.91
+        self.assertIs(report["parity"], False)
+        self.assertIs(report["candidateSequenceParity"], True)
 
-    report = compare_shadow_runs(baseline, evidence)
+    def test_shadow_gate_requires_stable_receipt_within_run(self):
+        baseline = _run()
+        evidence = _with_receipt(baseline)
+        evidence["divineEyeResults"][1]["fitEvidenceBundle"]["bundleId"] = "other"
 
-    assert report["parity"] is False
-    assert report["candidateSequenceParity"] is True
+        with self.assertRaisesRegex(ValueError, "changed within"):
+            compare_shadow_runs(baseline, evidence)
 
+    def test_shadow_gate_rejects_receipt_on_baseline(self):
+        baseline = _with_receipt(_run())
+        evidence = _with_receipt(_run())
 
-def test_shadow_gate_requires_stable_receipt_within_run():
-    baseline = _run()
-    evidence = _with_receipt(baseline)
-    evidence["divineEyeResults"][1]["fitEvidenceBundle"]["bundleId"] = "other"
-
-    with pytest.raises(ValueError, match="changed within"):
-        compare_shadow_runs(baseline, evidence)
-
-
-def test_shadow_gate_rejects_receipt_on_baseline():
-    baseline = _with_receipt(_run())
-    evidence = _with_receipt(_run())
-
-    with pytest.raises(ValueError, match="baseline run unexpectedly"):
-        compare_shadow_runs(baseline, evidence)
+        with self.assertRaisesRegex(ValueError, "baseline run unexpectedly"):
+            compare_shadow_runs(baseline, evidence)
