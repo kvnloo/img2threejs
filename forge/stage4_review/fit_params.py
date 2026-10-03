@@ -159,6 +159,7 @@ def fit_against_divine_eye(
     reference_png: str | Path,
     evaluator: DivineEyeEvaluator | None = None,
     config: FitConfig = FitConfig(),
+    evidence_manifest: str | Path | None = None,
 ) -> DivineEyeFitResult:
     if not callable(render_for_parameters):
         raise FitInputError("render_for_parameters", "must be callable")
@@ -166,6 +167,8 @@ def fit_against_divine_eye(
     if not callable(evaluator):
         raise FitInputError("evaluator", "must be callable")
     reference_path = Path(reference_png)
+    evidence_bundle = load_optional_bundle(evidence_manifest)
+    evidence_receipt = evidence_bundle.receipt() if evidence_bundle is not None else None
     results: list[Mapping[str, object]] = []
 
     def objective(parameters: ParameterVector) -> float:
@@ -178,6 +181,8 @@ def fit_against_divine_eye(
         result["fitCandidateParameters"] = list(parameters)
         result["fitReferencePng"] = str(reference_path)
         result["fitRenderPath"] = str(render_path)
+        if evidence_receipt is not None:
+            result["fitEvidenceBundle"] = deepcopy(evidence_receipt)
         results.append(result)
         return _divine_eye_objective_score(result)
 
