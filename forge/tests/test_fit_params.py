@@ -192,6 +192,41 @@ class FitParamsTest(unittest.TestCase):
         self.assertTrue(all(item["hardGateFailures"] == ["scale"] for item in result.correction_history))
         self.assertEqual([item["fidelity"] for item in result.correction_history], [0.90, 0.90, 0.90])
 
+    def test_fit_against_divine_eye_attaches_verified_evidence_receipt_without_rescoring(self):
+        receipt = {
+            "bundleId": "chair-0123456789abcdef",
+            "manifestSha256": "a" * 64,
+            "artifacts": [{"role": "depth", "sha256": "b" * 64}],
+        }
+
+        class FakeBundle:
+            def receipt(self):
+                return receipt
+
+        def render_for_parameters(parameters: tuple[float, ...]) -> Path:
+            return Path(f"render-{parameters[0]:.1f}.png")
+
+        def evaluator(_reference: Path, render: Path) -> dict[str, object]:
+            score = {"render-0.0.png": 0.5, "render--0.5.png": 0.2, "render-0.5.png": 0.9}[render.name]
+            return {"fidelity": score, "hardGateFailures": []}
+
+        with patch("forge.stage4_review.fit_params.load_optional_bundle", return_value=FakeBundle()) as load_bundle:
+            result = fit_against_divine_eye(
+                (0.0,),
+                ((-1.0, 1.0),),
+                render_for_parameters,
+                "reference.png",
+                evaluator,
+                FitConfig(max_iterations=1, max_evaluations=10),
+                evidence_manifest="bundle/manifest.json",
+            )
+
+        load_bundle.assert_called_once_with("bundle/manifest.json")
+        self.assertEqual(result.fit_result.best_score, 0.9)
+        self.assertEqual(result.fit_result.parameters, (0.5,))
+        self.assertTrue(result.divine_eye_results)
+        self.assertTrue(all(item["fitEvidenceBundle"] == receipt for item in result.divine_eye_results))
+
     def test_stops_on_plateau(self):
         result = fit((0.0,), ((-1.0, 1.0),), lambda _values: 0.5, FitConfig(plateau_iterations=1))
 
