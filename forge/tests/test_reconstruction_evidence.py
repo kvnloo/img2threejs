@@ -155,3 +155,13 @@ def test_rejects_required_artifact_dimension_disagreement(tmp_path):
 
     with pytest.raises(EvidenceBundleError, match="must share dimensions"):
         load_bundle(manifest_path)
+
+
+def test_rejects_unknown_producer_fields(tmp_path):
+    manifest_path = _valid_bundle(tmp_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["producer"]["secret"] = "must-not-propagate"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(EvidenceBundleError, match="unknown key"):
+        load_bundle(manifest_path)
