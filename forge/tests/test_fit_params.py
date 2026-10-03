@@ -9,6 +9,7 @@ import math
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
