@@ -13,7 +13,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal
 
-ROOT = Path(__file__).resolve().parents[2]\nif str(ROOT) not in sys.path:\n    sys.path.insert(0, str(ROOT))\n\nfrom forge.stage1_intake.reconstruction_evidence import load_optional_bundle\n\nif __package__:
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from forge.stage1_intake.reconstruction_evidence import load_optional_bundle
+
+if __package__:
     from ._fit_divine_eye import is_approved_divine_eye_result, normalize_history
 else:
     from _fit_divine_eye import is_approved_divine_eye_result, normalize_history
