@@ -117,6 +117,40 @@ class MaterialPipelineTest(unittest.TestCase):
         gate = run_material_gate(spec, analysis=analysis, comparisons=[comparison], view_plan=plan)
         self.assertTrue(gate["passed"], gate)
 
+    def test_interior_material_crop_keeps_all_opaque_pixels(self) -> None:
+        interior = self.tmp / "cream-leather.png"
+        write_png(
+            interior,
+            160,
+            160,
+            lambda x, y: (
+                155 - (18 if (x // 24) % 3 == 0 else 0),
+                150 - (16 if (x // 24) % 3 == 0 else 0),
+                142 - (12 if (x // 24) % 3 == 0 else 0),
+            ),
+        )
+        manifest = self.tmp / "interior-regions.json"
+        manifest.write_text(json.dumps({
+            "referenceId": "interior-crop",
+            "regions": [{
+                "componentId": "garment",
+                "regionId": "cream-leather",
+                "sourceImage": str(interior),
+                "bbox": {"x": 0, "y": 0, "width": 160, "height": 160},
+                "materialId": "leather.matte",
+                "materialSpecId": "cream-leather",
+                "confidence": 1.0,
+            }],
+        }), encoding="utf-8")
+        analysis = analyze_manifest(manifest, self.tmp / "interior-analysis")
+        report = analysis["regions"][0]["pbrReport"]
+        self.assertEqual(report["diagnostics"]["mask"]["maskMode"], "interior-crop")
+        self.assertEqual(report["diagnostics"]["mask"]["foregroundCoverage"], 1.0)
+        dominant = report["palette"][0]
+        self.assertGreater(int(dominant[1:3], 16), 80)
+        self.assertGreater(int(dominant[3:5], 16), 80)
+        self.assertGreater(int(dominant[5:7], 16), 80)
+
     def test_low_confidence_analysis_cannot_enter_without_override(self) -> None:
         analysis = {
             "status": "probe",
