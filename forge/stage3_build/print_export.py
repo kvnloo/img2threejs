@@ -51,6 +51,18 @@ class PrintExportError(ValueError):
 
 def load_meshes(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, dict):
+        if "meshes" in payload:
+            # Browser geometry exporters may return a partial receipt when they
+            # skip active, unsupported geometry. A printable STL cannot claim
+            # completeness from only the meshes those exporters could sample.
+            if "incomplete" in payload and payload["incomplete"] is not False:
+                raise PrintExportError(
+                    "mesh export receipt is incomplete; re-export all active geometry"
+                )
+            if payload.get("coordinateSpace") not in (None, "world"):
+                raise PrintExportError(
+                    "mesh export must contain world-space vertices; local coordinates are unsafe"
+                )
         if isinstance(payload.get("meshes"), list):
             return payload["meshes"]
         if isinstance(payload.get("vertices"), list):
