@@ -192,6 +192,10 @@ test('failed fresh capture removes stale output; successful capture forwards the
     assert.equal(await main(argv, { chromium }), 0);
     assert.equal(JSON.parse(await readFile(output, 'utf8')).meshes[0].name, 'subject');
     assert.ok(calls.some(item => item.arg === 'MODEL_READY'));
+    // The shared preview signal must be the boolean true. Boolean('false')
+    // is true in JavaScript and would otherwise certify an unready render.
+    assert.ok(calls.some(item => item.expr ===
+      '() => window.__IMG2THREEJS_READY__ === true'));
     assert.equal(calls.find(item => item.options)?.options?.maxTriangles, 99);
     assert.equal(calls.find(item => item.options)?.options?.viewerHandle, 'CUSTOM_VIEWER');
     failEvaluate = true;
