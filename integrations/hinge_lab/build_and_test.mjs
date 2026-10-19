@@ -129,6 +129,24 @@ try {
   const payload = JSON.parse(readFileSync(posePath,'utf8'));
   assert.equal(payload.format,'img2threejs.hinge-lab-pose.v1');
   assert.equal(payload.anglesDegrees['right-flap'],90);
+  await page.locator('#rest').click();
+  assert.equal(await page.evaluate(()=>window.__hingeLab.getStatus().angles['right-flap']),0);
+  await page.locator('#import-file').setInputFiles({
+    name:'exported-pose.json',mimeType:'application/json',
+    buffer:Buffer.from(readFileSync(posePath))
+  });
+  await page.waitForFunction(()=>
+    window.__hingeLab.getStatus().angles['right-flap']===90);
+  assert.equal(await page.locator('#status-title').textContent(),'Pose imported');
+  await page.locator('#import-file').setInputFiles({
+    name:'invalid-pose.json',mimeType:'application/json',
+    buffer:Buffer.from(JSON.stringify({
+      format:'img2threejs.hinge-lab-pose.v1',
+      anglesDegrees:{...payload.anglesDegrees,'right-flap':999}
+    }))
+  });
+  await page.waitForFunction(()=>document.getElementById('status-title').textContent==='Import rejected');
+  assert.equal(await page.evaluate(()=>window.__hingeLab.getStatus().angles['right-flap']),90);
   const mobile = await browser.newPage({viewport:{width:390,height:844},deviceScaleFactor:1});
   mobile.on('pageerror',e=>errors.push(e.message));
   await mobile.goto(pathToFileURL(join(output,'index.html')).href,{waitUntil:'load'});
@@ -147,7 +165,7 @@ try {
   console.log('HINGE_LAB_PASS:',JSON.stringify({
     library:'Three.js r180',panels:4,
     interactions:['photo preset','reset','positive collision','reverse certified-clear',
-      'right-flap collision','export pose JSON','mobile layout'],
+      'right-flap collision','export/import pose JSON','reject malformed pose','mobile layout'],
     screenshotFiles:['lab-flat.png','lab-photo-pose.png',
       'lab-collision.png','lab-mobile.png'],
     offlineRequests:remote.length,
