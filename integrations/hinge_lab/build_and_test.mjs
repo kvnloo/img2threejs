@@ -125,6 +125,10 @@ try {
   const hit = await page.evaluate(()=>window.__hingeLab.getStatus());
   assert.equal(hit.lastEvaluation?.status,'collision');
   assert.ok(hit.lastEvaluation?.targets?.some(x=>x.status==='collision'&&x.collision?.overlap>0));
+  assert.ok(Number.isFinite(hit.lastEvaluation?.evaluationMs));
+  assert.ok(hit.lastEvaluation?.maxChecksPerTarget<=512);
+  assert.ok(hit.lastEvaluation?.targets?.every(x=>x.evaluatedAngles<=512));
+
   const positiveBars = await page.locator('#collision-timeline span[data-hit="true"]').count();
   assert.ok(positiveBars > 0, 'positive sweep must show sampled penetrations');
   assert.ok(hit.lastEvaluation?.sampledAngles > 1);
