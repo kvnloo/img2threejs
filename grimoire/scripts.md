@@ -331,7 +331,7 @@ never ran is the failure this repository keeps rediscovering. A spec with no att
 passes cleanly, so existing specs are unaffected.
 
 ### runtime/scripts/export_mesh_geometry.mjs
-`node runtime/scripts/export_mesh_geometry.mjs --url URL --out meshes.json [--include RE] [--exclude RE] [--max-triangles N] [--ready-flag F] [--viewer-handle H]`
+`node runtime/scripts/export_mesh_geometry.mjs --url URL --out meshes.json [--include RE] [--exclude RE] [--max-triangles N] [--max-total-triangles N] [--max-vertices N] [--max-instances N] [--ready-flag F] [--viewer-handle H]`
 Dumps executed triangle meshes in the JSON format `self_intersection.py` reads. Vertices are
 **world-space**, normals use the inverse-transpose, and negative-determinant transforms reverse
 triangle winding. The subject root is `viewer.explodeRoot` or `viewer.modelRoot` (falling back
@@ -343,7 +343,9 @@ is published. The flag is set after async asset loading and several render frame
 previews can use `--ready-flag NAME` for an explicit hard requirement; legacy viewers without
 any readiness flag remain supported.
 
-Unsupported active geometry (skinned, instanced, morphed, invalid, or over the triangle cap)
+Static `InstancedMesh` is expanded to one world-space receipt per instance (with
+instance colors), bounded by explicit instance, vertex, and total-triangle caps.
+Unsupported active geometry (skinned, morphed, invalid, or over budget)
 and active partial draw ranges yield `incomplete: true`. Hidden and explicitly filtered
 meshes are named in `skippedMeshes` but are not errors. If there is no usable subject mesh,
 the export is also incomplete. A failed/incomplete run removes stale `--out` evidence and
@@ -354,7 +356,10 @@ Playwright is **optional** and resolved from the working directory or
 `IMG2THREEJS_SHOWCASE_ROOT`; no dependency is added to the base skill. If Playwright
 or Chromium is unavailable, the gate was not evaluated. Unit tests:
 `node --test runtime/scripts/export_mesh_geometry.test.mjs`. A real Three.js browser
-export followed by the geometry gates is still required before upstream promotion.
+export using a **real Three.js browser** with world-space positions, instances,
+Python self-intersection analysis, and fail-closed partial output has now passed
+in downstream CI. A real end-user reconstruction and maintainer triage are still
+required before upstream promotion.
 
 ### stage4_review/vertex_region_gate.py
 `stage4_review/vertex_region_gate.py --geometry meshes.json --palette palette.json [--expect expect.json] [--azimuth 0] [--color-tolerance T] [--max-unclassified N] [--out report.json] [--json]`
