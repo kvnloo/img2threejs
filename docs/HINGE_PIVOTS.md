@@ -42,8 +42,9 @@ its regular material, geometry, and review fields.
 The generator inserts a pivot at `axisStart`, aligns a frame to the axis,
 rotates its Y-axis by `restAngleDeg`, then applies the inverse frame and the
 component's original translation. At zero degrees this composes to the
-original unhinged transform. Parent-child relationships, mesh-local sockets,
-and authored component rotation remain anchored to the component node.
+original unhinged transform. A separate offset group leaves the exposed
+`nodes[id].position` equal to the authored position. Parent-child relationships,
+mesh-local sockets, and authored rotation stay on the component node.
 
 ## Animate
 
@@ -73,5 +74,7 @@ The next acceptance gate is to capture a real Three.js browser render of a
 hinged box/lid at 0, 45, and 90 degrees, plus a full swept-motion check for
 interpenetration. These tests do **not** prove collision-free folding, image
 fidelity, or WebGL rendering. Hinge joints are animation transforms, not a
-physics constraint or inverse-kinematics solver. No external mesh, asset,
+physics constraint or inverse-kinematics solver. Hinges on bone-bound character
+or hybrid components are rejected because skinning reparents their meshes
+outside the hinge hierarchy. No external mesh, asset,
 or ML download is involved.
