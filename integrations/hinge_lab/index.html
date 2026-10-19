@@ -81,7 +81,7 @@
     </section>
     <section class="panel">
       <h2>Collision experiment</h2>
-      <p>Inject a red obstacle at the 90° position of a selected flap, then check its path from flat to the current angle.</p>
+      <p>Check collision against the actual carton floor. Optionally place a red obstacle at the selected flap's 90° position.</p>
       <label class="control-label" for="collision-part">Panel to inspect</label>
       <select id="collision-part">
         <option value="back-flap">Back flap</option>
@@ -89,15 +89,15 @@
         <option value="left-flap">Left flap</option>
         <option value="right-flap">Right flap</option>
       </select>
-      <label class="check"><input id="obstacle-enabled" type="checkbox">Show test obstacle</label>
+      <label class="check"><input id="obstacle-enabled" type="checkbox">Include test obstacle</label>
       <button id="check" class="primary">Evaluate sweep</button>
       <div class="status" id="status" role="status" aria-live="polite" data-state="inactive">
         <strong id="status-title">Not evaluated</strong>
-        <div id="status-detail" class="muted">Enable the obstacle to inspect a sweep.</div>
+        <div id="status-detail" class="muted">Evaluate the generated panel against the carton floor.</div>
       </div>
       <div id="collision-timeline" class="timeline" role="img" aria-label="No sampled collision timeline"></div>
       <p id="timeline-key" class="timeline-key">No angle samples yet.</p>
-      <small>Only rigid boxes, one moving hinge, a fixed obstacle, and supported transforms can be certified. “Unresolved” is not safe.</small>
+      <small>Only rigid box volumes, one moving hinge, static targets, and supported transforms are assessed. Overlap at a full 180° fold is a geometry limitation, not proof that physical cardboard behaves this way. “Unresolved” is not safe.</small>
     </section>
   </aside>
   <section class="viewer" aria-label="Interactive procedural model">
