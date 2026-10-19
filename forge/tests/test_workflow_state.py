@@ -372,6 +372,28 @@ class WorkflowStateTest(unittest.TestCase):
             self.assertIn("LOCAL_STATE status=active step=image-analysis", result.stdout)
             self.assertIn("pending mandatory steps", result.stdout)
 
+    def test_next_cli_after_setup_does_not_offer_unopened_pass_work(self):
+        # Regression carried forward from the narrower downstream #20 experiment.
+        # A spec path can be recorded at init but remain missing after setup;
+        # the agent must not receive a fabricated build --pass-id <pass>.
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            spec_path = Path(directory) / "not-written-yet.json"
+            state = new_state("reference.png", spec=str(spec_path))
+            setup = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+            mark_steps(state, setup, status="done", evidence=["setup-receipts.json"])
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "forge" / "next.py"), "--state", str(state_path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("step=await-pass-start pass=none", result.stdout)
+            self.assertNotIn("generate_threejs_factory.py", result.stdout)
+            self.assertNotIn("- build-current-pass", result.stdout)
+            self.assertIn(str(spec_path), result.stdout)
+
     def test_next_cli_reads_state_when_init_recorded_a_spec_path_that_is_not_written_yet(self):
         """`state.py init --spec` records where the spec WILL land.
 
