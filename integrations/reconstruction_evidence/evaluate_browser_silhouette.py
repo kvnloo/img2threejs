@@ -136,14 +136,17 @@ def run_experiment(reference_render: Path, matching_render: Path,
         reference_png=reference, evaluator=frozen_evaluator,
         config=FitConfig(max_iterations=1, max_evaluations=3, seed=7),
     )
-    baseline = fit_against_divine_eye(**options).to_json()
-    shadow = fit_against_divine_eye(**options, evidence_manifest=manifest).to_json()
+    # The shadow-comparison CLI consumes JSON loaded from disk. The fitter's
+    # in-memory to_json() retains tuples, so cross the same JSON wire boundary
+    # before comparing exact candidate sequences and receipts.
+    baseline = json.loads(json.dumps(fit_against_divine_eye(**options).to_json(), allow_nan=False))
+    shadow = json.loads(json.dumps(fit_against_divine_eye(**options, evidence_manifest=manifest).to_json(), allow_nan=False))
     parity = compare_shadow_runs(baseline, shadow)
     if not parity["parity"]:
         raise ValueError("receipt-only evidence unexpectedly altered the fitting process")
-    experimental = fit_against_divine_eye(
+    experimental = json.loads(json.dumps(fit_against_divine_eye(
         **options, evidence_manifest=manifest, experimental_silhouette_weight=0.05
-    ).to_json()
+    ).to_json(), allow_nan=False))
     base_evaluations = baseline["fitResult"]["evaluations"]
     shadow_evaluations = shadow["fitResult"]["evaluations"]
     experimental_evaluations = experimental["fitResult"]["evaluations"]
