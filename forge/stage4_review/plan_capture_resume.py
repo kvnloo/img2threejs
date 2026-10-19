@@ -36,6 +36,16 @@ def receipt_error(manifest_file: Path, record: Any) -> str | None:
         image = probe(screenshot)
         if not image.get("type") or not image.get("width") or not image.get("height"):
             return "unreadable-screenshot"
+        # The recorder persists these fields when the browser capture is taken.
+        # Matching file bytes alone cannot establish that a receipt still
+        # describes those bytes if the receipt was copied from another run.
+        # Require the saved dimensions and encoding to agree with the file.
+        recorded_image = record.get("image")
+        if not isinstance(recorded_image, dict) or any(
+            recorded_image.get(field) != image.get(field)
+            for field in ("type", "width", "height")
+        ):
+            return "image-receipt-mismatch"
     except (OSError, ValueError, TypeError):
         return "unreadable-screenshot"
     return None
