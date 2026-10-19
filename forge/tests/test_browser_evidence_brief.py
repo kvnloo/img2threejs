@@ -65,6 +65,26 @@ class BrowserBriefTests(unittest.TestCase):
         self.assertEqual(brief["nextStep"], "capture-missing")
         self.assertEqual(brief["visualAcceptance"], "not-assessed")
 
+    def test_invalid_source_evidence_blocks_capture_before_more_views(self):
+        # A missing orbit is not the next useful action when the source image
+        # no longer matches the manifest's declared content digest.
+        self.manifest["reference"]["sha256"] = "0" * 64
+        write_manifest(self.path, self.manifest)
+        brief = build_brief(self.path)
+        self.assertFalse(brief["evidenceComplete"])
+        self.assertGreater(brief["pendingCount"], 0)
+        self.assertIn("failed-manifest-validation", brief["errorCategories"])
+        self.assertEqual(brief["nextStep"], "repair-evidence")
+
+    def test_unready_recorded_hero_blocks_more_captures(self):
+        self.record()
+        self.manifest["captures"][0]["readySignal"] = "true"
+        write_manifest(self.path, self.manifest)
+        brief = build_brief(self.path)
+        self.assertIn("missing-readiness", brief["errorCategories"])
+        self.assertGreater(brief["pendingCount"], 0)
+        self.assertEqual(brief["nextStep"], "repair-evidence")
+
     def test_real_manifest_validation_and_verified_reuse(self):
         self.record()
         brief = build_brief(self.path)

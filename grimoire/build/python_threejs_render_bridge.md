@@ -200,6 +200,11 @@ python3 forge/stage4_review/browser_evidence_brief.py \
   --manifest work/character/render-manifest.json --since DIGEST
 ```
 
+Repair invalid source provenance, capture hashes, readiness or browser errors
+**before** scheduling remaining camera views. The `nextStep` field chooses
+`repair-evidence` whenever any error category exists; otherwise it chooses
+`capture-missing` for valid but incomplete batches.
+
 The output includes camera counts, bounded pending/repair IDs (only the
 repository-owned camera names, such as `hero` and `orbit-plus35`, are emitted
 verbatim). **Every custom capture ID** is replaced by its zero-based

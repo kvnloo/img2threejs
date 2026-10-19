@@ -150,7 +150,10 @@ def build_brief(path: Path, *, since: str = "", max_ids: int = 8) -> dict[str, A
             "evidenceComplete": True,
             "visualAcceptance": "not-assessed",
         }
-    next_step = "capture-missing" if pending else "repair-evidence" if categories else "visual-review"
+    # Invalid reference provenance, stale hashes, unready screenshots or
+    # browser errors must be repaired before collecting additional views.
+    # Otherwise the next camera action can run against unusable evidence.
+    next_step = "repair-evidence" if categories else "capture-missing" if pending else "visual-review"
     return {
         "schema": SCHEMA,
         "digest": digest,
