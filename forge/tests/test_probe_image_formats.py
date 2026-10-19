@@ -26,11 +26,11 @@ LOSSLESS_WEBP = base64.b64decode(
 
 def _tiff_ifd(endian: str, width: int, height: int, value_type: int = 3) -> bytes:
     """Two inline width/height tags: SHORT or LONG, in either TIFF byte order."""
-    header = (b"II*\\x00" if endian == "<" else b"MM\\x00*") + struct.pack(
+    header = (b"II*\x00" if endian == "<" else b"MM\x00*") + struct.pack(
         f"{endian}I", 8
     )
     def entry(tag: int, value: int) -> bytes:
-        raw = (struct.pack(f"{endian}H", value) + b"\\x00\\x00"
+        raw = (struct.pack(f"{endian}H", value) + b"\x00\x00"
                if value_type == 3 else struct.pack(f"{endian}I", value))
         return struct.pack(f"{endian}HHI", tag, value_type, 1) + raw
     return (
