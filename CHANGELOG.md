@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Prevent non-`generic` workflows from bypassing a domain gate by omitting the
+  review report when recording `action=continue`. The review CLI discovers local
+  workflow state or accepts `--state`, preserves stateless legacy calls, and rejects
+  absent/null reports without changing the spec.
+
 **The Character Split — targets v2.1.** The base `character` domain joins
 `plugin-character`, so the base names no domain and the v2.0 plugin split closes.
 
