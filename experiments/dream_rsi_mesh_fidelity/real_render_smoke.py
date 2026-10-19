@@ -131,7 +131,7 @@ def prepare(out: Path, neighborhood: str = "original") -> None:
     (out / "manifest.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
 
 
-def verify_browser_receipt(folder: Path, name: str) -> None:
+def verify_browser_receipt(folder: Path, name: str, *, receipt_name: str = "browser.json") -> None:
     """Reject stale, failed or unsupported browser captures before scoring.
 
     A PNG existing on disk is not proof that the actual Three.js renderer
@@ -139,7 +139,9 @@ def verify_browser_receipt(folder: Path, name: str) -> None:
     the matching run may enter native Divine Eye comparisons.
     """
     try:
-        receipt = json.loads((folder / "browser.json").read_text(encoding="utf-8"))
+        if not receipt_name.endswith(".json") or "/" in receipt_name or "\\" in receipt_name:
+            raise RuntimeError("invalid browser receipt filename")
+        receipt = json.loads((folder / receipt_name).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise RuntimeError(f"missing or malformed browser capture receipt: {name}") from error
     if not isinstance(receipt, dict):
