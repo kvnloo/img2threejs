@@ -262,11 +262,14 @@ test('CLI emits consumer-ready JSON and fails closed on partial export (mocked b
         geometry: { index: null, drawRange: {start:0,count:3},
           getAttribute: (kind) => kind === 'position' ? {count:3, getX:i=>i===1?1:0, getY:i=>i===2?1:0, getZ:i=>0}:null }
       });
+      const handlers = {};
       module.exports = { chromium: { launch: async () => ({
         newPage: async () => ({
+          on: (name, handler) => { handlers[name] = handler; },
           goto: async () => {
             const items = [tri('subject')];
             if (process.env.SIMULATE_INCOMPLETE) items.push(tri('skin',true));
+            if (process.env.SIMULATE_PAGE_ERROR) handlers.pageerror?.(new Error('broken preview despite ready geometry'));
             globalThis.__IMG2THREEJS_VIEWER__ = {scene: {updateMatrixWorld(){}, traverse(fn){items.forEach(fn);}},
               modelRoot: {traverse(fn){items.forEach(fn);}}};
           },
@@ -277,20 +280,22 @@ test('CLI emits consumer-ready JSON and fails closed on partial export (mocked b
       }) } };
     `);
     const script = fileURLToPath(new URL('./export_mesh_geometry.mjs', import.meta.url));
-    for (const partial of [false, true]) {
-      const out = join(dir, partial ? 'partial.json' : 'complete.json');
+    for (const [partial, pageError] of [[false, false], [true, false], [false, true]]) {
+      const out = join(dir, pageError ? 'broken-page.json' : partial ? 'partial.json' : 'complete.json');
       writeFileSync(out, 'stale successful evidence', 'utf8');
       const res = spawnSync(process.execPath, [script, '--url', 'http://localhost:5173/#/demo/example', '--out', out], {
-        cwd: dir, encoding: 'utf8', env: { ...process.env, SIMULATE_INCOMPLETE: partial ? '1' : '' },
+        cwd: dir, encoding: 'utf8', env: { ...process.env,
+          SIMULATE_INCOMPLETE: partial ? '1' : '', SIMULATE_PAGE_ERROR: pageError ? '1' : '' },
       });
-      assert.equal(res.status, partial ? 2 : 0, res.stderr);
+      assert.equal(res.status, partial || pageError ? 2 : 0, res.stderr);
       const diagnostics = `${out}.incomplete.json`;
-      assert.equal(existsSync(out), !partial, 'partial capture must not leave successful evidence');
-      assert.equal(existsSync(diagnostics), partial);
-      const report = JSON.parse(readFileSync(partial ? diagnostics : out, 'utf8'));
+      assert.equal(existsSync(out), !(partial || pageError), 'failed capture must not leave successful evidence');
+      assert.equal(existsSync(diagnostics), partial || pageError);
+      const report = JSON.parse(readFileSync(partial || pageError ? diagnostics : out, 'utf8'));
       assert.equal(report.meshes[0].triangleCount, 1);
       assert.deepEqual(report.meshes[0].indices, [0, 1, 2]);
-      assert.equal(report.incomplete, partial);
+      assert.equal(report.incomplete, partial || pageError);
+      if (pageError) assert.deepEqual(report.browserErrors, ['broken preview despite ready geometry']);
       assert.equal(report.rootSource, 'modelRoot');
       assert.equal(report.sceneRootOptIn, false);
     }
