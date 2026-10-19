@@ -2316,6 +2316,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
     }
     all_components = [item for item in spec.get("componentTree", []) if isinstance(item, dict)]
     components = filter_components_for_pass(spec, all_components, pass_id)
+    has_hinges = any(isinstance(item.get("hinge"), dict) for item in components)
 
     lines: list[str] = [
         "import * as THREE from 'three';",
@@ -2341,6 +2342,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
         "  sockets: Record<string, THREE.Object3D>;",
         "  colliders: Record<string, unknown>;",
         "  destructionGroups: Record<string, THREE.Object3D[]>;",
+        *(["  hinges: Record<string, THREE.Group>;"] if has_hinges else []),
         "};",
         "",
         "type SculptMaterialSpec = Record<string, any>;",
@@ -3481,6 +3483,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
             "  const sockets: Record<string, THREE.Object3D> = {};",
             "  const colliders: Record<string, unknown> = {};",
             "  const destructionGroups: Record<string, THREE.Object3D[]> = {};",
+            *(["  const hinges: Record<string, THREE.Group> = {};"] if has_hinges else []),
         ]
     )
 
@@ -3583,6 +3586,42 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
             geometry_lines.append(
                 f"  const {component_var}Geometry = decimateGeometry({dense_var}, {ratio});"
             )
+        hinge = component.get("hinge")
+        if isinstance(hinge, dict):
+            # T(axisStart) * Q(axis, +Y) * R_y(angle) * Q^-1 * T(-axisStart).
+            # The final group stays at the authored component origin, preserving
+            # child sockets, local transforms, and non-hinge node semantics.
+            hinge_pivot = local_var("hingePivot", component_id, index)
+            hinge_frame = local_var("hingeFrame", component_id, index)
+            hinge_joint = local_var("hingeJoint", component_id, index)
+            hinge_restore = local_var("hingeRestore", component_id, index)
+            hinge_parenting_lines = [
+                f"  const {hinge_pivot} = new THREE.Group();",
+                f"  {hinge_pivot}.name = {json.dumps(name + '__hingePivot')};",
+                f"  {hinge_pivot}.position.set({vector(hinge['axisStart'], [0, 0, 0])});",
+                f"  const {hinge_frame} = new THREE.Group();",
+                f"  {hinge_frame}.quaternion.setFromUnitVectors(",
+                "    new THREE.Vector3(0, 1, 0),",
+                f"    new THREE.Vector3({vector(hinge['axisEnd'], [0, 1, 0])}).sub({hinge_pivot}.position).normalize(),",
+                "  );",
+                f"  const {hinge_joint} = new THREE.Group();",
+                f"  {hinge_joint}.name = {json.dumps(name + '__hingeJoint')};",
+                f"  {hinge_joint}.rotation.y = THREE.MathUtils.degToRad({float(hinge['restAngleDeg'])});",
+                f"  {hinge_joint}.userData.sculptHinge = {json_literal(hinge)};",
+                f"  const {hinge_restore} = new THREE.Group();",
+                f"  {hinge_restore}.quaternion.copy({hinge_frame}.quaternion).invert();",
+                f"  {hinge_pivot}.add({hinge_frame});",
+                f"  {hinge_frame}.add({hinge_joint});",
+                f"  {hinge_joint}.add({hinge_restore});",
+                f"  {node_var}.position.sub({hinge_pivot}.position);",
+                f"  {hinge_restore}.add({node_var});",
+                f"  (nodes[{json.dumps(str(parent))}] ?? root).add({hinge_pivot});",
+                f"  hinges[{json.dumps(component_id)}] = {hinge_joint};",
+            ]
+        else:
+            hinge_parenting_lines = [
+                f"  (nodes[{json.dumps(str(parent))}] ?? root).add({node_var});"
+            ]
         lines.extend(
             [
                 "",
@@ -3644,7 +3683,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
                 "  }",
                 f"  {node_var}.userData.sculptComponent = {json.dumps(component, ensure_ascii=False)};",
                 f"  {node_var}.userData.actionProfile = {json.dumps(action_profile, ensure_ascii=False)};",
-                f"  (nodes[{json.dumps(str(parent))}] ?? root).add({node_var});",
+                *hinge_parenting_lines,
                 f"  nodes[{json.dumps(component_id)}] = {node_var};",
                 *geometry_lines,
                 # Attachment geometry (the endpoint branch above) already derives its exact
@@ -3896,7 +3935,9 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
     lines.extend(
         [
             "",
-            "  root.userData.sculptRuntime = { nodes, meshes, sockets, colliders, destructionGroups } satisfies ProceduralModelRuntime;",
+            ("  root.userData.sculptRuntime = { nodes, meshes, sockets, colliders, destructionGroups, hinges } satisfies ProceduralModelRuntime;"
+             if has_hinges else
+             "  root.userData.sculptRuntime = { nodes, meshes, sockets, colliders, destructionGroups } satisfies ProceduralModelRuntime;"),
             f"  root.userData.lookDevTargets = {json_literal(look_dev_targets)};",
             "  root.userData.actionReadiness = {",
             "    note: 'Use root.userData.sculptRuntime.nodes for transforms, sockets for attachments, colliders for physics proxies, and destructionGroups for breakable sets.',",
