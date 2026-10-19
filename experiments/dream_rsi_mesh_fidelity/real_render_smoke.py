@@ -19,7 +19,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "forge/tests/fixtures/reference_target_conformance_spec.json"
 GENERATOR = ROOT / "forge/stage3_build/generate_threejs_factory.py"
-CAMERA = {"position": [1.1, 0.55, 1.8], "target": [0, 0.16, 0], "fovDegrees": 35}
+CAMERA = {"position": [2.2, 1.1, 3.6], "target": [0, 0.16, 0], "fovDegrees": 35}
 IMAGE_SIZE = 256
 # One frozen *preflight* neighborhood. Train/holdout separation comes later.
 PARAMETERS = {
@@ -36,7 +36,7 @@ const scene = new THREE.Scene();
 const model = createTradeItHardCaseModel();
 scene.add(model);
 const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 30);
-camera.position.set(1.1, 0.55, 1.8);
+camera.position.set(2.2, 1.1, 3.6);
 camera.lookAt(0, 0.16, 0);
 const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: false, preserveDrawingBuffer: true });
 renderer.setPixelRatio(1);
