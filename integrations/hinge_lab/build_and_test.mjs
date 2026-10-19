@@ -39,6 +39,7 @@ try {
   copyFileSync(join(root,'forge/tests/hinge_sweep_collision.mjs'),
     join(work,'hinge_sweep_collision.mjs'));
   copyFileSync(join(integration,'index.html'),join(output,'index.html'));
+  copyFileSync(join(work,'factory.ts'),join(output,'createOpenFoldingCartonModel.ts'));
   copyFileSync(reference,join(output,'reference.jpg'));
   await build({
     entryPoints:[join(work,'app.mjs')],
@@ -50,6 +51,9 @@ try {
     kind:'img2threejs.hinge-lab-offline',
     revision:1,
     generatedFactory:'forge/tests/emit_hinge_photo_fixture.py',
+    generatedSource:'createOpenFoldingCartonModel.ts',
+    generatedSourceSha256:createHash('sha256').update(
+      readFileSync(join(output,'createOpenFoldingCartonModel.ts'))).digest('hex'),
     framework:'three@0.180.0',
     reference:{
       url:'https://commons.wikimedia.org/wiki/File:Box.agr.jpg',
@@ -68,6 +72,7 @@ try {
     JSON.stringify(manifest,null,2)+'\n');
   const text = 'Hinge Lab (experimental)\n\n' +
     'Open index.html in a browser. All model and Three.js code is in bundle.js.\n' +
+    'The generated editable TypeScript is createOpenFoldingCartonModel.ts.\n' +
     'The included reference.jpg is a CC BY-SA 3.0 work by Arnold Reinhold.\n' +
     'See manifest.json for source, license, SHA-256, and limitations.\n' +
     'No internet connection is needed to use the app.\n';
@@ -89,6 +94,8 @@ try {
   await page.waitForFunction(()=>window.__hingeLabReady===true,null,{timeout:40000});
   await page.waitForFunction(()=>window.__hingeLab.getStatus().drawCalls>0,null,{timeout:30000});
   assert.equal(await page.locator('input[type=range]').count(),4);
+  assert.ok(readFileSync(join(output,'createOpenFoldingCartonModel.ts'),'utf8')
+    .includes('export function createOpenFoldingCartonModel('));
   assert.deepEqual(await page.evaluate(()=>window.__hingeLab.getStatus().angles),
     {'back-flap':0,'front-flap':0,'left-flap':0,'right-flap':0});
   await page.screenshot({path:join(output,'lab-flat.png')});
