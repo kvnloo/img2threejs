@@ -187,6 +187,20 @@ def run(three_root: Path, output: Path, timeout_ms: int) -> dict:
         require(json.loads(repaired.stdout)['captured'] == ['hero'], 'tampered PNG was incorrectly reused')
         require(digest(hero_path) == hero_hash, 'recaptured hero differs from unchanged deterministic scene')
 
+        # Mutating only the persisted image metadata leaves both file bytes and
+        # SHA-256 intact. Resume must still re-render the mismatched receipt.
+        amended = saved(manifest_path)
+        amended['captures'][0]['image']['width'] = 123
+        write_manifest(manifest_path, amended)
+        stale_receipt = invoke(manifest_path, 'stale-image-receipt', resume=True)
+        require(stale_receipt.returncode == 0, f'image receipt recovery failed: {stale_receipt.stderr}')
+        resumed_ids = json.loads(stale_receipt.stdout)
+        require(resumed_ids['captured'] == ['hero'] and resumed_ids['skipped'] == ['orbit-plus35'],
+                'browser resume skipped a mismatched PNG dimension receipt')
+        require(digest(hero_path) == hero_hash, 'image receipt recovery changed deterministic hero pixels')
+        require(saved(manifest_path)['captures'][0]['image']['width'] == 640,
+                'recapture did not restore measured PNG dimensions')
+
         unready_path = new_manifest('unready', views=1)
         faults.update({'ready': False, 'consoleError': 'fixture loader error', 'pageError': 'fixture runtime error'})
         unready = invoke(unready_path, 'readiness-failure')
