@@ -32,7 +32,22 @@ python3 integrations/vehicle_form/plan_taper.py \
 python3 -m unittest forge.tests.test_vehicle_plan_taper
 ```
 
-World X coordinates must already correspond across the model and reference table; all geometry comes from actual triangle/plane intersections, not the nearest vertex. Finite input coordinates do not guarantee finite *derived* widths or longitudinal spans (subtractions can overflow binary64). The gate rejects non-finite derived measurements rather than normalizing `inf/inf` into NaN and accidentally passing a tolerance comparison. Zero-area/collinear triangles are ignored (reported as `degenerateTrianglesIgnored`) because lines can produce arbitrary widths without contributing a real surface; if the selected body has no nondegenerate triangles, the gate refuses the evidence. Widths are normalized to their respective maximum, so this is a **shape** gate, not a real-world dimension or wheelbase accuracy check. It does not measure silhouette height/tumblehome, reflectance, clearance, volume, or unseen body panels.
+World X coordinates must already correspond across the model and reference table; all geometry comes from actual triangle/plane intersections, not the nearest vertex. Finite input coordinates do not guarantee finite *derived* widths or longitudinal spans (subtractions can overflow binary64). The gate rejects non-finite derived measurements rather than normalizing `inf/inf` into NaN and accidentally passing a tolerance comparison. Zero-area/collinear triangles are ignored (reported as `degenerateTrianglesIgnored`) because lines can produce arbitrary widths without contributing a real surface; if the selected body has no nondegenerate triangles, the gate refuses the evidence. **Surface coverage guard:** Width extrema alone are insufficient. Two disconnected
+longitudinal rails at opposite Z edges can match every reference width while
+leaving most of the body absent. The gate now intersects actual nondegenerate
+triangles with each longitudinal station plane, merges their lateral Z
+intervals and requires at least **90% surface-backed lateral coverage** at
+every measured station. Missing support is an input/evidence error (exit 2),
+not a passing shape score. Each passing station records
+`lateralCoverageFraction` for inspection. The synthetic regression proves
+that exact-width side-only rails fail while the fully connected prism passes.
+
+This measures **projected section coverage**, not watertightness, thickness,
+surface orientation, connectivity away from the sampled planes, or actual
+visual fidelity. A single crossing sheet can still cover the full Z span;
+additional mesh/silhouette checks remain necessary.
+
+Widths are normalized to their respective maximum, so this is a **shape** gate, not a real-world dimension or wheelbase accuracy check. It does not measure silhouette height/tumblehome, reflectance, clearance, volume, or unseen body panels.
 
 **Exit codes:** `0` accepted shape, `1` measured shape mismatch, `2` unusable or unmeasurable evidence. A partial/empty export never counts as a clean model. Do not wire this into the generic core pipeline without a domain integration and reference-image measurement policy.
 
