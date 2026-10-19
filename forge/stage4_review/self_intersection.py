@@ -527,6 +527,10 @@ def _load_meshes(path: Path) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict):
+        # A browser exporter may have captured only a subset of the scene.
+        # Passing that partial list would certify uninspected geometry as clean.
+        if payload.get("incomplete") is True:
+            raise ValueError("incomplete mesh export: not all requested geometry was captured")
         meshes = payload.get("meshes")
         if meshes is None:
             meshes = payload.get("components")
