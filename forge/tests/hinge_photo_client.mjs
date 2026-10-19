@@ -190,6 +190,19 @@ function testGeneratedFoldWithObstacle() {
 }
 
 
+
+function renderObliqueCollision() {
+  camera.position.set(3.4, 4.8, 5.8);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+  if (renderer.info.render.calls <= 0 || renderer.info.render.triangles <= 0) {
+    throw new Error('missing oblique collision render');
+  }
+  return { drawCalls: renderer.info.render.calls,
+    triangles: renderer.info.render.triangles,
+    cameraPosition: camera.position.toArray() };
+}
+
 /** Adversarial collision check on every actual generated carton flap.
  * Obstacle is deliberately placed at the +90-degree panel center to
  * exercise the generated X- and Z-directed hinge frames.
@@ -215,10 +228,15 @@ function testGeneratedFlapFamily() {
     try {
       const opening = certifyFoldSweep(hinge, mesh, obstacle, 0, 180);
       const closing = certifyFoldSweep(hinge, mesh, obstacle, 0, -180);
+      // Unlike the synthetic obstacle, the floor is actual emitted geometry.
+      // Contact around a finite-thickness crease may yield collision or
+      // unresolved instead of an artificially assumed collision-free fold.
+      const floorSweep = certifyFoldSweep(hinge, mesh, runtime.meshes.floor,
+        0, 180, { maxDepth: 12, maxChecks: 512 });
       const sampled = sampleFold(hinge, mesh, obstacle, [0, 45, 90, 135, 180]);
       result.push({
         id, geometry: mesh.geometry.type, hingeName: hinge.name,
-        obstacle: positiveCenter.toArray(), opening, closing,
+        obstacle: positiveCenter.toArray(), opening, closing, floorSweep,
         sampledCollisions: sampled.collisionSamples,
         collisionAtNinety: sampled.samples[2].penetrating,
         initialClear: !sampled.samples[0].penetrating,
@@ -235,5 +253,5 @@ function testGeneratedFlapFamily() {
   return result;
 }
 
-window.__referenceStudy = { loadReference, render, testGeneratedFoldWithObstacle, testGeneratedFlapFamily };
+window.__referenceStudy = { loadReference, render, testGeneratedFoldWithObstacle, testGeneratedFlapFamily, renderObliqueCollision };
 window.__referenceStudyReady = true;

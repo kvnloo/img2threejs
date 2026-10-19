@@ -98,6 +98,12 @@ try {
   await page.locator('canvas').screenshot({
     path: join(output, 'generated-sweep-collision.png')
   });
+  const oblique = await page.evaluate(() =>
+    window.__referenceStudy.renderObliqueCollision());
+  assert.ok(oblique.drawCalls > 0 && oblique.triangles > 0);
+  await page.locator('canvas').screenshot({
+    path: join(output, 'generated-sweep-oblique.png')
+  });
   const generatedFlaps = await page.evaluate(() =>
     window.__referenceStudy.testGeneratedFlapFamily());
   assert.equal(generatedFlaps.length, 4);
@@ -108,6 +114,8 @@ try {
     assert.equal(flap.collisionAtNinety, true, flap.id + ' midpoint missed');
     assert.equal(flap.opening.status, 'collision', flap.id);
     assert.equal(flap.closing.status, 'certified-clear', flap.id + ' reverse');
+    assert.ok(['collision', 'certified-clear', 'unresolved'].includes(flap.floorSweep.status),
+      'actual floor fold must have a documented tri-state verdict');
   }
   console.log('HINGE_GENERATED_FLAP_FAMILY:', JSON.stringify(generatedFlaps));
   const comparisonPage = await browser.newPage({ viewport: {width: 1500, height: 600},deviceScaleFactor:1 });
@@ -131,7 +139,7 @@ try {
   const summary = {
     source, creator: 'Arnold Reinhold', license, credit,
     sha256: digest, photoMask, baseline: measurements[1], hinge: measurements[0],
-    generatedSweep, generatedFlaps,
+    generatedSweep, generatedFlaps, oblique,
     normalizedIoUDelta: Number((measurements[0].score - measurements[1].score).toFixed(6)),
     fixedFrameIoUDelta: Number((measurements[0].registeredScore - measurements[1].registeredScore).toFixed(6)),
     methodology: 'manual proxy, fixed camera/lighting/angles, warm-cardboard vs gray mask; record both original fixed-frame 960x760 IoU and independently bbox-normalized 256x256 silhouette IoU',
