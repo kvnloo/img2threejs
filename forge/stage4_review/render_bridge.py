@@ -448,6 +448,17 @@ def diagnose(path: Path, output: Path) -> dict[str, Any]:
         comparison_reference_path = manifest_path(path, str(hero_reference["path"]))
     else:
         comparison_reference_path = reference_path
+
+    # Direct callers must not sidestep the same evidence-integrity gate as the
+    # validate CLI: bad hashes, corrupt screenshots or browser errors are not
+    # suitable material for visual-fidelity scoring.
+    evidence_check = validate_manifest(path)
+    if not evidence_check["passed"]:
+        raise ValueError(
+            "render manifest failed validation before diagnostics: "
+            + "; ".join(evidence_check["errors"])
+        )
+
     result = {
         "manifest": str(path.resolve()),
         "reference": str(reference_path),
