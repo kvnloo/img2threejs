@@ -206,6 +206,42 @@ class WorkflowStateTest(unittest.TestCase):
                 for entry in state["checklist"] if entry["scope"] == "pass")
         )
 
+    def test_an_imported_spec_cannot_skip_the_unopened_first_pass(self):
+        state = new_state("reference.png", spec="spec.json")
+        spec = {
+            "buildPasses": [{"id": "blockout"}, {"id": "structural-pass"}],
+            "reviewHistory": [{"passId": "blockout", "action": "continue"}],
+        }
+        with self.assertRaisesRegex(WorkflowStateError, "has not opened the first pass"):
+            sync_from_spec(state, spec, "structural-pass")
+        self.assertEqual(state["currentPass"], "")
+        self.assertEqual(state["passHistory"], [])
+
+    def test_a_finished_checklist_is_not_evidence_for_two_pass_transitions(self):
+        state = new_state("reference.png", spec="spec.json")
+        setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+        pass_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "pass"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+        set_current_pass(state, "blockout")
+        mark_steps(state, pass_ids, status="done", evidence=["one-pass.json"])
+
+        spec = {
+            "buildPasses": [
+                {"id": "blockout"},
+                {"id": "structural-pass"},
+                {"id": "form-refinement"},
+            ],
+            "reviewHistory": [
+                {"passId": "blockout", "action": "continue"},
+                {"passId": "structural-pass", "action": "continue"},
+            ],
+        }
+        with self.assertRaisesRegex(WorkflowStateError, "skipped pass boundary"):
+            sync_from_spec(state, spec, "form-refinement")
+        self.assertEqual(state["currentPass"], "blockout")
+        self.assertEqual(state["passHistory"], [])
+        self.assertEqual(state["reviewCursor"], 0)
+
     def test_refinement_does_not_erase_unmarked_pass_evidence(self):
         state = new_state("reference.png", spec="spec.json")
         setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
