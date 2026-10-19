@@ -43,6 +43,11 @@
     #stage { display:block; width:100%; height:100%; position:absolute; inset:0; touch-action:none; }
     .hint { position:absolute; bottom:16px; left:16px; background:#0b111bcf; border:1px solid var(--line); padding:8px 11px; border-radius:9px; color:var(--muted); font-size:12px; pointer-events:none; }
     .status { border:1px solid var(--line); padding:13px; border-radius:10px; margin:12px 0; }
+    .timeline { display:flex; gap:2px; height:12px; margin:10px 0 5px; }
+    .timeline span { flex:1; border-radius:2px; background:#42556a; }
+    .timeline span[data-hit="true"] { background:var(--failure); }
+    .timeline span[data-hit="false"] { background:#92b976; }
+    .timeline-key { font-size:11px; color:var(--muted); margin:0 0 12px; }
     .status strong { display:block; font-size:16px; }
     .status[data-state="collision"] strong { color:var(--failure); }
     .status[data-state="certified-clear"] strong { color:var(--accent); }
@@ -90,6 +95,8 @@
         <strong id="status-title">Not evaluated</strong>
         <div id="status-detail" class="muted">Enable the obstacle to inspect a sweep.</div>
       </div>
+      <div id="collision-timeline" class="timeline" role="img" aria-label="No sampled collision timeline"></div>
+      <p id="timeline-key" class="timeline-key">No angle samples yet.</p>
       <small>Only rigid boxes, one moving hinge, a fixed obstacle, and supported transforms can be certified. “Unresolved” is not safe.</small>
     </section>
   </aside>
