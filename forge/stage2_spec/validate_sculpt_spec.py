@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -1056,6 +1057,31 @@ def validate_material_pipeline_contract(spec: dict[str, Any], material_ids: set[
         errors.append("materialPipeline.registry is required")
     elif not registry.endswith("material-reference.json"):
         warnings.append("quality: materialPipeline.registry does not point to material-reference.json")
+def validate_hinge(component_id: str, hinge: Any, errors: list[str]) -> None:
+    """Validate an optional edge pivot expressed in the component parent's frame."""
+    if not isinstance(hinge, dict):
+        errors.append(f"component {component_id!r} hinge must be an object")
+        return
+    points: dict[str, list[float]] = {}
+    for field in ("axisStart", "axisEnd"):
+        value = hinge.get(field)
+        if (
+            not isinstance(value, list)
+            or len(value) != 3
+            or not all(is_number(item) and math.isfinite(item) for item in value)
+        ):
+            errors.append(f"component {component_id!r} hinge.{field} must be three finite numbers")
+        else:
+            points[field] = [float(item) for item in value]
+    if len(points) == 2:
+        delta = [end - start for start, end in zip(points["axisStart"], points["axisEnd"])]
+        if not all(math.isfinite(item) for item in delta) or math.hypot(*delta) <= 1e-6:
+            errors.append(f"component {component_id!r} hinge axis must have non-zero length")
+    angle = hinge.get("restAngleDeg", 0)
+    if not is_number(angle) or not math.isfinite(angle):
+        errors.append(f"component {component_id!r} hinge.restAngleDeg must be a finite number")
+
+
 def validate_dimensions(component_id: str, dimensions: Any, errors: list[str]) -> None:
     if dimensions is None:
         return
@@ -1578,6 +1604,8 @@ def validate_components(
             for field in ("position", "rotation", "scale"):
                 if field in transform and not as_number_list(transform[field], 3):
                     errors.append(f"component {component_id!r} transform.{field} must be [number, number, number]")
+        if "hinge" in component:
+            validate_hinge(component_id, component["hinge"], errors)
         validate_action_profile(component_id, component.get("actionProfile"), errors, warnings)
         validate_attachment(
             component_id,
