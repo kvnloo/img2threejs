@@ -24,8 +24,10 @@ const makeMesh = (name = 'part', matrix = IDENTITY) => ({
   },
 });
 const install = (...meshes) => {
+  const subjectRoot = { traverse(fn) { for (const mesh of meshes) fn(mesh); } };
   globalThis.__TEST_MESH_VIEWER__ = {
     scene: { updateMatrixWorld() {}, traverse(fn) { for (const mesh of meshes) fn(mesh); } },
+    modelRoot: subjectRoot,
   };
   return { viewerHandle: '__TEST_MESH_VIEWER__' };
 };
@@ -45,7 +47,7 @@ test('showcase readiness waits for started viewer, frame-ready signal, and actua
   viewer.disposed = true;
   assert.equal(captureReady({ handle: opts.viewerHandle }), false);
   viewer.disposed = false;
-  viewer.scene.traverse = () => {};
+  viewer.modelRoot.traverse = () => {};
   assert.equal(captureReady({ handle: opts.viewerHandle }), false, 'empty subject must not pass');
 });
 
@@ -70,6 +72,8 @@ test('exports actual world-space vertices, normal inverse transpose, and vertex 
   const result = collectMeshGeometry(opts);
   assert.equal(result.incomplete, false);
   assert.equal(result.coordinateSpace, 'world');
+  assert.equal(result.rootSource, 'modelRoot');
+  assert.equal(result.sceneRootOptIn, false);
   assert.deepEqual(result.meshes[0].vertices, [[5, 6, 7], [7, 6, 7], [5, 9, 7]]);
   assert.deepEqual(result.meshes[0].normals, [[0, 0, 1], [0, 0, 1], [0, 0, 1]]);
   assert.deepEqual(result.meshes[0].indices, [0, 1, 2]);
@@ -84,6 +88,23 @@ test('prefers the model root over studio and ground meshes', () => {
   globalThis.__TEST_MESH_VIEWER__.explodeRoot = { traverse(fn) { fn(subject); } };
   const result = collectMeshGeometry(opts);
   assert.deepEqual(result.meshes.map(m => m.name), ['subject']);
+});
+
+test('studio-only scenes do not pass the subject-root gate by default', () => {
+  const studio = makeMesh('studio-ground');
+  const opts = install(studio);
+  const viewer = globalThis.__TEST_MESH_VIEWER__;
+  delete viewer.modelRoot;
+  globalThis.__IMG2THREEJS_READY__ = true;
+  assert.equal(captureReady({ handle: opts.viewerHandle }), false);
+  assert.throws(() => collectMeshGeometry(opts), /explicit subject root/);
+  // Deliberate generic whole-scene inspection stays possible, but the receipt
+  // must say that subject-specific completeness is not established.
+  assert.equal(captureReady({ handle: opts.viewerHandle, allowSceneRoot: true }), true);
+  const report = collectMeshGeometry({ ...opts, allowSceneRoot: true });
+  assert.equal(report.rootSource, 'scene-explicit');
+  assert.equal(report.sceneRootOptIn, true);
+  assert.deepEqual(report.meshes.map(x => x.name), ['studio-ground']);
 });
 
 test('negative determinant flips triangle winding and transforms normals', () => {
@@ -223,6 +244,7 @@ test('CLI help works with no Playwright, and errors are nonzero with no invalid 
   const ok = spawnSync(process.execPath, [script, '--help'], { encoding: 'utf8' });
   assert.equal(ok.status, 0, ok.stderr);
   assert.match(ok.stdout, /--max-triangles/);
+  assert.match(ok.stdout, /--allow-scene-root/);
   const bad = spawnSync(process.execPath, [script, '--url', 'javascript:alert(1)', '--out', '/tmp/no-export.json'], { encoding: 'utf8' });
   assert.equal(bad.status, 2);
   assert.match(bad.stderr, /unsupported preview URL protocol/);
@@ -245,7 +267,8 @@ test('CLI emits consumer-ready JSON and fails closed on partial export (mocked b
           goto: async () => {
             const items = [tri('subject')];
             if (process.env.SIMULATE_INCOMPLETE) items.push(tri('skin',true));
-            globalThis.__IMG2THREEJS_VIEWER__ = {scene: {updateMatrixWorld(){}, traverse(fn){items.forEach(fn);}}};
+            globalThis.__IMG2THREEJS_VIEWER__ = {scene: {updateMatrixWorld(){}, traverse(fn){items.forEach(fn);}},
+              modelRoot: {traverse(fn){items.forEach(fn);}}};
           },
           waitForFunction: async (fn,arg) => { if (!fn(arg)) throw new Error('not ready'); },
           evaluate: async (fn,arg) => fn(arg),
@@ -268,6 +291,8 @@ test('CLI emits consumer-ready JSON and fails closed on partial export (mocked b
       assert.equal(report.meshes[0].triangleCount, 1);
       assert.deepEqual(report.meshes[0].indices, [0, 1, 2]);
       assert.equal(report.incomplete, partial);
+      assert.equal(report.rootSource, 'modelRoot');
+      assert.equal(report.sceneRootOptIn, false);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -14,10 +14,16 @@ export function collectMeshGeometry(options = {}) {
   const viewer = globalThis[handle];
   const scene = viewer?.scene;
   // The showcase also renders studio/ground meshes outside its model root.
-  const root = viewer?.explodeRoot?.traverse ? viewer.explodeRoot
-    : viewer?.modelRoot?.traverse ? viewer.modelRoot : scene;
+  // A traversable studio scene is not proof of a complete subject. Without
+  // an explicit subject root a floor alone could pass every geometry gate.
+  const rootSource = viewer?.explodeRoot?.traverse ? 'explodeRoot'
+    : viewer?.modelRoot?.traverse ? 'modelRoot'
+      : options.allowSceneRoot === true ? 'scene-explicit' : null;
+  const root = rootSource === 'explodeRoot' ? viewer.explodeRoot
+    : rootSource === 'modelRoot' ? viewer.modelRoot
+      : rootSource === 'scene-explicit' ? scene : null;
   if (!scene || !root || typeof root.traverse !== 'function') {
-    throw new Error(`viewer ${handle} has no traversable scene`);
+    throw new Error(`viewer ${handle} has no explicit subject root (explodeRoot/modelRoot); use --allow-scene-root only for intentional whole-scene inspection`);
   }
   const include = options.include ? new RegExp(options.include) : null;
   const exclude = options.exclude ? new RegExp(options.exclude) : null;
@@ -162,16 +168,21 @@ export function collectMeshGeometry(options = {}) {
   };
   root.traverse(collect);
   const incomplete = meshes.length === 0 || skippedMeshes.some(m => !['filtered', 'hidden'].includes(m.reason));
-  return { schemaVersion: 1, coordinateSpace: 'world', meshes, skippedMeshes, incomplete };
+  return {
+    schemaVersion: 1, coordinateSpace: 'world',
+    rootSource, sceneRootOptIn: rootSource === 'scene-explicit',
+    meshes, skippedMeshes, incomplete,
+  };
 }
 
 /** Wait for a real, capture-ready subject, not the first partially mounted mesh.
  * Keep self-contained: Playwright serializes this function into the page. */
-export function captureReady({ handle = '__IMG2THREEJS_VIEWER__', flag } = {}) {
+export function captureReady({ handle = '__IMG2THREEJS_VIEWER__', flag, allowSceneRoot = false } = {}) {
   const viewer = globalThis[handle];
   const scene = viewer?.scene;
   const root = viewer?.explodeRoot?.traverse ? viewer.explodeRoot
-    : viewer?.modelRoot?.traverse ? viewer.modelRoot : scene;
+    : viewer?.modelRoot?.traverse ? viewer.modelRoot
+      : allowSceneRoot === true ? scene : null;
   if (!scene || !root || typeof root.traverse !== 'function' || viewer?.disposed === true) return false;
   // Viewer.start() can lag behind build(): a geometry handle alone is not readiness.
   if (viewer.started === false) return false;
@@ -195,6 +206,11 @@ function parseArgs(argv) {
     ['--timeout-ms', 'timeoutMs'], ['--max-instances', 'maxInstances'],
     ['--max-vertices', 'maxVertices'], ['--max-total-triangles', 'maxTotalTriangles']]);
   for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--allow-scene-root') {
+      if (opts.allowSceneRoot) throw new Error('--allow-scene-root supplied more than once');
+      opts.allowSceneRoot = true;
+      continue;
+    }
     const key = names.get(argv[i]);
     if (!key || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`invalid argument: ${argv[i]}`);
     opts[key] = argv[++i];
@@ -227,7 +243,7 @@ function loadPlaywright() {
 export async function runCli(argv = process.argv.slice(2)) {
   const opts = parseArgs(argv);
   if (opts.help) {
-    process.stdout.write('Usage: node runtime/scripts/export_mesh_geometry.mjs --url URL --out meshes.json [--include RE] [--exclude RE] [--max-triangles N] [--ready-flag F] [--viewer-handle H] [--timeout-ms N]\n');
+    process.stdout.write('Usage: node runtime/scripts/export_mesh_geometry.mjs --url URL --out meshes.json [--include RE] [--exclude RE] [--max-triangles N] [--ready-flag F] [--viewer-handle H] [--timeout-ms N] [--allow-scene-root]\n');
     return 0;
   }
   // Invalidate stale successful/diagnostic receipts before browser capture.
@@ -238,7 +254,8 @@ export async function runCli(argv = process.argv.slice(2)) {
     const page = await browser.newPage();
     await page.goto(opts.url, { waitUntil: 'domcontentloaded', timeout: opts.timeoutMs ?? 30000 });
     await page.waitForFunction(captureReady,
-      { handle: opts.viewerHandle || '__IMG2THREEJS_VIEWER__', flag: opts.readyFlag },
+      { handle: opts.viewerHandle || '__IMG2THREEJS_VIEWER__', flag: opts.readyFlag,
+        allowSceneRoot: opts.allowSceneRoot === true },
       { timeout: opts.timeoutMs ?? 30000 });
     const report = await page.evaluate(collectMeshGeometry, opts);
     if (report.incomplete) {

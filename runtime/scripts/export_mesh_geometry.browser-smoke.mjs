@@ -12,7 +12,7 @@ import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runCli } from './export_mesh_geometry.mjs';
+import { runCli, collectMeshGeometry, captureReady } from './export_mesh_geometry.mjs';
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const depsRoot = process.env.IMG2THREEJS_SHOWCASE_ROOT;
@@ -58,7 +58,7 @@ const camera = new THREE.PerspectiveCamera(50, 320/240, 0.1, 100);
 camera.position.set(6, 4, 7);
 camera.lookAt(2, 1, 0);
 renderer.render(scene, camera);
-window.__IMG2THREEJS_VIEWER__ = {scene, explodeRoot: modelRoot};
+window.__IMG2THREEJS_VIEWER__ = ${mode === 'studio-only' ? '{scene}' : '{scene, explodeRoot: modelRoot}'};
 window.__IMG2THREEJS_READY__ = true;
 window.__IMG2THREEJS_WEBGL_RENDERED__ = Boolean(renderer.getContext());
 </script>`;
@@ -67,7 +67,7 @@ window.__IMG2THREEJS_WEBGL_RENDERED__ = Boolean(renderer.getContext());
 const server = createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://127.0.0.1').pathname;
   try {
-    if (pathname === '/' || pathname === '/partial' || pathname === '/instances') {
+    if (pathname === '/' || pathname === '/partial' || pathname === '/instances' || pathname === '/studio-only') {
       res.writeHead(200, {'content-type': 'text/html; charset=utf-8'});
       res.end(fixture(pathname.slice(1) || 'normal'));
     } else if (pathname.startsWith('/three/')) {
@@ -101,6 +101,8 @@ try {
   const evidence = JSON.parse(await readFile(out, 'utf8'));
   assert.equal(evidence.incomplete, false);
   assert.equal(evidence.coordinateSpace, 'world');
+  assert.equal(evidence.rootSource, 'explodeRoot');
+  assert.equal(evidence.sceneRootOptIn, false);
   assert.deepEqual(evidence.meshes.map(m => m.name), ['subject-box']);
   assert.equal(evidence.meshes[0].triangleCount, 12);
   assert.equal(evidence.meshes[0].indices.length, 36);
@@ -114,6 +116,29 @@ try {
   });
   await writeFile(join(screenshots, 'geometry-gate.stdout.json'), gate.stdout || '{}', 'utf8');
   assert.equal(gate.status, 0, `self-intersection gate failed: ${gate.stderr} ${gate.stdout}`);
+
+  // Reproduce the original false-clean: page ready, WebGL visible and a
+  // ground mesh in scene, but NO explicitly identified model root.
+  const studioBrowser = await chromium.launch({headless: true});
+  try {
+    const page = await studioBrowser.newPage();
+    await page.goto(url + 'studio-only');
+    await page.waitForFunction(() => window.__IMG2THREEJS_READY__ === true);
+    const ready = await page.evaluate(captureReady, {handle: '__IMG2THREEJS_VIEWER__'});
+    assert.equal(ready, false, 'studio-only scene must not satisfy readiness');
+    await assert.rejects(
+      page.evaluate(collectMeshGeometry, {viewerHandle: '__IMG2THREEJS_VIEWER__'}),
+      /explicit subject root/,
+    );
+    // An opt-in is for diagnostic whole-scene export, never silently selected.
+    const inspection = await page.evaluate(collectMeshGeometry, {
+      viewerHandle: '__IMG2THREEJS_VIEWER__', allowSceneRoot: true,
+    });
+    assert.equal(inspection.rootSource, 'scene-explicit');
+    assert.equal(inspection.sceneRootOptIn, true);
+    assert.ok(inspection.meshes.some(mesh => mesh.name === 'studio-ground'));
+    await page.close();
+  } finally { await studioBrowser.close(); }
 
   // A real InstancedMesh must expand into two complete, independently placed
   // world-space meshes with per-instance color evidence.
@@ -151,7 +176,7 @@ try {
   const diagnostic = JSON.parse(await readFile(out + '.incomplete.json', 'utf8'));
   assert.equal(diagnostic.incomplete, true);
   assert.deepEqual(diagnostic.skippedMeshes.map(m => m.reason), ['partial-draw-range']);
-  console.log('PASS: real Three.js WebGL, static instances, Python geometry gates, incomplete capture rejection');
+  console.log('PASS: real Three.js WebGL, static instances, scoped subject root, studio-only rejection, Python geometry gates, incomplete capture rejection');
 } finally {
   await new Promise(resolveClose => server.close(resolveClose));
 }

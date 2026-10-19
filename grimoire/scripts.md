@@ -331,11 +331,14 @@ never ran is the failure this repository keeps rediscovering. A spec with no att
 passes cleanly, so existing specs are unaffected.
 
 ### runtime/scripts/export_mesh_geometry.mjs
-`node runtime/scripts/export_mesh_geometry.mjs --url URL --out meshes.json [--include RE] [--exclude RE] [--max-triangles N] [--max-total-triangles N] [--max-vertices N] [--max-instances N] [--ready-flag F] [--viewer-handle H]`
+`node runtime/scripts/export_mesh_geometry.mjs --url URL --out meshes.json [--include RE] [--exclude RE] [--max-triangles N] [--max-total-triangles N] [--max-vertices N] [--max-instances N] [--ready-flag F] [--viewer-handle H] [--allow-scene-root]`
 Dumps executed triangle meshes in the JSON format `self_intersection.py` reads. Vertices are
 **world-space**, normals use the inverse-transpose, and negative-determinant transforms reverse
-triangle winding. The subject root is `viewer.explodeRoot` or `viewer.modelRoot` (falling back
-to `viewer.scene` for generic viewers), avoiding showcase studio/ground geometry.
+triangle winding. The subject root is `viewer.explodeRoot` or `viewer.modelRoot` (no implicit fallback to `viewer.scene`), preventing a studio floor from
+masquerading as a complete subject export. For explicitly intentional
+whole-scene inspection use `--allow-scene-root`; the receipt records
+`rootSource: "scene-explicit"` and `sceneRootOptIn: true`. A whole-scene
+receipt is not proof that only subject meshes were included.
 
 **Do not confuse a mounted mesh with a ready scene.** For the official showcase the exporter
 waits for the viewer to start and for `window.__IMG2THREEJS_READY__ === true` once that flag
