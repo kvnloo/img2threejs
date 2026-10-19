@@ -181,10 +181,16 @@ def analyze_manifold(vertices: list[Vec], triangles: list[tuple[int, int, int]])
     """Edge-use analysis plus per-shell closure, winding and signed volume."""
     undirected: Counter[tuple[int, int]] = Counter()
     directed: Counter[tuple[int, int]] = Counter()
-    for a, b, c in triangles:
+    edge_faces: dict[tuple[int, int], list[int]] = defaultdict(list)
+    vertex_faces: dict[int, list[int]] = defaultdict(list)
+    for face, (a, b, c) in enumerate(triangles):
+        for vertex in (a, b, c):
+            vertex_faces[vertex].append(face)
         for u, v in ((a, b), (b, c), (c, a)):
             directed[(u, v)] += 1
-            undirected[(u, v) if u < v else (v, u)] += 1
+            edge = (u, v) if u < v else (v, u)
+            undirected[edge] += 1
+            edge_faces[edge].append(face)
     boundary = sorted(edge for edge, count in undirected.items() if count == 1)
     non_manifold = sorted(edge for edge, count in undirected.items() if count > 2)
     # A closed, consistently wound 2-manifold uses each directed edge once and its reverse once.
@@ -192,6 +198,28 @@ def analyze_manifold(vertices: list[Vec], triangles: list[tuple[int, int, int]])
         edge for edge, count in undirected.items()
         if count == 2 and not (directed.get(edge, 0) == 1 and directed.get((edge[1], edge[0]), 0) == 1)
     )
+
+    # A surface can have two triangles per edge and still be non-manifold at a
+    # vertex: two otherwise closed shells may touch at exactly one welded point.
+    # Each incident face fan must be connected through an edge containing that
+    # vertex. Ordinary edge-use counts cannot detect this pinched topology.
+    non_manifold_vertices = []
+    for vertex, faces in vertex_faces.items():
+        unseen = set(faces)
+        stack = [unseen.pop()]
+        while stack:
+            face = stack.pop()
+            for other in triangles[face]:
+                if other == vertex:
+                    continue
+                edge = (vertex, other) if vertex < other else (other, vertex)
+                for neighbor in edge_faces[edge]:
+                    if neighbor in unseen:
+                        unseen.remove(neighbor)
+                        stack.append(neighbor)
+        if unseen:
+            non_manifold_vertices.append(vertex)
+    non_manifold_vertices.sort()
 
     # Shells: connected components over shared edges.
     parent = list(range(len(triangles)))
@@ -237,12 +265,14 @@ def analyze_manifold(vertices: list[Vec], triangles: list[tuple[int, int, int]])
             "signedVolume": volume,
             "insideOut": closed and volume < 0.0,
         })
-    watertight = not boundary and not non_manifold and not misoriented
+    watertight = not boundary and not non_manifold and not misoriented and not non_manifold_vertices
     return {
         "watertight": watertight,
         "boundaryEdgeCount": len(boundary),
         "nonManifoldEdgeCount": len(non_manifold),
         "misorientedEdgeCount": len(misoriented),
+        "nonManifoldVertexCount": len(non_manifold_vertices),
+        "nonManifoldVertexSample": non_manifold_vertices[:8],
         "boundaryEdgeSample": [list(edge) for edge in boundary[:8]],
         "nonManifoldEdgeSample": [list(edge) for edge in non_manifold[:8]],
         "shellCount": len(shell_reports),
