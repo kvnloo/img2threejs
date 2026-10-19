@@ -11,6 +11,7 @@ import argparse
 from dataclasses import asdict
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import struct
@@ -130,6 +131,37 @@ def prepare(out: Path, neighborhood: str = "original") -> None:
     (out / "manifest.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
 
 
+def verify_browser_receipt(folder: Path, name: str) -> None:
+    """Reject stale, failed or unsupported browser captures before scoring.
+
+    A PNG existing on disk is not proof that the actual Three.js renderer
+    produced valid pixels. Only the recorded, successful WebGL2 capture from
+    the matching run may enter native Divine Eye comparisons.
+    """
+    try:
+        receipt = json.loads((folder / "browser.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"missing or malformed browser capture receipt: {name}") from error
+    if not isinstance(receipt, dict):
+        raise RuntimeError(f"invalid browser capture receipt: {name}")
+    coverage = receipt.get("coverage")
+    if (
+        receipt.get("ready") is not True
+        or receipt.get("errors") != []
+        or isinstance(coverage, bool)
+        or not isinstance(coverage, (int, float))
+        or not math.isfinite(coverage)
+        or not 0.02 < coverage < 0.95
+        or not isinstance(receipt.get("webgl"), str)
+        or not receipt["webgl"].startswith("WebGL 2.0")
+        or not isinstance(receipt.get("chromium"), str)
+        or not receipt["chromium"]
+        or not isinstance(receipt.get("renderer"), str)
+        or not receipt["renderer"]
+    ):
+        raise RuntimeError(f"unverified WebGL2 browser capture: {name}")
+
+
 def score(out: Path) -> None:
     sys.path.insert(0, str(ROOT / "forge/stage4_review"))
     from divine_eye import evaluate  # noqa: E402
@@ -150,14 +182,20 @@ def score(out: Path) -> None:
     scored = {}
     for item in manifest["variants"]:
         name = item["name"]
-        image = out / name / "render.png"
+        folder = out / name
+        # A changed source spec can otherwise masquerade as the immutable
+        # reference of an unchanged compiled model. Validate both hashes.
+        if sha256(folder / "spec.json") != item["specSha256"]:
+            raise RuntimeError("frozen source spec changed after preparation: " + name)
+        if sha256(folder / "model.ts") != item["generatedTypeScriptSha256"]:
+            raise RuntimeError("generated model changed after preparation: " + name)
+        verify_browser_receipt(folder, name)
+        image = folder / "render.png"
         if not image.is_file() or image.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
             raise RuntimeError("missing or invalid browser PNG: " + name)
         wh = struct.unpack(">II", image.read_bytes()[16:24])
         if wh != (IMAGE_SIZE, IMAGE_SIZE):
             raise RuntimeError("wrong browser PNG dimensions: " + name)
-        if sha256(out / name / "model.ts") != item["generatedTypeScriptSha256"]:
-            raise RuntimeError("generated model changed after manifest preparation")
         result = evaluate(reference, image)
         metric = result.get("signals", {}).get("silhouetteIoU")
         if not isinstance(metric, (int, float)) or isinstance(metric, bool) or not 0 <= metric <= 1:
