@@ -195,6 +195,96 @@ Required:
 - `results.json`
 - `REPORT.md`
 
+## Preregistered multi-family v1 study (separate from one-case calibration)
+
+The protocol is now committed as
+[`MULTIFAMILY_V1_REGISTERED.json`](MULTIFAMILY_V1_REGISTERED.json)
+*before* any multi-family browser outcomes were obtained. It specifies
+exactly **24 procedural worlds**: 12 training (four per family), 6
+validation (two per family) and 6 reserved holdout (two per family).
+
+The three **different native Three.js geometry constructors**, not simply
+new labels for the case model, are:
+
+- `assembled-box`: beveled/tapered hard-surface box;
+- `lathe`: variable-radius axial vessel/shoulder/waist;
+- `tapered-sweep`: a bent four-station ellipse with changing cross-section.
+
+Every variant is authored as an ObjectSculptSpec derived from the *public,
+hash-checked* canonical source fixture; the project's actual
+`generate_threejs_factory.py --pass-id blockout` emits the TypeScript.
+The same headless Chromium WebGL2 capture and native Divine Eye scorer
+measure every candidate. Varying profile indices make the authored shape
+differ between individual worlds within a family. No source photographs
+or imported meshes are used.
+
+### Split isolation
+
+The scripts
+[`registered_multifamily.py`](registered_multifamily.py),
+[`registered_policy.py`](registered_policy.py),
+[`registered_holdout_ab.py`](registered_holdout_ab.py) and
+[`aggregate_holdout.py`](aggregate_holdout.py) enforce this sequence:
+
+1. **Register** exact world IDs, source spec SHA, root/target vectors,
+   step sizes, reference renderer, budgets and acceptance thresholds.
+2. **Train** only on all 12 training-world **approved** native outcomes.
+   A probe/low-confidence IoU cannot become training success.
+3. **Validate** on the six separate worlds. Validation only vetoes an
+   already learned order on median quality, hard gates or per-family
+   degradation. It cannot retrain the order.
+4. **Freeze** a canonical SHA-256 policy receipt naming exactly 12
+   training and six validation source-receipt hashes.
+5. **Unlock holdout only** if validation approved a non-identity order,
+   the receipt SHA and registration match and there are no prior
+   holdout outcomes. Six worlds are run ABAB in alternating fixed/frozen
+   order. Each arm calls Chromium **three fresh times** from the native
+   fitter; reference cost is accounted separately but identically.
+6. **Aggregate** all six worlds with no dropped failures, recording null
+   scores as non-accepted instead of silently selecting easier cases.
+   A negative finding remains a successful scientific execution, *not*
+   a fabricated learning victory.
+
+The workflows are
+[`rsi-multifamily-browser.yml`](../../.github/workflows/rsi-multifamily-browser.yml)
+(three-family pilot) and
+[`rsi-multifamily-full.yml`](../../.github/workflows/rsi-multifamily-full.yml)
+(18 training/validation captures, frozen policy, optional six-world
+holdout). The full study limits capture concurrency to six jobs.
+
+**Acceptance is unchanged**: median best *approved* silhouette IoU on
+holdout improves by at least 0.01, or quality matches within 0.002 with
+at least 20% fewer paired target-reaching evaluations, without increased
+hard-gate failures or a per-family regression. Every study artifact
+contains model/spec hashes, PNGs and unmodified native verdicts. Budget 5
+and larger convergence studies, human independent blindness, and public
+source-photo A/B remain future work.
+
+This is **split-isolated but publicly registered**: a reader can inspect
+holdout parameters in the committed file. We therefore do not advertise
+this as cryptographically secret or human-blinded. The earlier calibrated
+case is excluded from all 24 worlds. None of these procedures changes
+upstream core thresholds or justifies an upstream PR before human triage.
+
+### Reproduce the registration and pilot
+
+```bash
+python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py register
+python3 -m unittest -v \
+  forge.tests.test_rsi_multifamily_protocol \
+  forge.tests.test_rsi_policy_freeze \
+  forge.tests.test_rsi_registered_holdout
+
+OUT=/tmp/rsi-box-train-01
+python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py \
+  prepare --world-id assembled-box-train-01 --out "$OUT"
+# Install the browser dependencies in an isolated experiment environment first.
+CHROME_BIN="$(command -v google-chrome || command -v chromium)" \
+  node experiments/dream_rsi_mesh_fidelity/real_browser_capture.mjs "$OUT"
+python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py \
+  score --out "$OUT"
+```
+
 ## Promotion gate
 
 Only after this passes:
