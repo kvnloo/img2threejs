@@ -12,6 +12,7 @@ passed.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import shutil
@@ -41,7 +42,21 @@ def slugify(value: str) -> str:
         elif not last_dash:
             parts.append("-")
             last_dash = True
-    return "".join(parts).strip("-") or "material"
+    token = "".join(parts).strip("-") or "material"
+    # material_id is also used for PBR map filenames. A bounded region crop name
+    # is not enough if a long semantic ID still becomes a >255-byte PNG basename.
+    if len(token.encode("utf-8")) <= 80:
+        return token
+    suffix = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    remaining = 80 - len(suffix) - 1
+    stem: list[str] = []
+    for char in token:
+        width = len(char.encode("utf-8"))
+        if width > remaining:
+            break
+        stem.append(char)
+        remaining -= width
+    return f'{"".join(stem).rstrip("-") or "material"}-{suffix}'
 
 
 def clamp(value: float, minimum: float, maximum: float) -> float:
