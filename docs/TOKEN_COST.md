@@ -61,7 +61,12 @@ python3 scripts/benchmark_token_cost.py work/usage.jsonl \
 ```
 
 The deterministic report breaks down calls, prompt/completion/total tokens
-and known (possibly partial) billed USD by stage. Comparable A/B benchmarks
+and known (possibly partial) billed USD by stage. The output must be a
+**separate file** from candidate and baseline JSONL inputs, including symlink
+aliases. Reports are published atomically: failed serialization or file
+replacement leaves the previous verified report intact, without truncated
+JSON or changes to the original provider receipts. Malformed/non-object
+JSONL events fail with exit status 2. Comparable A/B benchmarks
 must hold reference set, model, render budgets, and stage routing fixed,
 and should preserve engine/agent revisions separately with the run artifacts.
 
