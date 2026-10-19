@@ -55,13 +55,22 @@ def load_meshes(payload: Any) -> list[dict[str, Any]]:
             # Browser geometry exporters may return a partial receipt when they
             # skip active, unsupported geometry. A printable STL cannot claim
             # completeness from only the meshes those exporters could sample.
-            if "incomplete" in payload and payload["incomplete"] is not False:
-                raise PrintExportError(
-                    "mesh export receipt is incomplete; re-export all active geometry"
-                )
             if payload.get("coordinateSpace") not in (None, "world"):
                 raise PrintExportError(
                     "mesh export must contain world-space vertices; local coordinates are unsafe"
+                )
+            if "schemaVersion" in payload and (
+                type(payload["schemaVersion"]) is not int or payload["schemaVersion"] != 1
+            ):
+                raise PrintExportError("unsupported mesh export schemaVersion: expected integer 1")
+            # Raw legacy mesh arrays remain supported, but an exporter-marked
+            # receipt is not a trustworthy capture without an explicit False
+            # completeness result, even if its remaining meshes are watertight.
+            coverage_fields = {"schemaVersion", "coordinateSpace", "skippedMeshes", "skipped"}
+            is_exporter_receipt = any(field in payload for field in coverage_fields)
+            if (is_exporter_receipt or "incomplete" in payload) and payload.get("incomplete") is not False:
+                raise PrintExportError(
+                    "mesh export receipt is incomplete or unverified; explicit incomplete=false required"
                 )
             # Defend against a faulty exporter that declares incomplete:false
             # while admitting skipped active or unknown meshes in its receipt.
