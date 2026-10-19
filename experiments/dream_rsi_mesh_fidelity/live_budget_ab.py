@@ -164,6 +164,11 @@ def run_live(out: Path) -> dict[str, Any]:
             FitConfig(max_evaluations=BUDGET, coordinate_order=order),
         )
         visited = tuple(row["variant"] for row in calls)
+        # The fit-result score and the final provenance row must agree. The
+        # earlier history bug is fixed in fork PR #29 and mirrored on this
+        # research branch; never ship a misleading optimization trace.
+        if (fitted.fit_result.history[-1].best_score != fitted.fit_result.best_score):
+            raise RuntimeError("selected fitness and terminal telemetry disagree")
         if visited != expected or fitted.fit_result.evaluations != BUDGET:
             raise RuntimeError(f"live policy candidate dispatch drift in {label}: {visited}")
         if any(row["status"] != "captured" for row in calls):
