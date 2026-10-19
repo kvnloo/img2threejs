@@ -204,7 +204,7 @@ def record_capture(
     manifest: dict[str, Any],
     capture_id: str,
     screenshot: Path,
-    ready_signal: Any = True,
+    ready_signal: Any = None,
     console_errors: list[str] | None = None,
     browser_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -233,7 +233,7 @@ def record_reference_capture(
     manifest: dict[str, Any],
     capture_id: str,
     screenshot: Path,
-    ready_signal: Any = True,
+    ready_signal: Any = None,
     console_errors: list[str] | None = None,
 ) -> dict[str, Any]:
     """Record a browser screenshot of the GLB reference baseline.
@@ -485,14 +485,14 @@ def main(argv: list[str]) -> int:
     record.add_argument("--manifest", type=Path, required=True)
     record.add_argument("--capture-id", required=True)
     record.add_argument("--screenshot", type=Path, required=True)
-    record.add_argument("--ready-signal", default=True)
+    record.add_argument("--ready-signal", default=None)
     record.add_argument("--console-error", action="append", default=[])
 
     record_reference = commands.add_parser("record-reference", help="record a browser-rendered GLB baseline screenshot")
     record_reference.add_argument("--manifest", type=Path, required=True)
     record_reference.add_argument("--capture-id", required=True)
     record_reference.add_argument("--screenshot", type=Path, required=True)
-    record_reference.add_argument("--ready-signal", default=True)
+    record_reference.add_argument("--ready-signal", default=None)
     record_reference.add_argument("--console-error", action="append", default=[])
 
     record_pass_parser = commands.add_parser("record-pass", help="record one browser-produced diagnostic pass")
