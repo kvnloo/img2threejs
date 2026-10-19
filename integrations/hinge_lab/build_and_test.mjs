@@ -114,6 +114,24 @@ try {
     {'back-flap':22,'front-flap':-65,'left-flap':-24,'right-flap':32});
   await page.screenshot({path:join(output,'lab-photo-pose.png')});
   await page.locator('#rest').click();
+  await page.locator('#play').click();
+  assert.equal(await page.locator('#play').getAttribute('aria-pressed'),'true');
+  await page.waitForFunction(()=>
+    document.getElementById('play').getAttribute('aria-pressed')==='false' &&
+    window.__hingeLab.getStatus().angles['front-flap']===-65,
+    null,{timeout:7000});
+  assert.deepEqual(await page.evaluate(()=>window.__hingeLab.getStatus().angles),
+    {'back-flap':22,'front-flap':-65,'left-flap':-24,'right-flap':32});
+  await page.locator('#rest').click();
+  await page.locator('#play').click();
+  await page.locator('#play').click();
+  assert.equal(await page.locator('#play').getAttribute('aria-pressed'),'false');
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.locator('#play').click();
+  assert.equal(await page.locator('#play').getAttribute('aria-pressed'),'false');
+  assert.equal(await page.evaluate(()=>window.__hingeLab.getStatus().angles['front-flap']),-65);
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  await page.locator('#rest').click();
   await page.evaluate(()=>window.__hingeLab.setFold('back-flap',180));
   await page.locator('#check').click();
   const floorCollision = await page.evaluate(()=>window.__hingeLab.getStatus().lastEvaluation);
@@ -196,6 +214,7 @@ try {
   console.log('HINGE_LAB_PASS:',JSON.stringify({
     library:'Three.js r180',panels:4,
     interactions:['photo preset','reset','carton floor penetration warning',
+      'visual animation, interrupt and reduced-motion fallback',
       'positive collision','reverse obstacle clearance with independent floor verdict',
       'right-flap collision','export/import pose JSON','reject malformed pose','mobile layout'],
     screenshotFiles:['lab-flat.png','lab-photo-pose.png',
