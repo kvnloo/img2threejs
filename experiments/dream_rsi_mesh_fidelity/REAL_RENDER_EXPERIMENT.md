@@ -80,6 +80,19 @@ Each score step revalidates the committed cohort vectors, image hashes
 and native evaluator calls. No live-render timing claim or policy learning
 is made for either cohort.
 
+## Completed two-cohort preflight and measured outcome (2026-10-19)
+
+The exact-source `11b03975989b` Chromium matrix finished with **both cohorts
+successfully scored**, not merely rendered. See
+[the numeric report and linked, inspectable artifacts](MEASURED_PREFLIGHT_2026-10-19.md).
+
+The original cohort had **no accepted candidate in either arm**. The
+post-hoc calibration produced clean accepted scores; at three evaluator calls
+the existing fixed order reached **0.9892** clean silhouette IoU versus
+**0.9786** for reverse order. This is not evidence that a learned ordering
+helps. The calibration is neither an independent holdout nor an on-demand
+render-budget experiment, so **no upstream fitter-promotion gate is passed**.
+
 ## Split
 
 Minimum initial run:
