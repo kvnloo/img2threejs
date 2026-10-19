@@ -253,6 +253,40 @@ test('filters and hidden meshes remain explicitly accounted for', () => {
   assert.equal(collectMeshGeometry({ ...opts, include: '^nothing$' }).incomplete, true);
 });
 
+test('a hidden single material cannot masquerade as rendered subject geometry', () => {
+  const visible = makeMesh('visible-part');
+  visible.material = { visible: true };
+  const invisible = makeMesh('hidden-material-part');
+  invisible.material = { visible: false };
+  const options = install(visible, invisible);
+  const report = collectMeshGeometry(options);
+  assert.deepEqual(report.meshes.map(mesh => mesh.name), ['visible-part']);
+  assert.equal(report.incomplete, true);
+  assert.deepEqual(report.skippedMeshes.map(mesh => mesh.reason), ['hidden-material']);
+
+  invisible.material.visible = true;
+  const recovered = collectMeshGeometry(options);
+  assert.equal(recovered.incomplete, false);
+  assert.deepEqual(recovered.meshes.map(mesh => mesh.name), ['visible-part', 'hidden-material-part']);
+});
+
+test('single-material invisibility blocks instanced export too', () => {
+  const copies = makeMesh('unpainted-instances');
+  copies.material = { visible: false };
+  copies.isInstancedMesh = true;
+  copies.count = 2;
+  copies.instanceMatrix = { array: [...IDENTITY, ...IDENTITY] };
+  const options = install(copies);
+  const blocked = collectMeshGeometry(options);
+  assert.equal(blocked.incomplete, true);
+  assert.deepEqual(blocked.skippedMeshes.map(mesh => mesh.reason), ['hidden-material']);
+  assert.equal(blocked.meshes.length, 0);
+  copies.material.visible = true;
+  const valid = collectMeshGeometry(options);
+  assert.equal(valid.incomplete, false);
+  assert.equal(valid.meshes.length, 2);
+});
+
 test('full non-indexed geometry passes; partial draw ranges are not clean evidence', () => {
   const mesh = makeMesh('nonindexed');
   mesh.geometry.index = null;
