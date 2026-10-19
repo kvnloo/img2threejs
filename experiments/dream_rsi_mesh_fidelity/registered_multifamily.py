@@ -23,7 +23,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "forge/tests/fixtures/reference_target_conformance_spec.json"
 GENERATOR = ROOT / "forge/stage3_build/generate_threejs_factory.py"
-REGISTRY = Path(__file__).with_name("MULTIFAMILY_V1_REGISTERED.json")
+REGISTRY = Path(__file__).with_name("MULTIFAMILY_V2_REGISTERED.json")
 sys.path.insert(0, str(ROOT))
 from forge.stage4_review.fit_params import FitInputError  # noqa: E402
 from forge.stage4_review._fit_divine_eye import is_approved_divine_eye_result  # noqa: E402
@@ -44,7 +44,7 @@ def _canonical(value: Any) -> bytes:
 def registration() -> tuple[dict[str, Any], str]:
     raw = REGISTRY.read_bytes()
     payload = json.loads(raw)
-    if not isinstance(payload, dict) or payload.get("schema") != "img2threejs-multifamily-v1":
+    if not isinstance(payload, dict) or payload.get("schema") != "img2threejs-multifamily-v2":
         raise ValueError("unknown multifamily protocol schema")
     worlds = payload.get("worlds")
     if not isinstance(worlds, list) or len(worlds) != 24:
@@ -102,6 +102,22 @@ def spec_for_family(world: dict[str, Any], vector: list[float]) -> dict[str, Any
     item = source["componentTree"][0]
     if item.get("id") != "root" or item.get("level") != "macro":
         raise ValueError("canonical source fixture root was replaced")
+    # V1 accidentally kept the canonical *equipment-case lid* as an
+    # independently selected macro during the blockout pass. It dominated
+    # the silhouette in every new family; the lathe/sweep were merely
+    # appendages. V2 preserves all original components for later passes
+    # but explicitly removes them from the root-geometry-only comparison.
+    # The native generator's blockout PASS_LEVELS admits only macro,
+    # while the build-pass's sole explicit componentRef is root.
+    for extra in source["componentTree"][1:]:
+        if extra.get("level") == "macro":
+            extra["level"] = "meso"
+    blockout = next(
+        (entry for entry in source["buildPasses"] if entry.get("id") == "blockout"),
+        None,
+    )
+    if not isinstance(blockout, dict) or blockout.get("componentRefs") != ["root"]:
+        raise ValueError("source blockout must reference only the preregistered root")
     family, profile = world["family"], world["profileId"]
     source["targetName"] = f"Rsi {family.replace('-', ' ')} V1"
     source["targetId"] = f"rsi-{family}-v1"
