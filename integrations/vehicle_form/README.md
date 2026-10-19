@@ -6,7 +6,7 @@ The gate **does not** invent plan geometry or infer the reference profile from a
 
 ## Inputs
 
-- `meshes.json`: world-space triangle mesh evidence (e.g. from the separately reviewed browser exporter); requires `"coordinateSpace": "world"`, exactly one mesh named `body`, and an explicit Boolean `"incomplete": false`. Missing, null, stringified or truthy completeness values fail closed; the consumer never assumes a partial export was complete.
+- `meshes.json`: world-space triangle mesh evidence (e.g. from the separately reviewed browser exporter); requires `"coordinateSpace": "world"`, exactly one mesh named `body`, and an explicit Boolean `"incomplete": false`. Missing, null, stringified or truthy completeness values fail closed. Reported `skippedMeshes`/`skipped` entries must be lists of explicitly `hidden` or `filtered` geometry; active/unknown omissions block the gate even if the exporter claims complete. The consumer never assumes a partial export was complete.
 - `sections.json`: reference measurements at three or more increasing longitudinal world-space X positions, with lateral widths along Z. The `reference.source` is an evidence label, not independently verified image content.
 
 ```json
