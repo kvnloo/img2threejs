@@ -49,11 +49,8 @@ try {
         waitUntil: 'load', timeout: 60000,
       });
       const info = await page.evaluate(() => window.__rsiCapture || null);
-      if (errors.length || !info?.ready || typeof info.coverage !== 'number' ||
-          !(info.coverage > 0.02 && info.coverage < 0.95)) {
-        throw new Error(variant.name + ' WebGL/canvas failed: ' +
-          JSON.stringify({ info, errors: errors.slice(0, 4) }));
-      }
+      // Retain the screenshot and diagnostics *before* checking coverage,
+      // so a clipping/background failure has inspectable pixel evidence.
       const canvas = page.locator('canvas');
       if (await canvas.count() !== 1) throw new Error('expected exactly one canvas');
       await canvas.screenshot({
@@ -63,7 +60,12 @@ try {
         timeout: 60000,
       });
       fs.writeFileSync(path.join(folder, 'browser.json'),
-        JSON.stringify({ ...info, chromium: await browser.version() }, null, 2) + '\n');
+        JSON.stringify({ ...info, chromium: await browser.version(), errors }, null, 2) + '\n');
+      if (errors.length || !info?.ready || typeof info.coverage !== 'number' ||
+          !(info.coverage > 0.02 && info.coverage < 0.95)) {
+        throw new Error(variant.name + ' WebGL/canvas failed: ' +
+          JSON.stringify({ info, errors: errors.slice(0, 4) }));
+      }
       process.stdout.write(JSON.stringify({ variant: variant.name, ...info }) + '\n');
     } finally {
       await page.close();
