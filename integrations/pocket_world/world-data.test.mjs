@@ -106,6 +106,61 @@ test('A* paths have valid neighbors and optimal slope-aware cost', async () => {
   }
 });
 
+test('heap pathfinding preserves deterministic tie paths and blocked cells', () => {
+  const grid = voxelize(demoPixels('forest', 4), 4);
+  grid.heights.fill(100);
+  assert.deepEqual(findTilePath(grid, 0, 15), [0, 1, 2, 3, 7, 11, 15]);
+  assert.deepEqual(findTilePath(grid, 0, 15), findTilePath(grid, 0, 15));
+  for (const index of [1, 2, 3, 7]) grid.visible[index] = 0;
+  const detour = findTilePath(grid, 0, 15);
+  assert.ok(detour.length > 0);
+  for (const i of detour) assert.equal(grid.visible[i], 1);
+  grid.visible[4] = 0;
+  assert.deepEqual(findTilePath(grid, 0, 15), []);
+});
+
+test('64x64 heap routes match independent Dijkstra slope cost', () => {
+  // Larger-than-preview world: worst-case frontier scans used to be quadratic.
+  const side = 64;
+  const data = voxelize(demoPixels('cosmic', side), side);
+  let seed = 64109;
+  const random = () => ((seed = (1664525 * seed + 1013904223) >>> 0) / 0x100000000);
+  data.visible = data.visible.map(() => Number(random() > .12));
+  data.heights = data.heights.map(() => Math.floor(random() * 256));
+  data.visible[0] = data.visible[side * side - 1] = 1;
+  const start = 0, goal = side * side - 1;
+  const path = findTilePath(data, start, goal);
+  // Oracle uses a simple O(V^2) Dijkstra scan, independent of A* and heap.
+  const cost = new Float64Array(side * side).fill(Infinity);
+  const visited = new Uint8Array(side * side);
+  cost[start] = 0;
+  for (let iteration = 0; iteration < side * side; iteration++) {
+    let current = -1;
+    for (let i = 0; i < cost.length; i++) {
+      if (!visited[i] && (current < 0 || cost[i] < cost[current])) current = i;
+    }
+    if (current < 0 || !Number.isFinite(cost[current]) || current === goal) break;
+    visited[current] = 1;
+    const x = current % side, y = Math.floor(current / side);
+    const neighbors = [y ? current - side : -1, x < side - 1 ? current + 1 : -1,
+      y < side - 1 ? current + side : -1, x ? current - 1 : -1];
+    for (const next of neighbors) {
+      if (next < 0 || !data.visible[next]) continue;
+      cost[next] = Math.min(cost[next], cost[current] +
+        1 + Math.abs(data.heights[current] - data.heights[next]) / 255 * 1.5);
+    }
+  }
+  if (!Number.isFinite(cost[goal])) assert.deepEqual(path, []);
+  else {
+    assert.equal(path[0], start);
+    assert.equal(path.at(-1), goal);
+    const routeCost = path.reduce((sum, i, k) => k ?
+      sum + 1 + Math.abs(data.heights[i] - data.heights[path[k - 1]]) / 255 * 1.5 : 0, 0);
+    assert.ok(Math.abs(routeCost - cost[goal]) < 1e-8,
+      `large-grid A* cost ${routeCost} disagrees with independent Dijkstra ${cost[goal]}`);
+  }
+});
+
 test('generated factory runs against a minimal Three.js-compatible stub and preserves geometry', async () => {
   const { runInNewContext } = await import('node:vm');
   const data = voxelize(demoPixels('sunset', 4), 4);
