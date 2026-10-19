@@ -330,6 +330,45 @@ class Cli(unittest.TestCase):
         self.assertEqual(sum(line.startswith("f ") for line in lines), 12)
         self.assertIn("f 1 3 2", lines)
 
+    def test_untrusted_obj_name_cannot_create_extra_vertex_or_face_records(self):
+        geometry = print_export.build_export([cube()])
+        out = self.tmp / "safe.obj"
+        print_export.write_obj(
+            out, geometry["vertices"], geometry["triangles"],
+            name="sample\nvertex\nv 999 999 999\nf 1 1 1",
+        )
+        text = out.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual(len(lines), 2 + 8 + 12)
+        self.assertEqual(sum(line.startswith("v ") for line in lines), 8)
+        self.assertEqual(sum(line.startswith("f ") for line in lines), 12)
+        self.assertEqual(len([line for line in lines if line.startswith("o ")]), 1)
+        self.assertNotIn("v 999 999 999", text)
+        self.assertNotIn("\n", lines[1])
+
+    def test_safe_export_name_sanitizes_binary_stl_header_too(self):
+        geometry = print_export.build_export([cube()])
+        out = self.tmp / "safe.stl"
+        print_export.write_stl(
+            out, geometry["vertices"], geometry["triangles"],
+            name="scene\nmalicious\rheader",
+        )
+        header = out.read_bytes()[:80]
+        self.assertNotIn(b"\n", header)
+        self.assertNotIn(b"\r", header)
+        self.assertIn(b"scene_malicious_header", header)
+        self.assertEqual(out.stat().st_size, 84 + 12 * 50)
+
+    def test_normal_object_names_keep_their_existing_obj_shape(self):
+        geometry = print_export.build_export([cube()])
+        out = self.tmp / "named.obj"
+        print_export.write_obj(
+            out, geometry["vertices"], geometry["triangles"], name="ship-body.01"
+        )
+        lines = out.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(lines[0], "# img2threejs print export: ship-body.01")
+        self.assertEqual(lines[1], "o ship-body.01")
+
     def test_obj_retains_submicron_vertex_detail(self):
         src = self.write([cube(size=2.5e-7)])
         out = self.tmp / "tiny.obj"
