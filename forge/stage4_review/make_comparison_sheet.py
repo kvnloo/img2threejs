@@ -37,39 +37,102 @@ def paeth_predictor(a: int, b: int, c: int) -> int:
     return c
 
 
+class InvalidPng(ValueError):
+    """An identified PNG has corrupt structure or untrustworthy pixel evidence."""
+
+
+# The comparison-sheet reader creates a Python tuple for each decoded pixel.
+# Bound the inflated scanline payload before materializing any pixel tuples.
+MAX_PNG_SCANLINE_BYTES = 128 * 1024 * 1024
+
+
 def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
     data = path.read_bytes()
     if not data.startswith(PNG_SIGNATURE):
         raise ValueError("not a PNG file")
+
     cursor = len(PNG_SIGNATURE)
     width = height = bit_depth = color_type = interlace = None
     idat = bytearray()
-    while cursor + 8 <= len(data):
-        length = struct.unpack(">I", data[cursor : cursor + 4])[0]
-        chunk_type = data[cursor + 4 : cursor + 8]
-        chunk_data = data[cursor + 8 : cursor + 8 + length]
-        cursor += 12 + length
+    saw_ihdr = saw_idat = saw_iend = False
+    idat_closed = False
+    while cursor < len(data):
+        if len(data) - cursor < 12:
+            raise InvalidPng("truncated PNG chunk header or CRC")
+        length = struct.unpack_from(">I", data, cursor)[0]
+        chunk_type = data[cursor + 4:cursor + 8]
+        if length > len(data) - cursor - 12:
+            raise InvalidPng(f"truncated PNG {chunk_type!r} payload or CRC")
+        chunk_end = cursor + 8 + length
+        chunk_data = data[cursor + 8:chunk_end]
+        checksum = struct.unpack_from(">I", data, chunk_end)[0]
+        actual = zlib.crc32(chunk_data, zlib.crc32(chunk_type)) & 0xFFFFFFFF
+        if actual != checksum:
+            raise InvalidPng(f"PNG {chunk_type!r} CRC mismatch")
+
+        if not saw_ihdr and chunk_type != b"IHDR":
+            raise InvalidPng("PNG IHDR must be the first chunk")
         if chunk_type == b"IHDR":
-            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(">IIBBBBB", chunk_data)
+            if saw_ihdr or length != 13:
+                raise InvalidPng("PNG requires one 13-byte IHDR")
+            width, height, bit_depth, color_type, compression, filtering, interlace = struct.unpack(
+                ">IIBBBBB", chunk_data
+            )
+            if width == 0 or height == 0:
+                raise InvalidPng("PNG width and height must be positive")
+            if compression != 0 or filtering != 0:
+                raise InvalidPng("unsupported PNG compression/filter method")
+            saw_ihdr = True
         elif chunk_type == b"IDAT":
+            if idat_closed:
+                raise InvalidPng("PNG IDAT chunks must be consecutive")
             idat.extend(chunk_data)
+            saw_idat = True
         elif chunk_type == b"IEND":
+            if length or not saw_idat or chunk_end + 4 != len(data):
+                raise InvalidPng("PNG IEND must be empty, final, and follow IDAT")
+            saw_iend = True
             break
-    if width is None or height is None or bit_depth != 8 or interlace != 0:
+        else:
+            if saw_idat:
+                idat_closed = True
+            # Unknown critical chunks cannot be safely ignored.
+            if not (chunk_type[0] & 0x20) and chunk_type != b"PLTE":
+                raise InvalidPng(f"unknown critical PNG chunk {chunk_type!r}")
+        cursor = chunk_end + 4
+
+    if not (saw_ihdr and saw_idat and saw_iend):
+        raise InvalidPng("PNG is missing IHDR, IDAT, or IEND")
+    if bit_depth != 8 or interlace != 0:
         raise ValueError("unsupported PNG; expected 8-bit non-interlaced image")
     channels_by_type = {0: 1, 2: 3, 4: 2, 6: 4}
     if color_type not in channels_by_type:
         raise ValueError("unsupported PNG color type; convert to RGB/RGBA first")
     channels = channels_by_type[color_type]
     row_bytes = width * channels
-    raw = zlib.decompress(bytes(idat))
+    expected = (row_bytes + 1) * height
+    if expected > MAX_PNG_SCANLINE_BYTES:
+        raise InvalidPng("PNG decoded scanlines exceed comparison-sheet limit")
+    try:
+        decoder = zlib.decompressobj()
+        raw = decoder.decompress(bytes(idat), expected + 1)
+        if (
+            len(raw) != expected
+            or not decoder.eof
+            or decoder.unused_data
+            or decoder.unconsumed_tail
+        ):
+            raise InvalidPng("PNG IDAT decoded length or zlib stream is invalid")
+    except zlib.error as exc:
+        raise InvalidPng(f"invalid PNG IDAT stream: {exc}") from exc
+
     rows: list[bytearray] = []
     offset = 0
     previous = bytearray(row_bytes)
     for _ in range(height):
         filter_type = raw[offset]
         offset += 1
-        row = bytearray(raw[offset : offset + row_bytes])
+        row = bytearray(raw[offset:offset + row_bytes])
         offset += row_bytes
         for index in range(row_bytes):
             left = row[index - channels] if index >= channels else 0
@@ -84,7 +147,7 @@ def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
             elif filter_type == 4:
                 row[index] = (row[index] + paeth_predictor(left, up, up_left)) & 0xFF
             elif filter_type != 0:
-                raise ValueError(f"unsupported PNG filter {filter_type}")
+                raise InvalidPng(f"unsupported PNG scanline filter {filter_type}")
         rows.append(row)
         previous = row
     pixels: list[tuple[int, int, int, int]] = []
@@ -130,6 +193,10 @@ def write_png_rgb(path: Path, width: int, height: int, pixels: list[tuple[int, i
 def load_image(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
     try:
         return read_png(path)
+    except InvalidPng:
+        # Never allow an external converter to "repair" a corrupt screenshot
+        # and reclassify untrusted bytes as usable visual review evidence.
+        raise
     except Exception as direct_error:
         jpeg_bytes = path.read_bytes()
         if is_jpeg(jpeg_bytes):
