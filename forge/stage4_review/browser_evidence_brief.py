@@ -15,11 +15,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from render_bridge import read_manifest, validate_manifest
+from render_bridge import CAPTURE_PLAN, read_manifest, validate_manifest
 
 SCHEMA = "img2threejs-browser-brief-v1"
 _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
-_SAFE_ID = re.compile(r"[^A-Za-z0-9_.-]")
+# Only repository-owned camera identifiers are allowed in an agent summary.
+# Other IDs are untrusted free text, even if they look like safe ASCII slugs.
+_PUBLIC_CAPTURE_IDS = frozenset(row["id"] for row in CAPTURE_PLAN)
 
 
 def _has_sha(value: Any) -> bool:
@@ -27,19 +29,13 @@ def _has_sha(value: Any) -> bool:
 
 
 def _short_id(value: Any, index: int) -> str:
-    """Emit only intact safe short IDs; redact arbitrary URL/path/token-shaped IDs.
+    """Expose canonical public camera labels, never untrusted capture names.
 
-    Sanitizing a URL character by character leaks its hostname and path.
-    Truncating can also make distinct raw IDs look identical.
+    A secret can contain only letters, numbers, underscores and dots; an
+    ASCII/length sanitizer cannot distinguish it from an innocuous slug.
+    Fallback labels use list positions, not truncated input substrings.
     """
-    if (
-        not isinstance(value, str)
-        or not value
-        or len(value) > 48
-        or _SAFE_ID.search(value) is not None
-    ):
-        return f"capture-{index}"
-    return value
+    return value if isinstance(value, str) and value in _PUBLIC_CAPTURE_IDS else f"capture-{index}"
 
 
 def _has_browser_errors(value: Any) -> bool:
