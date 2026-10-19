@@ -8,6 +8,7 @@ or photo fidelity. Fail closed when browser images or native scores are missing.
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import hashlib
 import json
 import os
@@ -145,6 +146,53 @@ def score(out: Path) -> None:
         (out / name / "divine-eye.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     if scored["target"]["silhouetteIoU"] < 0.999:
         raise RuntimeError("a reference compared to itself must have silhouette IoU 1")
+
+    # Convert only the *observed* browser renders into an exact-support replay world.
+    # There is no policy learning, counterfactual prediction, or unseen geometry here.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from replay import Node, World, CoordinatePriorityPolicy, replay  # noqa: E402
+
+    def observed_node(name: str, parent: str | None, coordinate: int | None,
+                      direction: int | None, step: float | None) -> Node:
+        return Node(
+            id=name, parent_id=parent, coordinate=coordinate,
+            direction=direction, step=step,
+            silhouette_iou=scored[name]["silhouetteIoU"],
+            hard_gate_failures=tuple(scored[name]["hardGateFailures"]),
+            cost=1,
+        )
+
+    world = World(
+        id="tradeit-case-native-threejs-single-root",
+        root_id="root",
+        nodes=(
+            observed_node("root", None, None, None, None),
+            observed_node("c0-minus", "root", 0, -1, 0.14),
+            observed_node("c0-plus", "root", 0, +1, 0.14),
+            observed_node("c1-minus", "root", 1, -1, 0.14),
+            observed_node("c1-plus", "root", 1, +1, 0.14),
+        ),
+    )
+    world.index()  # fail closed on malformed node parents/scores
+    worlds_dir = out / "worlds"
+    worlds_dir.mkdir(exist_ok=True)
+    replay_receipt = {
+        "schemaVersion": 1,
+        "kind": "observed-browser-world-no-learned-policy",
+        "sourceGitSha": manifest["gitSha"],
+        "fixtureSha256": manifest["fixtureSha256"],
+        "world": asdict(world),
+        "renderSha256ByNode": {key: scored[key]["imageSha256"]
+                               for key in ("root", "c0-minus", "c0-plus", "c1-minus", "c1-plus")},
+        "policyProbe": {
+            "fixed-order-budget3": asdict(replay(world, CoordinatePriorityPolicy((0, 1)), budget=3, target_iou=0.96)),
+            "reverse-order-budget3": asdict(replay(world, CoordinatePriorityPolicy((1, 0)), budget=3, target_iou=0.96)),
+        },
+        "claim": "same-world recorded-score replay only; NOT learned or held-out evidence",
+    }
+    (worlds_dir / "single-world.json").write_text(
+        json.dumps(replay_receipt, indent=2) + "\n", encoding="utf-8")
+    manifest["observedReplayWorld"] = "worlds/single-world.json"
     manifest["status"] = "browser-render-and-native-divine-eye-measured"
     manifest["measuredFidelity"] = scored
     manifest["limitation"] = ("ONE procedural fixture, ONE starting point, no learned policy, "
