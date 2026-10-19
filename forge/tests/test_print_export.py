@@ -130,6 +130,23 @@ class ClosedSolids(unittest.TestCase):
 
 
 class BrokenSolidsAreReported(unittest.TestCase):
+    def test_reversed_coplanar_triangles_are_closed_but_have_no_solid_volume(self):
+        # Both directions of each shared edge occur exactly once; fan topology
+        # is connected, but the two-sided sheet has no enclosed 3D volume.
+        sheet = {
+            "name": "zero-volume-sheet",
+            "vertices": [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
+            "indices": [[0, 1, 2], [0, 2, 1]],
+        }
+        report = print_export.build_export([sheet])["report"]
+        self.assertTrue(report["watertight"], "topological closure is still true")
+        self.assertEqual(report["boundaryEdgeCount"], 0)
+        self.assertEqual(report["nonManifoldVertexCount"], 0)
+        self.assertEqual(report["insideOutShellCount"], 0)
+        self.assertEqual(report["zeroVolumeShellCount"], 1)
+        self.assertTrue(report["shells"][0]["zeroVolume"])
+        self.assertEqual(report["volume"], 0.0)
+
     def test_open_box_reports_boundary_edges(self):
         report = print_export.build_export([cube(faces=CUBE_FACES[2:])])["report"]
         self.assertFalse(report["watertight"])
@@ -230,6 +247,31 @@ class Cli(unittest.TestCase):
         path = self.tmp / "meshes.json"
         path.write_text(json.dumps(payload))
         return path
+
+    def test_zero_volume_shell_is_not_printable_without_explicit_override(self):
+        sheet = {
+            "name": "zero-volume-sheet",
+            "vertices": [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
+            "indices": [[0, 1, 2], [0, 2, 1]],
+        }
+        source = self.write({"meshes": [sheet]})
+        output = self.tmp / "sheet.stl"
+        code, stdout, stderr = run_cli(source, "--out", output, "--json")
+        self.assertEqual(code, 1, (stdout, stderr))
+        self.assertFalse(output.exists())
+        report = json.loads(stdout)
+        self.assertTrue(report["watertight"])
+        self.assertEqual(report["zeroVolumeShellCount"], 1)
+        self.assertFalse(report["printable"])
+        self.assertFalse(report["written"])
+        code, stdout, stderr = run_cli(
+            source, "--out", output, "--allow-open", "--json"
+        )
+        self.assertEqual(code, 1, (stdout, stderr))
+        self.assertTrue(output.exists())
+        report = json.loads(stdout)
+        self.assertFalse(report["printable"])
+        self.assertTrue(report["written"])
 
     def test_stl_binary_layout_and_report(self):
         src = self.write({"meshes": [cube()]})

@@ -8,7 +8,7 @@ can accept, and refuse silently-broken output.
 
 `print_export.py` bakes the exported world-space meshes into a single **STL** or **OBJ**
 file, gated by a manifold check. It fails closed: a model with boundary edges,
-non-manifold edges, inconsistent winding, or inside-out shells is **not written** unless
+non-manifold edges, inconsistent winding, inside-out shells, or zero-volume closed shells is **not written** unless
 you explicitly pass `--allow-open`. A slicer never silently receives a broken model.
 
 ## Pipeline
@@ -77,8 +77,8 @@ Legacy inputs without receipt metadata remain supported.
 - `boundaryEdgeCount`, `nonManifoldEdgeCount`, `misorientedEdgeCount`
 - `nonManifoldVertexCount`, `nonManifoldVertexSample` — welded vertices with disconnected incident face fans (up to 8 indices)
 - `boundaryEdgeSample`, `nonManifoldEdgeSample` — up to 8 problem edges each
-- `shellCount`, `insideOutShellCount`, `shells[]` — per shell: `triangleCount`,
-  `closed`, `signedVolume`, `insideOut` (negative volume = flipped normals)
+- `shellCount`, `insideOutShellCount`, `zeroVolumeShellCount`, `shells[]` — per shell: `triangleCount`,
+  `closed`, `signedVolume`, `insideOut` (negative volume = flipped normals), `zeroVolume` (closed but negligible enclosed volume)
 - `volume` — sum of shell signed volumes, scaled
 - `printable`, `written`, `output` (`null` when refused), `format`
 
@@ -88,6 +88,7 @@ Legacy inputs without receipt metadata remain supported.
   file. A procedural `THREE.Group` usually overlaps (embedded attachments), but most
   slicers union overlapping closed shells themselves — the report's `shellCount` and
   `shells[]` tell you what your slicer will receive.
+- **Zero-volume closed shells are refused.** Back-to-back coplanar triangles can pass every edge-use and connected-fan check while enclosing no solid. The per-shell extent-normalized volume gate refuses these. This does not enforce a minimum printable wall thickness.
 - **No wall-thickness analysis.** The manifold gate says nothing about whether walls
   are thick enough to print or hollow outlines; check in your slicer.
 - **Hidden faces are approximated.** With single-image input, reconstructed hidden

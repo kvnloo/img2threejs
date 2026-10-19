@@ -289,11 +289,28 @@ def analyze_manifold(vertices: list[Vec], triangles: list[tuple[int, int, int]])
                         closed = False
                         break
         volume = math.fsum(volume_terms)
+        # Two opposed coplanar triangles use every edge exactly twice, with
+        # connected vertex fans, yet enclose no solid. Edge-manifold topology
+        # alone must never certify such a zero-thickness STL as printable.
+        shell_vertices = {v for face in faces for v in triangles[face]}
+        span = max(
+            max(vertices[v][axis] for v in shell_vertices)
+            - min(vertices[v][axis] for v in shell_vertices)
+            for axis in range(3)
+        )
+        relative_volume = (
+            abs(volume) / span / span / span
+            if span > 0 and math.isfinite(volume) else float("nan")
+        )
+        zero_volume = closed and (
+            not math.isfinite(relative_volume) or relative_volume <= 1e-12
+        )
         shell_reports.append({
             "triangleCount": len(faces),
             "closed": closed,
             "signedVolume": volume,
             "insideOut": closed and volume < 0.0,
+            "zeroVolume": zero_volume,
         })
     watertight = not boundary and not non_manifold and not misoriented and not non_manifold_vertices
     return {
@@ -307,6 +324,7 @@ def analyze_manifold(vertices: list[Vec], triangles: list[tuple[int, int, int]])
         "nonManifoldEdgeSample": [list(edge) for edge in non_manifold[:8]],
         "shellCount": len(shell_reports),
         "insideOutShellCount": sum(shell["insideOut"] for shell in shell_reports),
+        "zeroVolumeShellCount": sum(shell["zeroVolume"] for shell in shell_reports),
         "shells": shell_reports,
     }
 
@@ -469,7 +487,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"print export error: {error}", file=sys.stderr)
         return 2
     report = result["report"]
-    printable = report["watertight"] and report["insideOutShellCount"] == 0
+    printable = (
+        report["watertight"]
+        and report["insideOutShellCount"] == 0
+        and report["zeroVolumeShellCount"] == 0
+    )
     written = printable or args.allow_open
     report["printable"] = printable
     report["written"] = written
@@ -492,11 +514,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, indent=2))
     else:
         size = " x ".join(f"{value:.3f}" for value in report["bounds"]["size"])
-        verdict = "PRINTABLE" if printable else "NOT WATERTIGHT"
+        verdict = "PRINTABLE" if printable else "NOT PRINTABLE"
         print(f"{verdict}: {report['triangleCount']} triangles, {report['shellCount']} shell(s), "
               f"size {size} {report['units']}")
         print(f"  boundary edges={report['boundaryEdgeCount']} non-manifold edges={report['nonManifoldEdgeCount']} "
               f"misoriented edges={report['misorientedEdgeCount']} inside-out shells={report['insideOutShellCount']} "
+              f"zero-volume shells={report['zeroVolumeShellCount']} "
               f"degenerate dropped={report['degenerateTrianglesDropped']}")
         print(f"  wrote {args.out}" if written else "  refused to write (pass --allow-open to export anyway)")
     return 0 if printable else 1
