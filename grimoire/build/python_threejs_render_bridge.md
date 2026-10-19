@@ -200,7 +200,8 @@ python3 forge/stage4_review/browser_evidence_brief.py \
   --manifest work/character/render-manifest.json --since DIGEST
 ```
 
-The output includes camera counts, bounded pending/repair IDs, validation error
+The output includes camera counts, bounded pending/repair IDs (unsafe URL/path or
+overlong identifiers are redacted to ordinal labels, not executable capture IDs), validation error
 *counts/categories* and a content digest; it never echoes URLs, console messages,
 DOM or file paths. An unchanged receipt is produced only for complete evidence,
 and the validator runs again even if the manifest itself has not changed, so a
