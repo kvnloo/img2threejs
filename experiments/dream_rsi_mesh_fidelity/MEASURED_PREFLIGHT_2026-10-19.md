@@ -2,8 +2,9 @@
 
 This is a **measured, controlled procedural** Chromium/Three.js + native Divine Eye
 experiment. It is **not** an image-to-3D reconstruction result, a learned-policy
-win, an independently blinded holdout, or an equal-budget *live browser-render*
-experiment.
+win, or an independently blinded holdout. The original test reused an image
+pool; a separate follow-up now measures genuinely on-demand browser renders
+at the same three-render budget per arm, still for only one known procedural target.
 
 ## Provenance
 
@@ -47,6 +48,39 @@ outputs do **not** count as successful optimization.
 - `hardGateFailures` was empty in the recorded six image variants per
   cohort, but accept/reject was still governed by the native fidelity
   threshold. Hard-gate parity by itself is not a visual quality win.
+
+## Follow-up: equal-budget on-demand Chromium verification
+
+A separate [green Chromium/Three.js workflow](https://github.com/kvnloo/img2threejs/actions/runs/39329528382)
+at exact source `82649b3f89dfbc3b43f4b42a189605722de3c2b5`
+invoked fresh **on-demand browser renders** during the actual fitter
+objective callback. This is distinct from the pre-rendered pool above.
+The frozen reference spec SHA-256 remained
+`d9aed0f517f9fcad13a661edb6dd1ab82f0ab50bcce4795b0c373ca5ab827bb0`.
+
+- [Raw original-cohort browser/render/fitter ZIP](https://github.com/kvnloo/img2threejs/actions/runs/39329528382/artifacts/12223324304)
+- [Raw calibrated-cohort browser/render/fitter ZIP](https://github.com/kvnloo/img2threejs/actions/runs/39329528382/artifacts/12223687254)
+
+| Cohort | Order | Browser renders | Native evaluations | Best *accepted* silhouette IoU | Wall time, s |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Original | Fixed (0,1) | 3 | 3 | none | 9.802 |
+| Original | Reverse (1,0) | 3 | 3 | none | 9.674 |
+| Post-hoc calibrated | Fixed (0,1) | 3 | 3 | **0.9892** | 17.360 |
+| Post-hoc calibrated | Reverse (1,0) | 3 | 3 | **0.9786** | 17.253 |
+
+The `worlds/live-browser-budget-ab.json` receipts explicitly record
+`preRenderedCandidateReuse=false`, three independent browser invocations
+and three native evaluator calls per order. The frozen procedural target
+render is excluded equally from both budgets. Recorded wall times include
+browser launches, TypeScript bundling, screenshot capture, and evaluator
+calls; these **single repetitions do not support a speed comparison**.
+There was no learned coordinate priority or independent holdout. The
+fixed-index baseline still won this one post-hoc calibration.
+
+This proves live-budget *plumbing*, not the RFC's population-level
+holdout performance acceptance. The next step must still test multiple
+unseen families with ABAB ordering and a learned policy trained only on
+separate worlds.
 
 ## Interpretation / next required experiment
 
