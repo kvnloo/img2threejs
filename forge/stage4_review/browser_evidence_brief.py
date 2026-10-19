@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from render_bridge import CAPTURE_PLAN, read_manifest, validate_manifest
+from multi_pass import PASS_IDS
 
 SCHEMA = "img2threejs-browser-brief-v1"
 _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -41,6 +42,28 @@ def _short_id(value: Any, index: int) -> str:
 def _has_browser_errors(value: Any) -> bool:
     # A malformed nonempty string is not a clean error receipt either.
     return bool(value) or (value is not None and not isinstance(value, list))
+
+
+def _complete_diagnostic_receipts(value: Any) -> bool:
+    """Require every v2 pass, not merely a nonempty mapping of recorded rows.
+
+    The ordinary manifest validator intentionally permits pending passes when
+    require_complete=False. Browser-brief completeness must be stricter.
+    """
+    if not isinstance(value, dict):
+        return False
+    for pass_id in PASS_IDS:
+        item = value.get(pass_id)
+        if not isinstance(item, dict) or item.get("status") != "recorded":
+            return False
+        if not _has_sha(item.get("sha256")):
+            return False
+        image = item.get("image")
+        if not isinstance(image, dict) or not all(
+            image.get(field) for field in ("type", "width", "height")
+        ):
+            return False
+    return True
 
 
 def build_brief(path: Path, *, since: str = "", max_ids: int = 8) -> dict[str, Any]:
@@ -99,8 +122,8 @@ def build_brief(path: Path, *, since: str = "", max_ids: int = 8) -> dict[str, A
         if not capture.get("path") or not _has_sha(capture.get("screenshotSha256")):
             categories.add("missing-capture-hash")
             repair.append(cid)
-        if _has_browser_errors(capture.get("consoleErrors")):
-            categories.add("browser-error")
+        if capture.get("consoleErrors") != []:
+            categories.add("missing-or-errored-browser-receipt")
             repair.append(cid)
         if reference.get("kind") == "glb":
             baseline = capture.get("reference")
@@ -114,18 +137,15 @@ def build_brief(path: Path, *, since: str = "", max_ids: int = 8) -> dict[str, A
                 if not baseline.get("path") or not _has_sha(baseline.get("screenshotSha256")):
                     categories.add("missing-capture-hash")
                     repair.append(cid)
-                if _has_browser_errors(baseline.get("consoleErrors")):
-                    categories.add("browser-error")
+                if baseline.get("consoleErrors") != []:
+                    categories.add("missing-or-errored-browser-receipt")
                     repair.append(cid)
         if v2:
             for record in (capture, capture.get("reference") if reference.get("kind") == "glb" else None):
                 if record is None:
                     continue
                 passes = record.get("passes") if isinstance(record, dict) else None
-                if not isinstance(passes, dict) or any(
-                    not isinstance(value, dict) or value.get("status") != "recorded"
-                    for value in passes.values()
-                ) or not passes:
+                if not _complete_diagnostic_receipts(passes):
                     categories.add("missing-diagnostic-passes")
                     repair.append(cid)
 
