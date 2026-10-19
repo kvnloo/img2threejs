@@ -112,6 +112,11 @@ def analyze_manifest(
         region_id = str(region.get("regionId") or "").strip()
         if not component_id or not region_id:
             raise ValueError(f"regions[{index}] requires componentId and regionId")
+        # Only an explicitly verified, background-free region may skip segmentation.
+        # A manifest bounding box is not itself evidence that the crop is interior.
+        interior_crop = region.get("interiorCrop", False)
+        if not isinstance(interior_crop, bool):
+            raise ValueError(f"regions[{index}].interiorCrop must be a boolean")
         source = Path(region.get("sourceImage") or reference_path or "")
         if not source.is_absolute():
             source = (manifest_path.parent / source).resolve()
@@ -119,7 +124,7 @@ def analyze_manifest(
             raise ValueError(f"region {region_id!r} source image does not exist: {source}")
         crop_path = out_dir / f"{index:02d}-{region_id.replace('/', '-').replace(' ', '-')}.png"
         crop_info = crop_region(source, region.get("bbox"), crop_path)
-        texture_report = analyze(crop_path, interior_crop=True)
+        texture_report = analyze(crop_path, interior_crop=interior_crop)
         pbr_dir = out_dir / f"pbr-{index:02d}-{region_id.replace('/', '-').replace(' ', '-')}"
         args = Namespace(
             image=crop_path,
@@ -130,7 +135,7 @@ def analyze_manifest(
             target_threshold=target_threshold,
             url_prefix="",
             multi_view_reference=multi_view_reference,
-            interior_crop=True,
+            interior_crop=interior_crop,
         )
         pbr_report, pbr_patch = extract(args)
         hypothesis = {
@@ -154,6 +159,7 @@ def analyze_manifest(
         regions.append({
             "componentId": component_id,
             "regionId": region_id,
+            "interiorCrop": interior_crop,
             "materialSpecId": region.get("materialSpecId") or region_id,
             "hypothesis": hypothesis,
             "assignment": assignment,
