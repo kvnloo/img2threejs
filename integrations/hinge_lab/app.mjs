@@ -114,16 +114,61 @@ function applyPose() {
   document.getElementById('joint-angle').textContent =
     labels[collider.value] + ': ' + values[collider.value] + '°';
 }
+const playButton = document.getElementById('play');
+let playbackFrame = null;
+function stopAnimation() {
+  if (playbackFrame !== null) window.cancelAnimationFrame(playbackFrame);
+  playbackFrame = null;
+  playButton.textContent = 'Animate fold';
+  playButton.setAttribute('aria-pressed', 'false');
+}
+function animateFolds() {
+  if (playbackFrame !== null) {
+    stopAnimation();
+    return;
+  }
+  // Respect operating-system reduced motion. This control still reaches the
+  // same authored pose without imposing an animation on that user.
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    applyAll(referencePose);
+    return;
+  }
+  const initial = {...values};
+  const durationMs = 1700;
+  let started = null;
+  playButton.textContent = 'Stop animation';
+  playButton.setAttribute('aria-pressed','true');
+  invalidateStatus();
+  const frame = now => {
+    if (started === null) started = now;
+    const progress = Math.min(1, Math.max(0, (now - started) / durationMs));
+    // Smoothstep has zero endpoint velocity and does not imply physics.
+    const eased = progress * progress * (3 - 2 * progress);
+    for (const id of ids) {
+      values[id] = Math.round((initial[id] +
+        (referencePose[id] - initial[id]) * eased) * 1000) / 1000;
+    }
+    applyPose();
+    if (progress >= 1) {
+      for (const id of ids) values[id] = referencePose[id];
+      applyPose();
+      stopAnimation();
+    } else playbackFrame = window.requestAnimationFrame(frame);
+  };
+  playbackFrame = window.requestAnimationFrame(frame);
+}
 function setFold(id, angle) {
   if (!ids.includes(id) || !Number.isFinite(angle) || angle < -180 || angle > 180) {
     throw new RangeError('unknown fold or out-of-range angle');
   }
+  stopAnimation();
   values[id] = Math.round(angle * 1000) / 1000;
   applyPose();
   invalidateStatus();
   return getStatus();
 }
 function applyAll(pose) {
+  stopAnimation();
   for (const id of ids) values[id] = pose[id] ?? 0;
   applyPose();
   invalidateStatus();
@@ -268,6 +313,7 @@ for (const id of ids) {
 }
 document.getElementById('rest').addEventListener('click', () => applyAll({}));
 document.getElementById('pose').addEventListener('click', () => applyAll(referencePose));
+playButton.addEventListener('click', animateFolds);
 document.getElementById('check').addEventListener('click', evaluate);
 checkbox.addEventListener('change', placeObstacle);
 collider.addEventListener('change', placeObstacle);
@@ -318,7 +364,7 @@ applyAll({});
 render();
 raf = window.requestAnimationFrame(loop);
 window.__hingeLab = {
-  getStatus, setFold, evaluate, setObstacle(enabled, id) {
+  getStatus, setFold, evaluate, animateFolds, stopAnimation, setObstacle(enabled, id) {
     if (id !== undefined) {
       if (!ids.includes(id)) throw new RangeError('unknown panel');
       collider.value = id;
@@ -336,6 +382,7 @@ window.__hingeLab = {
     return stage.toDataURL('image/png');
   },
   dispose() {
+    stopAnimation();
     if (raf) cancelAnimationFrame(raf);
     controls.dispose();
     renderer.dispose();
