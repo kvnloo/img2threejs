@@ -86,13 +86,16 @@ def to_grayscale_downsampled(
     size: int = 32,
 ) -> list[list[float]]:
     """Box-average downsample of the luminance channel to size×size (Rec.709 luma)."""
-    if width <= 0 or height <= 0 or not pixels:
+    if width <= 0 or height <= 0:
         return [[0.0] * size for _ in range(size)]
+    # A truncated normal-resolution decode also created unfilled (black) bins
+    # and a plausible pHash. Apply this refusal to both binning paths; complete
+    # images retain identical hash bytes and cached legacy identities.
+    if len(pixels) < width * height:
+        raise ValueError("image pixel payload is shorter than width * height")
     if width < size or height < size:
         # Only change the undersampled case: preserve the exact existing hashes
         # for normal-size images (including persisted duplicate-reference hashes).
-        if len(pixels) < width * height:
-            raise ValueError("image pixel payload is shorter than width * height")
         return _area_resample_small_image(width, height, pixels, size)
     out = [[0.0] * size for _ in range(size)]
     counts = [[0] * size for _ in range(size)]
