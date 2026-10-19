@@ -109,7 +109,10 @@ optional JSON report. Overlapping paths, including relative/symlink aliases,
 are rejected instead of overwriting a valid geometry artifact with report
 JSON. OBJ vertices retain round-trip float precision to avoid rounding small
 features to zero. STL stores float32; use `--longest-edge-mm` to scale unusually
-tiny source geometry for printing.
+tiny source geometry for printing. The exporter also normalizes the source
+filename into a bounded, portable single-line object name for the OBJ `o`
+record and binary STL header. Control characters (including newlines) can
+never insert additional OBJ vertex/face commands through a filename.
 
 - **STL float32 precision.** Binary STL stores every coordinate as a 32-bit float.
   Extremely tiny triangles or large world offsets can round different vertices
