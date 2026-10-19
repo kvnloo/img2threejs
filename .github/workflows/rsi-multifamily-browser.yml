@@ -1,10 +1,10 @@
-name: RSI registered three-family WebGL pilot
+name: RSI v2 isolated-family WebGL pilot
 
 on:
   pull_request:
     paths:
       - 'experiments/dream_rsi_mesh_fidelity/registered_multifamily.py'
-      - 'experiments/dream_rsi_mesh_fidelity/MULTIFAMILY_V1_REGISTERED.json'
+      - 'experiments/dream_rsi_mesh_fidelity/MULTIFAMILY_V2_REGISTERED.json'
       - 'forge/tests/test_rsi_multifamily_protocol.py'
       - 'forge/tests/test_rsi_policy_freeze.py'
       - 'forge/tests/test_rsi_registered_holdout.py'
@@ -54,7 +54,7 @@ jobs:
         shell: bash
         env:
           WORLD: ${{ matrix.family }}-train-01
-          OUTPUT: ${{ runner.temp }}/rsi-v1-${{ matrix.family }}
+          OUTPUT: ${{ runner.temp }}/rsi-v2-${{ matrix.family }}
         run: |
           set -euo pipefail
           python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py \
@@ -69,7 +69,7 @@ jobs:
       - name: Capture actual source-generated Three.js geometry with Chromium WebGL2
         shell: bash
         env:
-          OUTPUT: ${{ runner.temp }}/rsi-v1-${{ matrix.family }}
+          OUTPUT: ${{ runner.temp }}/rsi-v2-${{ matrix.family }}
         run: |
           set -euo pipefail
           CHROME_BIN="$(command -v google-chrome || command -v chromium || true)"
@@ -79,7 +79,7 @@ jobs:
       - name: Evaluate native Divine Eye and retain all failure evidence
         shell: bash
         env:
-          OUTPUT: ${{ runner.temp }}/rsi-v1-${{ matrix.family }}
+          OUTPUT: ${{ runner.temp }}/rsi-v2-${{ matrix.family }}
         run: |
           set -euo pipefail
           python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py \
@@ -88,7 +88,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rsi-v1-preregistered-${{ matrix.family }}
-          path: ${{ runner.temp }}/rsi-v1-${{ matrix.family }}/
+          name: rsi-v2-preregistered-${{ matrix.family }}
+          path: ${{ runner.temp }}/rsi-v2-${{ matrix.family }}/
           if-no-files-found: warn
           retention-days: 14
