@@ -60,6 +60,26 @@ The same procedural root is used for both orders, without policy learning.
 This does not satisfy the acceptance bar below. Fresh, independent
 multi-family holdouts and truly bounded live-render calls remain required.
 
+## Immutable original and separate calibration cohort
+
+The original `(0.78, 0.76)` root and ±0.14 neighborhoods are retained verbatim:
+the native fitter's 3-evaluation visits were all `low-confidence/probe`,
+with **no accepted clean score**. We do not reinterpret their raw
+silhouette IoU as accepted optimization progress.
+
+An explicitly tagged **calibrated preflight** uses root `(0.90, 0.94)`,
+first-coordinate ±0.10 and second-coordinate ±0.06 against the same
+original procedural target. It was chosen *after inspecting the original
+probe-only outcome*, for the sole purpose of exercising an accepted
+quality route without changing Divine Eye's 0.85 target or hard gates.
+This is **calibration data, not a blinded independent holdout**.
+
+GitHub Actions runs both cohorts in separate jobs/artifacts using
+`real_render_smoke.py prepare DIR --neighborhood original|calibrated`.
+Each score step revalidates the committed cohort vectors, image hashes
+and native evaluator calls. No live-render timing claim or policy learning
+is made for either cohort.
+
 ## Split
 
 Minimum initial run:
