@@ -24,6 +24,10 @@ if (referenceBytes.length < 25000 ||
   throw new Error('reference must be an actual JPEG, not a placeholder');
 }
 const digest = createHash('sha256').update(referenceBytes).digest('hex');
+const EXPECTED_REFERENCE_SHA256 = '385f42408d114bad1cfc06adf773a64b1902779c9a4515da07413fbac0a13530';
+if (digest !== EXPECTED_REFERENCE_SHA256) {
+  throw new Error('source photograph digest changed; decline unreviewed visual evidence');
+}
 const work = mkdtempSync(join(root, '.hinge-lab-build-'));
 let browser;
 try {
