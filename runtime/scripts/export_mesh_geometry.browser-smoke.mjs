@@ -22,7 +22,7 @@ const { chromium } = require('playwright');
 const buildDir = join(resolve(depsRoot), 'node_modules', 'three', 'build');
 const screenshots = join(process.env.RUNNER_TEMP || tmpdir(), 'img2-export-smoke');
 
-function fixture(partial = false) {
+function fixture(mode = 'normal') {
   return `<!doctype html><meta charset="utf-8"><style>body{margin:0;background:#112233}</style>
 <script type="module">
 import * as THREE from '/three/three.module.js';
@@ -30,13 +30,24 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x112233);
 const modelRoot = new THREE.Group();
 scene.add(modelRoot);
-const geometry = new THREE.BoxGeometry(1, 1, 1);
-if (${partial ? 'true' : 'false'}) geometry.setDrawRange(0, 18);
-const body = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color: 0x99cc55}));
-body.name = 'subject-box';
-body.position.set(2, 1, 0);
-body.scale.set(2, 1, 1);
-modelRoot.add(body);
+if (${mode === 'instances' ? 'true' : 'false'}) {
+  const copies = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),
+    new THREE.MeshBasicMaterial({color:0xffffff}), 2);
+  copies.name = 'subject-copies';
+  copies.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, 0, 0));
+  copies.setMatrixAt(1, new THREE.Matrix4().makeTranslation(4, 0, 0));
+  copies.setColorAt(0, new THREE.Color(0xff0000));
+  copies.setColorAt(1, new THREE.Color(0x00ff00));
+  modelRoot.add(copies);
+} else {
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  if (${mode === 'partial' ? 'true' : 'false'}) geometry.setDrawRange(0, 18);
+  const body = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color: 0x99cc55}));
+  body.name = 'subject-box';
+  body.position.set(2, 1, 0);
+  body.scale.set(2, 1, 1);
+  modelRoot.add(body);
+}
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), new THREE.MeshBasicMaterial({color: 0xff0000}));
 ground.name = 'studio-ground';
 scene.add(ground);
@@ -56,9 +67,9 @@ window.__IMG2THREEJS_WEBGL_RENDERED__ = Boolean(renderer.getContext());
 const server = createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://127.0.0.1').pathname;
   try {
-    if (pathname === '/' || pathname === '/partial') {
+    if (pathname === '/' || pathname === '/partial' || pathname === '/instances') {
       res.writeHead(200, {'content-type': 'text/html; charset=utf-8'});
-      res.end(fixture(pathname === '/partial'));
+      res.end(fixture(pathname.slice(1) || 'normal'));
     } else if (pathname.startsWith('/three/')) {
       const name = basename(pathname);
       if (!/^[a-zA-Z0-9._-]+\.js$/.test(name)) throw new Error('unexpected module');
@@ -104,6 +115,23 @@ try {
   await writeFile(join(screenshots, 'geometry-gate.stdout.json'), gate.stdout || '{}', 'utf8');
   assert.equal(gate.status, 0, `self-intersection gate failed: ${gate.stderr} ${gate.stdout}`);
 
+  // A real InstancedMesh must expand into two complete, independently placed
+  // world-space meshes with per-instance color evidence.
+  const instanceOut = join(screenshots, 'instances.json');
+  assert.equal(await runCli(['--url', url + 'instances', '--out', instanceOut]), 0);
+  const expanded = JSON.parse(await readFile(instanceOut, 'utf8'));
+  assert.equal(expanded.incomplete, false);
+  assert.deepEqual(expanded.meshes.map(m => m.name), ['subject-copies[0]', 'subject-copies[1]']);
+  assert.equal(expanded.meshes[0].triangleCount, 12);
+  assert.equal(expanded.meshes[1].triangleCount, 12);
+  const xOffsets = expanded.meshes.map(m => Math.min(...m.vertices.map(v => v[0])));
+  assert.deepEqual(xOffsets, [-0.5, 3.5]);
+  assert.deepEqual(expanded.meshes[0].colors.slice(0, 3), [1, 0, 0]);
+  const instanceGate = spawnSync('python3',
+    ['forge/stage4_review/self_intersection.py', instanceOut, '--json'],
+    {cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 4_000_000});
+  assert.equal(instanceGate.status, 0, `instanced geometry gate failed: ${instanceGate.stderr} ${instanceGate.stdout}`);
+
   // Independently prove the browser page actually rendered WebGL pixels.
   const browser = await chromium.launch({headless: true});
   try {
@@ -123,7 +151,7 @@ try {
   const diagnostic = JSON.parse(await readFile(out + '.incomplete.json', 'utf8'));
   assert.equal(diagnostic.incomplete, true);
   assert.deepEqual(diagnostic.skippedMeshes.map(m => m.reason), ['partial-draw-range']);
-  console.log('PASS: real Three.js WebGL + browser exporter + Python geometry gate; incomplete capture rejected');
+  console.log('PASS: real Three.js WebGL, static instances, Python geometry gates, incomplete capture rejection');
 } finally {
   await new Promise(resolveClose => server.close(resolveClose));
 }
