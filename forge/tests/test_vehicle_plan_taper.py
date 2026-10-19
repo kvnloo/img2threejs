@@ -58,6 +58,16 @@ class PlanTaperContract(unittest.TestCase):
         self.assertTrue(all(row["intersectionCount"] >= 2 for row in report["stations"]))
         self.assertLess(max(row["normalizedWidthError"] for row in report["stations"]), 1e-12)
 
+    def test_between_vertex_station_interpolates_triangle_intersections(self):
+        # A nearest-vertex gate would measure 1.0 or 0.6; at x=-1.5 the
+        # world-space triangle intersection is exactly halfway, width 0.8.
+        sections = table()
+        sections["stations"][1]["x"] = -1.5
+        sections["stations"][1]["referenceWidth"] = 0.8
+        report = module.evaluate(car_mesh(), sections, mesh_name="body")
+        self.assertTrue(report["passed"], report["failures"])
+        self.assertAlmostEqual(report["stations"][1]["measuredWidth"], 0.8)
+
     def test_constant_width_stadium_body_is_rejected(self):
         report = module.evaluate(car_mesh((1, 1, 1, 1, 1)), table(), mesh_name="body")
         self.assertFalse(report["passed"])
