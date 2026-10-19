@@ -149,49 +149,69 @@ function placeObstacle() {
   invalidateStatus();
 }
 function evaluate() {
-  if (!checkbox.checked) {
-    setStatus('inactive', 'Not evaluated', 'Enable the obstacle first.');
-    return null;
-  }
   const id = collider.value;
   const segments = Math.max(1, Math.ceil(Math.abs(values[id]) / 5));
   const angles = Array.from({length:segments + 1}, (_, i) =>
     values[id] * i / segments);
-  const sampled = sampleFold(runtime.hinges[id], runtime.meshes[id],
-    obstacle, angles);
-  const result = certifyFoldSweep(runtime.hinges[id], runtime.meshes[id],
-    obstacle, 0, values[id], {maxDepth:16, maxChecks:4096});
+  const targets = [{id:'carton floor', mesh:runtime.meshes.floor}];
+  if (checkbox.checked) targets.push({id:'test obstacle', mesh:obstacle});
+  const results = targets.map(target => {
+    const sampled = sampleFold(runtime.hinges[id], runtime.meshes[id],
+      target.mesh, angles);
+    const adaptive = certifyFoldSweep(runtime.hinges[id], runtime.meshes[id],
+      target.mesh, 0, values[id], {maxDepth:16, maxChecks:4096});
+    return {
+      id:target.id, status:adaptive.status, collision:adaptive.collision,
+      sampledCollisions:sampled.collisionSamples,
+      sampled:sampled.samples.map(entry=>Boolean(entry.penetrating)),
+      evaluatedAngles:adaptive.evaluatedAngles,
+      certifiedIntervals:adaptive.certifiedIntervals,
+      unresolvedIntervals:adaptive.unresolvedIntervals,
+    };
+  });
+  const hasCollision = results.some(result => result.status === 'collision');
+  const hasUnresolved = results.some(result => result.status === 'unresolved');
+  const status = hasCollision ? 'collision' :
+    hasUnresolved ? 'unresolved' : 'certified-clear';
+  const union = angles.map((angle, i) =>
+    results.some(result => result.sampled[i]));
   const timeline = document.getElementById('collision-timeline');
   timeline.replaceChildren();
-  for (const entry of sampled.samples) {
+  for (let i = 0; i < angles.length; i++) {
     const cell = document.createElement('span');
-    cell.dataset.hit = String(entry.penetrating);
-    cell.title = entry.degrees.toFixed(2) + '°: ' +
-      (entry.penetrating ? 'penetration' : 'no sampled penetration');
+    cell.dataset.hit = String(union[i]);
+    cell.title = angles[i].toFixed(2) + '°: ' +
+      (union[i] ? 'sampled overlap' : 'no sampled overlap');
     timeline.append(cell);
   }
-  timeline.dataset.samples = String(sampled.samples.length);
+  const hits = union.filter(Boolean).length;
+  timeline.dataset.samples = String(angles.length);
   timeline.setAttribute('aria-label',
-    sampled.collisionSamples + ' penetrating poses in ' +
-    sampled.samples.length + ' sampled angles');
+    hits + ' overlapping poses in ' + angles.length + ' sampled angles');
   document.getElementById('timeline-key').textContent =
-    'Green: sampled separation · Red: sampled intersection (' +
-    sampled.collisionSamples + '/' + sampled.samples.length +
-    '). Unsampled angles are not covered.';
-  lastEvaluation = {component:id, targetDegrees:values[id],
-    ...result, sampledCollisions:sampled.collisionSamples,
-    sampledAngles:sampled.samples.length};
-  const heading = result.status === 'collision' ? 'Collision detected'
-    : result.status === 'certified-clear' ? 'Certified clear*' : 'Unresolved';
-  const detail = result.status === 'collision'
-    ? 'Intersection at ' + result.collision.degrees.toFixed(3) + '°; ' +
-      'penetration ' + result.collision.overlap.toFixed(4) + ' units'
-    : result.status === 'certified-clear'
-      ? result.evaluatedAngles + ' checks · ' + result.certifiedIntervals +
-        ' certified intervals · rigid static-box assumptions only'
-      : 'Unable to prove the whole sweep clear. ' +
-        result.unresolvedIntervals.length + ' intervals unresolved.';
-  setStatus(result.status, heading, detail);
+    'Green: sampled separation · Red: sampled overlap (' +
+    hits + '/' + angles.length +
+    '). Gaps between samples are not ruled out by this strip.';
+  lastEvaluation = {
+    component:id, targetDegrees:values[id], status,
+    targets:results.map(({sampled, ...item}) => item),
+    sampledCollisions:hits, sampledAngles:angles.length,
+  };
+  let detail;
+  if (status === 'collision') {
+    const hit = results.find(result => result.status === 'collision');
+    detail = hit.id + ': overlap at ' + hit.collision.degrees.toFixed(2) +
+      '° (' + hit.collision.overlap.toFixed(4) + ' units).';
+  } else if (status === 'unresolved') {
+    detail = 'At least one target has unresolved intervals; cannot certify safe motion.';
+  } else {
+    detail = 'Both supported boxes' + (checkbox.checked ? ' and obstacle' : '') +
+      ' are clear for this bounded sweep under the rigid static-target assumptions.';
+  }
+  setStatus(status,
+    status === 'collision' ? 'Collision detected' :
+      status === 'certified-clear' ? 'Certified clear*' : 'Unresolved',
+    detail);
   return lastEvaluation;
 }
 function getStatus() {
