@@ -72,15 +72,15 @@
   <aside class="panel" aria-label="Pocket World controls">
     <div class="eyebrow">Experimental toybox / 01</div>
     <h1>Every image hides a world.</h1>
-    <p>Turn colors into a tiny voxel island. Explore, collect five beacons, export real Three.js code.</p>
+    <p>Turn colors into a tiny voxel island. Send a scout across the island, discover beacons, export real Three.js code.</p>
     <div class="preview"><canvas id="reference" width="28" height="28" aria-label="Source image preview"></canvas><div><strong id="source-label">Sunset coast</strong><span>Stylized relief, not depth estimation</span></div></div>
     <label class="upload">Choose your own image<input id="upload" type="file" accept="image/*"></label>
     <div class="controls"><button id="remix" type="button">Remix world</button><button id="night" type="button" aria-pressed="false">Night mode</button><button id="orbit" type="button" aria-pressed="false">Auto orbit</button><button id="reset" type="button">Reset view</button></div>
     <div class="control-group"><label class="control-label" for="relief"><span>Terrain relief</span><output id="relief-value">1.0×</output></label><input id="relief" type="range" min="0" max="2.4" step="0.1" value="1"></div>
     <button class="primary action" id="export" type="button">Export THREE.Group factory</button>
-    <p class="hint">Drag to orbit · scroll/pinch to zoom · tap glowing beacons or tiles. Processing stays in your browser.</p>
+    <p class="hint">Drag to orbit · scroll/pinch to zoom · tap tiles to guide the scout, or beacons to collect them. Processing stays in your browser.</p>
   </aside>
-  <div class="bottom">28 × 28 procedural cells · no imported meshes · 5 hidden beacons</div>
+  <div class="bottom" id="scout-status">Tap a tile to guide your glowing scout · find five beacons</div>
   <div id="notice" role="status" aria-live="polite"></div>
   <script type="module" src="./app.mjs"></script>
 </body>

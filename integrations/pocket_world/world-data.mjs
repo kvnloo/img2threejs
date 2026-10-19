@@ -75,6 +75,63 @@ export function validateWorld(data) {
   return data;
 }
 
+/** Pick a visible start tile, preferring tiles close to the requested location. */
+export function nearestVisibleTile(data, index) {
+  validateWorld(data);
+  if (!Number.isInteger(index) || index < 0 || index >= data.size ** 2) throw new RangeError('Invalid tile');
+  const x = index % data.size, y = Math.floor(index / data.size);
+  let best = -1, distance = Infinity;
+  for (let i = 0; i < data.visible.length; i++) {
+    if (!data.visible[i]) continue;
+    const d = (i % data.size - x) ** 2 + (Math.floor(i / data.size) - y) ** 2;
+    if (d < distance) { best = i; distance = d; }
+  }
+  return best;
+}
+
+/** Deterministic A* over visible tiles. Slope affects cost, not reachability. */
+export function findTilePath(data, start, goal) {
+  validateWorld(data);
+  const n = data.size, count = n * n;
+  if (![start, goal].every(i => Number.isInteger(i) && i >= 0 && i < count)) throw new RangeError('Invalid path endpoint');
+  if (!data.visible[start] || !data.visible[goal]) return [];
+  if (start === goal) return [start];
+  const cost = new Float64Array(count).fill(Infinity);
+  const previous = new Int32Array(count).fill(-1);
+  const settled = new Uint8Array(count);
+  const frontier = new Set([start]);
+  const heuristic = i => Math.abs(i % n - goal % n) + Math.abs(Math.floor(i / n) - Math.floor(goal / n));
+  cost[start] = 0;
+  while (frontier.size) {
+    let current = -1, bestScore = Infinity;
+    for (const i of frontier) {
+      const score = cost[i] + heuristic(i);
+      if (score < bestScore || (score === bestScore && i < current)) {
+        current = i; bestScore = score;
+      }
+    }
+    if (current === goal) {
+      const path = [];
+      for (let i = goal; i !== -1; i = previous[i]) path.push(i);
+      return path.reverse();
+    }
+    frontier.delete(current);
+    settled[current] = 1;
+    const x = current % n, y = Math.floor(current / n);
+    const neighbors = [y > 0 ? current - n : -1, x < n - 1 ? current + 1 : -1, y < n - 1 ? current + n : -1, x > 0 ? current - 1 : -1];
+    for (const next of neighbors) {
+      if (next < 0 || settled[next] || !data.visible[next]) continue;
+      const candidate = cost[current] + 1 + Math.abs(data.heights[current] - data.heights[next]) / 255 * 1.5;
+      if (candidate < cost[next]) {
+        cost[next] = candidate;
+        previous[next] = current;
+        frontier.add(next);
+      }
+    }
+  }
+  return [];
+}
+
 export function tileHeight(heightByte, relief = 1) {
   if (!Number.isFinite(relief) || relief < 0 || relief > 3) throw new RangeError('Relief must be 0..3');
   return .32 + Math.pow(heightByte / 255, 1.45) * 3.8 * relief;

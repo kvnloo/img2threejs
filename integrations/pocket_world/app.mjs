@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GRID_SIZE, demoPixels, voxelize, tileHeight, exportThreeFactory } from './world-data.mjs';
+import { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, tileHeight, exportThreeFactory } from './world-data.mjs';
 
 const $ = id => document.getElementById(id);
 const canvas = $('viewport');
@@ -74,6 +74,26 @@ const beaconGeometry = new THREE.IcosahedronGeometry(.43, 1);
 const beaconMaterial = new THREE.MeshStandardMaterial({ color: 0xffdba0, emissive: 0xffae35, emissiveIntensity: 2.6, metalness: .2, roughness: .2 });
 const colorHelper = new THREE.Color();
 let messageTimer;
+// Independent scout group; geometry remains code-only and is reused across worlds.
+const scout = new THREE.Group();
+const scoutBody = new THREE.Mesh(
+  new THREE.IcosahedronGeometry(.35, 1),
+  new THREE.MeshStandardMaterial({ color: 0x9deed7, emissive: 0x16bca7, emissiveIntensity: 1.7, roughness: .2 }),
+);
+const scoutHalo = new THREE.Mesh(
+  new THREE.TorusGeometry(.48, .042, 5, 24),
+  new THREE.MeshBasicMaterial({ color: 0xb9ffeb }),
+);
+scoutHalo.rotation.x = Math.PI / 2;
+scout.add(scoutBody, scoutHalo);
+scene.add(scout);
+let scoutCell = -1;
+let scoutDestination = -1;
+let scoutQueue = [];
+let scoutFraction = 0;
+const scoutFrom = new THREE.Vector3();
+const scoutTo = new THREE.Vector3();
+
 
 function announce(message) {
   $('notice').textContent = message;
@@ -108,6 +128,79 @@ function redrawTiles(time = 0) {
   }
   world.instanceMatrix.needsUpdate = true;
   world.computeBoundingSphere();
+}
+
+function addRipple(x, z) {
+  if (activeRipples.length === 12) activeRipples.shift();
+  activeRipples.push({ x, z, born: performance.now() });
+}
+
+function scoutTilePosition(cell, target = new THREE.Vector3()) {
+  const h = tileHeight(data.heights[cell], relief);
+  const [x, , z] = positionOf(cell, h);
+  return target.set(x, h + .46, z);
+}
+
+function resetScout() {
+  const approximateSpawn = (data.size - 1) * data.size + Math.floor(data.size / 2);
+  scoutCell = nearestVisibleTile(data, approximateSpawn);
+  scout.visible = scoutCell !== -1;
+  scoutDestination = -1;
+  scoutQueue = [];
+  scoutFraction = 0;
+  if (scout.visible) scoutTilePosition(scoutCell, scout.position);
+  $('scout-status').textContent = scout.visible
+    ? 'Tap a tile to guide your glowing scout · collect the beacons'
+    : 'No visible terrain: upload a less transparent image or remix';
+}
+
+function beginScoutStep() {
+  if (!scoutQueue.length) {
+    scoutDestination = -1;
+    $('scout-status').textContent = 'Scout arrived · tap another tile to explore';
+    return;
+  }
+  scoutDestination = scoutQueue.shift();
+  scoutFrom.copy(scout.position);
+  scoutTilePosition(scoutDestination, scoutTo);
+  scoutFraction = 0;
+}
+
+function routeScout(goal) {
+  if (scoutCell === -1) return;
+  const path = findTilePath(data, scoutCell, goal);
+  if (!path.length) {
+    announce('That tile is on a disconnected island. Try another.');
+    return;
+  }
+  if (path.length === 1) {
+    addRipple(scout.position.x, scout.position.z);
+    return;
+  }
+  scoutQueue = path.slice(1);
+  beginScoutStep();
+  $('scout-status').textContent = `Scout hiking · ${path.length - 1} tile journey`;
+}
+
+function collectBeacon(beacon) {
+  if (!beacon.visible) return;
+  beacon.visible = false;
+  collected++;
+  $('count').textContent = `${collected} / ${beacons.length}`;
+  addRipple(beacon.position.x, beacon.position.z);
+  announce(collected === beacons.length ? 'World complete! Remix to explore another island.' : `${collected} beacon${collected === 1 ? '' : 's'} discovered.`);
+}
+
+function animateScout(dt, reducedMotion) {
+  if (scoutDestination === -1) return;
+  scoutFraction = Math.min(1, scoutFraction + dt * (reducedMotion ? 40 : 4));
+  scout.position.lerpVectors(scoutFrom, scoutTo, scoutFraction);
+  scout.position.y += reducedMotion ? 0 : Math.sin(scoutFraction * Math.PI) * .28;
+  if (scoutFraction === 1) {
+    scoutCell = scoutDestination;
+    for (const beacon of beacons) if (beacon.userData.cell === scoutCell) collectBeacon(beacon);
+    beginScoutStep();
+  }
 }
 
 function chooseBeaconIndices() {
@@ -164,6 +257,7 @@ function rebuildWorld(nextData) {
   activeRipples.length = 0;
   redrawTiles();
   resetBeacons();
+  resetScout();
 }
 
 function showPreview(rgba) {
@@ -186,7 +280,9 @@ $('remix').addEventListener('click', () => {
   announce('New world generated. Find the glowing beacons.');
 });
 
+let lastImport = 0;
 $('upload').addEventListener('change', async event => {
+  const importId = ++lastImport;
   const file = event.target.files?.[0];
   event.target.value = '';
   if (!file) return;
@@ -196,19 +292,30 @@ $('upload').addEventListener('change', async event => {
   }
   try {
     const image = await createImageBitmap(file);
-    const c = document.createElement('canvas');
-    c.width = c.height = GRID_SIZE;
-    const ctx = c.getContext('2d', { willReadFrequently: true });
-    const side = Math.min(image.width, image.height);
-    ctx.clearRect(0, 0, GRID_SIZE, GRID_SIZE);
-    ctx.drawImage(image, (image.width - side) / 2, (image.height - side) / 2, side, side, 0, 0, GRID_SIZE, GRID_SIZE);
-    image.close?.();
-    const rgba = ctx.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
+    if (importId !== lastImport) { image.close?.(); return; }
+    let rgba;
+    try {
+      if (!image.width || !image.height || image.width * image.height > 36_000_000) {
+        announce('Image dimensions too large (36 megapixels max).');
+        return;
+      }
+      const c = document.createElement('canvas');
+      c.width = c.height = GRID_SIZE;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) throw new Error('2D canvas unavailable');
+      const side = Math.min(image.width, image.height);
+      ctx.drawImage(image, (image.width - side) / 2, (image.height - side) / 2, side, side, 0, 0, GRID_SIZE, GRID_SIZE);
+      rgba = ctx.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
+    } finally {
+      image.close?.();
+    }
+    if (importId !== lastImport) return;
     showPreview(rgba);
     $('source-label').textContent = file.name.slice(0, 42);
     rebuildWorld(voxelize(rgba));
-    announce('Image remixed locally. Find the five beacons.');
+    announce('Image remixed locally. Guide the scout across the island.');
   } catch (error) {
+    if (importId !== lastImport) return;
     announce('Unable to read that image. Try a PNG or JPEG.');
     console.error('Pocket World import:', error);
   }
@@ -221,6 +328,13 @@ $('relief').addEventListener('input', event => {
   for (const beacon of beacons) {
     const cell = beacon.userData.cell;
     beacon.userData.baseY = tileHeight(data.heights[cell], relief) + .75;
+  }
+  if (scoutCell !== -1 && scoutDestination === -1) scoutTilePosition(scoutCell, scout.position);
+  if (scoutDestination !== -1) {
+    // Height changed mid-hop: continue from the visible current position.
+    scoutFrom.copy(scout.position);
+    scoutTilePosition(scoutDestination, scoutTo);
+    scoutFraction = 0;
   }
 });
 
@@ -268,17 +382,15 @@ canvas.addEventListener('pointerup', event => {
   raycaster.setFromCamera(pointer, camera);
   const hit = raycaster.intersectObjects(beacons, false)[0];
   if (hit?.object?.visible) {
-    hit.object.visible = false;
-    collected++;
-    $('count').textContent = `${collected} / ${beacons.length}`;
-    activeRipples.push({ x: hit.object.position.x, z: hit.object.position.z, born: performance.now() });
-    announce(collected === beacons.length ? 'World complete! Remix to explore another island.' : `${collected} beacon${collected === 1 ? '' : 's'} discovered.`);
+    collectBeacon(hit.object);
     return;
   }
   const tile = world && raycaster.intersectObject(world, false)[0];
   if (tile?.instanceId !== undefined) {
-    const [x, , z] = positionOf(cells[tile.instanceId], 0);
-    activeRipples.push({ x, z, born: performance.now() });
+    const cell = cells[tile.instanceId];
+    const [x, , z] = positionOf(cell, 0);
+    addRipple(x, z);
+    routeScout(cell);
   }
 });
 canvas.addEventListener('pointercancel', () => { down = null; });
@@ -295,11 +407,16 @@ loadPreset();
 
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 let lastFrame = 0;
+let lastScoutTick = 0;
 function animate(now) {
   requestAnimationFrame(animate);
   if (document.hidden) return;
   const time = now / 1000;
+  const dt = lastScoutTick ? Math.min(.05, (now - lastScoutTick) / 1000) : 0;
+  lastScoutTick = now;
   controls.update();
+  animateScout(dt, reducedMotion);
+  if (scout.visible && !reducedMotion) scoutHalo.rotation.z += dt * 1.6;
   for (const beacon of beacons) {
     if (!beacon.visible) continue;
     beacon.rotation.y += reducedMotion ? 0 : .012;
