@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -44,12 +45,25 @@ class InvalidPng(ValueError):
 # The comparison-sheet reader creates a Python tuple for each decoded pixel.
 # Bound the inflated scanline payload before materializing any pixel tuples.
 MAX_PNG_SCANLINE_BYTES = 128 * 1024 * 1024
+# Python materializes a tuple per decoded pixel; a moderate scanline budget
+# alone can still allocate gigabytes for an oversized review screenshot.
+MAX_PNG_PIXELS = 10_000_000
+MAX_PNG_INPUT_BYTES = MAX_PNG_SCANLINE_BYTES + 1024 * 1024
 
 
 def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
-    data = path.read_bytes()
-    if not data.startswith(PNG_SIGNATURE):
-        raise ValueError("not a PNG file")
+    # Read PNGs under a strict encoded-byte cap, before buffering their payload.
+    # Non-PNG input must still return ValueError for the JPEG/converter fallback.
+    with path.open("rb") as stream:
+        signature = stream.read(len(PNG_SIGNATURE))
+        if signature != PNG_SIGNATURE:
+            raise ValueError("not a PNG file")
+        if os.fstat(stream.fileno()).st_size > MAX_PNG_INPUT_BYTES:
+            raise InvalidPng("PNG file exceeds comparison-sheet encoded-byte limit")
+        stream.seek(0)
+        data = stream.read(MAX_PNG_INPUT_BYTES + 1)
+    if len(data) > MAX_PNG_INPUT_BYTES:
+        raise InvalidPng("PNG file exceeds comparison-sheet encoded-byte limit")
 
     cursor = len(PNG_SIGNATURE)
     width = height = bit_depth = color_type = interlace = None
@@ -83,6 +97,8 @@ def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
             )
             if width == 0 or height == 0:
                 raise InvalidPng("PNG width and height must be positive")
+            if width * height > MAX_PNG_PIXELS:
+                raise InvalidPng("PNG pixel count exceeds comparison-sheet limit")
             if compression != 0 or filtering != 0:
                 raise InvalidPng("unsupported PNG compression/filter method")
             saw_ihdr = True
