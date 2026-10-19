@@ -34,6 +34,12 @@ jobs:
             three@0.180.0 @types/three@0.180.0 \
             typescript@5.9.3 esbuild@0.25.12 playwright@1.56.1
           npx --no-install playwright install --with-deps chromium
+      - name: Reject false-clean endpoints with an adversarial sweep
+        env:
+          HINGE_SWEEP_OUTPUT: ${{ runner.temp }}/hinge-photo-ab/sweep-negative-control.json
+        run: |
+          mkdir -p "$RUNNER_TEMP/hinge-photo-ab"
+          node --test forge/tests/test_hinge_sweep_collision.mjs
       - name: Run real-photo A/B and mechanical seam assertions
         env:
           HINGE_REFERENCE_PHOTO: ${{ runner.temp }}/box.agr.jpg
