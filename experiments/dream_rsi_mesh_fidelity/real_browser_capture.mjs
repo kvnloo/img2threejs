@@ -20,7 +20,7 @@ const captureTag = rest.length ? rest[3] : null;
 if (selectedVariant && !/^(root|c[01]-(minus|plus))$/.test(selectedVariant)) {
   throw new Error('live-budget capture must target a known candidate, not an arbitrary path');
 }
-if (captureTag && !/^[a-z0-9-]{1,48}$/.test(captureTag)) {
+if (selectedVariant && (!captureTag || !/^[a-z0-9-]{1,48}$/.test(captureTag))) {
   throw new Error('capture tag must be a bounded lowercase slug');
 }
 const manifest = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8'));
