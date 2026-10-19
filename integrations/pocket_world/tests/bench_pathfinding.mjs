@@ -3,7 +3,7 @@
  * route identity before publishing measurements. Times depend on CI hardware.
  */
 import { performance } from 'node:perf_hooks';
-import { demoPixels, voxelize, findTilePath } from '../world-data.mjs';
+import { demoPixels, voxelize, findTilePath, nextBeaconRoute } from '../world-data.mjs';
 
 function oldPath(data, start, goal) {
   const n = data.size, count = n * n;
@@ -44,6 +44,22 @@ function oldPath(data, start, goal) {
   return [];
 }
 
+function oldCompass(data, start, targets, collected = []) {
+  let best = null;
+  for (const target of targets) {
+    if (collected.includes(target)) continue;
+    const path = oldPath(data, start, target);
+    if (!path.length) continue;
+    const cost = path.reduce((sum, i, k) => k ?
+      sum + 1 + Math.abs(data.heights[i] - data.heights[path[k - 1]]) / 255 * 1.5 : 0, 0);
+    if (!best || cost < best.cost - 1e-9 ||
+        (Math.abs(cost - best.cost) < 1e-9 && target < best.target)) {
+      best = { target, cost };
+    }
+  }
+  return best;
+}
+
 function measure(fn, data, routes, loops) {
   const samples = [];
   for (let sample = 0; sample < 7; sample++) {
@@ -82,11 +98,28 @@ for (const size of [28, 64]) {
   const loops = size === 28 ? 18 : 6;
   const baseline = measure(oldPath, data, routes, loops);
   const heap = measure(findTilePath, data, routes, loops);
+  const targets = [size - 1, last - size + 1, last,
+    size * Math.floor(size / 2), last - Math.floor(size / 2)];
+  const scout = Math.floor(size * size / 2);
+  const beforeCompass = oldCompass(data, scout, targets);
+  const afterCompass = nextBeaconRoute(data, scout, targets);
+  if (beforeCompass?.target !== afterCompass?.target ||
+      Math.abs((beforeCompass?.cost ?? 0) - (afterCompass?.cost ?? 0)) > 1e-8) {
+    throw new Error(`compass target/cost drift at ${size}x${size}`);
+  }
+  const scoutRoutes = Array(5).fill([scout, targets]);
+  const oldBeacon = measure((d, a, b) => oldCompass(d, a, b), data, scoutRoutes, loops);
+  const newBeacon = measure((d, a, b) => nextBeaconRoute(d, a, b), data, scoutRoutes, loops);
   results.push({
     grid: `${size}x${size}`, routeCount: routes.length, loops,
     baseline, heap,
     speedup: Number((baseline.medianMs / heap.medianMs).toFixed(2)),
-    source: 'Node CPU, synthetic data, same routes; not WebGL/mobile frame timing',
+    compass: {
+      baseline: oldBeacon, onePass: newBeacon,
+      speedup: Number((oldBeacon.medianMs / newBeacon.medianMs).toFixed(2)),
+      matchedTarget: beforeCompass?.target ?? null,
+    },
+    source: 'Node CPU, synthetic data, same costs/targets; not WebGL/mobile frame timing',
   });
 }
 console.log(JSON.stringify({
