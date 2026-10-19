@@ -77,6 +77,7 @@
     <label class="upload">Choose your own image<input id="upload" type="file" accept="image/*"></label>
     <div class="controls"><button id="remix" type="button">Remix world</button><button id="night" type="button" aria-pressed="false">Night mode</button><button id="orbit" type="button" aria-pressed="false">Auto orbit</button><button id="reset" type="button">Reset view</button></div>
     <div class="control-group"><label class="control-label" for="relief"><span>Terrain relief</span><output id="relief-value">1.0×</output></label><input id="relief" type="range" min="0" max="2.4" step="0.1" value="1"></div>
+    <div class="controls action"><button id="save" type="button">Save world JSON</button><label class="upload">Load world JSON<input id="load" type="file" accept=".json,application/json"></label></div>
     <button class="primary action" id="export" type="button">Export THREE.Group factory</button>
     <p class="hint">Drag to orbit · scroll/pinch to zoom · tap tiles to guide the scout, or beacons to collect them. Processing stays in your browser.</p>
   </aside>

@@ -1,6 +1,6 @@
 # Pocket World (experimental)
 
-A small, playful image-to-Three.js experiment: bring a picture, explore a colorful 28 × 28 voxel relief, send a glowing scout along deterministic A* paths, collect five beacons, change the lighting, then **export a standalone code-only `THREE.Group` factory**. Three hand-coded procedural color postcards work without uploading a reference.
+A small, playful image-to-Three.js experiment: bring a picture, explore a colorful 28 × 28 voxel relief, send a glowing scout along deterministic A* paths, collect five beacons, change the lighting, then save/reload a small portable JSON world or **export a standalone code-only `THREE.Group` factory**. Three hand-coded procedural color postcards work without uploading a reference.
 
 This is an **artistic pixel-relief toy**, **not** photogrammetry, depth estimation, measured 3D reconstruction, or a replacement for img2threejs's quality-gated pipeline. It is isolated from the core. No image, reference file, mesh, or texture is sent to a server. The browser loads Three.js r169 from jsDelivr; generated factory modules only import a local `three` package and embed numeric colors/heights.
 
@@ -28,9 +28,11 @@ An optional DOM-interaction smoke test runs in headless Chromium with a mocked T
 python3 integrations/pocket_world/tests/dom_smoke.py
 ```
 
-It covers real browser image decoding, async upload race handling, pointer controls, scout movement, and downloadable exports. **It does not verify WebGL rendering or Three.js import-map/CDN loading.**
+It covers real browser image decoding, async upload race handling, pointer controls, scout movement, JSON save/reload and downloadable exports. **It does not verify WebGL rendering or Three.js import-map/CDN loading.**
 
 Node 18+ works for the pure-data tests. Browser interaction requires modern WebGL and import-map support; mobile tap/drag/pinch are supported. Images are center-cropped and downsampled to 28 × 28 RGBA cells. This limits detail and intentionally avoids claims of true 3D reconstruction.
+
+Versioned world receipts contain only validated 28 × 28 numeric color/height/visibility arrays and a relief setting; no original photo. They are capped at 128 KB and reject incompatible versions, invalid dimensions, nonfinite relief or malformed values. A newly selected world or photo supersedes older in-flight imports.
 
 The scout only follows connected nontransparent cells. Its slope-aware A* planner uses pixel brightness, not measured terrain elevation. Transparent gaps may be unreachable; directly tapping a beacon still collects it. Animated hopping stops under reduced-motion preferences. Image files over 12 MB or decoded images over 36 megapixels are refused.
 

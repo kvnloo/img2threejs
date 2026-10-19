@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { demoPixels, voxelize, validateWorld, tileHeight, exportThreeFactory } from './world-data.mjs';
+import { demoPixels, voxelize, validateWorld, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } from './world-data.mjs';
 
 test('deterministic presets produce RGBA without random or hidden image data', () => {
   for (const theme of ['sunset', 'forest', 'cosmic']) {
@@ -139,4 +139,41 @@ test('generated factory runs against a minimal Three.js-compatible stub and pres
     assert.deepEqual(matrices[k].position, [i % 4 - 1.5, tileHeight(data.heights[i], 1.5) / 2, Math.floor(i / 4) - 1.5]);
     assert.deepEqual(matrices[k].scale, [1, tileHeight(data.heights[i], 1.5), 1]);
   });
+});
+
+
+test('world receipts round-trip numeric terrain and relief without original image bytes', () => {
+  const data = voxelize(demoPixels('forest'));
+  data.visible[3] = 0;
+  const receipt = serializeWorld(data, 2.2);
+  assert.equal(receipt, serializeWorld(data, 2.2));
+  assert.doesNotMatch(receipt, /data:image|https?:|base64/i);
+  const restored = deserializeWorld(receipt);
+  assert.deepEqual(restored.data, data);
+  assert.equal(restored.relief, 2.2);
+  const preview = previewWorldPixels(restored.data);
+  assert.equal(preview.length, 28 * 28 * 4);
+  assert.equal(preview[3 * 4 + 3], 0);
+  assert.equal(preview[2 * 4 + 3], 255);
+  assert.equal(preview[4 * 4], (data.colors[4] >>> 16) & 255);
+});
+
+test('world receipts fail closed on malformed schema, relief, dimensions and size', () => {
+  const data = voxelize(demoPixels('sunset'));
+  const valid = JSON.parse(serializeWorld(data, 1));
+  for (const fake of [
+    { ...valid, kind: 'different' },
+    { ...valid, version: 2 },
+    { ...valid, relief: 9 },
+    { ...valid, relief: null },
+    { ...valid, relief: undefined },
+    { ...valid, relief: '2' },
+    { ...valid, world: { ...valid.world, size: 8 } },
+    { ...valid, world: { ...valid.world, colors: [...data.colors.slice(0,-1), -1] } },
+  ]) assert.throws(() => deserializeWorld(JSON.stringify(fake)), RangeError);
+  assert.throws(() => deserializeWorld('{invalid'), SyntaxError);
+  assert.throws(() => deserializeWorld(' '.repeat(128 * 1024 + 1)), RangeError);
+  assert.throws(() => serializeWorld(voxelize(demoPixels('forest', 8))), RangeError);
+  assert.throws(() => serializeWorld(data, Infinity), RangeError);
+  assert.throws(() => previewWorldPixels(voxelize(demoPixels('forest', 8))), RangeError);
 });

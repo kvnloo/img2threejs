@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, tileHeight, exportThreeFactory } from './world-data.mjs';
+import { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } from './world-data.mjs';
 
 const $ = id => document.getElementById(id);
 const canvas = $('viewport');
@@ -359,6 +359,42 @@ $('reset').addEventListener('click', () => {
   camera.position.copy(HOME);
   controls.target.set(0, 0, 0);
   controls.update();
+});
+
+$('save').addEventListener('click', () => {
+  const receipt = serializeWorld(data, relief);
+  const url = URL.createObjectURL(new Blob([receipt], { type: 'application/json' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'pocket-world.json';
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+  announce('World saved as a portable JSON receipt.');
+});
+
+$('load').addEventListener('change', async event => {
+  const importId = ++lastImport; // Invalidate any older in-flight image/world import.
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  if (!file) return;
+  if (!/\.json$/i.test(file.name) || file.size > 128 * 1024) {
+    announce('Choose a Pocket World JSON receipt under 128 KB.');
+    return;
+  }
+  try {
+    const receipt = deserializeWorld(await file.text());
+    if (importId !== lastImport) return;
+    relief = receipt.relief;
+    $('relief').value = String(relief);
+    $('relief-value').textContent = relief.toFixed(1) + '×';
+    showPreview(previewWorldPixels(receipt.data));
+    $('source-label').textContent = 'Restored world';
+    rebuildWorld(receipt.data);
+    announce('World restored locally. Explore your saved terrain.');
+  } catch (error) {
+    if (importId !== lastImport) return;
+    announce('Invalid or unsupported Pocket World JSON.');
+  }
 });
 
 $('export').addEventListener('click', () => {

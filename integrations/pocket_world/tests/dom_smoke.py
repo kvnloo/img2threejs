@@ -11,9 +11,9 @@ html=re.sub(r'<script type="module" src="./app.mjs"></script>', '', html)
 world=re.sub(r'(?m)^export ', '', (root/'world-data.mjs').read_text())
 app='\n'.join(line for line in (root/'app.mjs').read_text().splitlines() if not line.startswith('import '))
 source="""
-const { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, tileHeight, exportThreeFactory } = (() => {
+const { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } = (() => {
 """+world+"""
-return {GRID_SIZE,demoPixels,voxelize,nearestVisibleTile,findTilePath,tileHeight,exportThreeFactory};
+return {GRID_SIZE,demoPixels,voxelize,nearestVisibleTile,findTilePath,tileHeight,exportThreeFactory,serializeWorld,deserializeWorld,previewWorldPixels};
 })();
 const THREE=window.__THREE;
 const OrbitControls=window.__OrbitControls;
@@ -111,6 +111,28 @@ with sync_playwright() as p:
     contents=generated.read_text()
     generated.unlink(missing_ok=True)
     check('browser export creates standalone factory',"export function buildPocketWorld" in contents and 'fetch(' not in contents)
+    # Persist an entire numeric terrain and its relief; reload after a remix.
+    with page.expect_download(timeout=5000) as download:
+        page.locator('#save').click()
+    saved=root/'dom-world-save.json'
+    download.value.save_as(str(saved))
+    import json
+    receipt=json.loads(saved.read_text())
+    check('world JSON saves version, terrain and relief', receipt['version']==1 and receipt['relief']==2 and len(receipt['world']['colors'])==784)
+    page.locator('#remix').click()
+    page.locator('#relief').fill('0.4')
+    page.locator('#load').set_input_files(str(saved))
+    page.wait_for_timeout(80)
+    check('saved JSON restores relief and preview',page.locator('#relief-value').inner_text()=='2.0×' and page.locator('#source-label').inner_text()=='Restored world')
+    check('saved JSON restores scout and beacons',page.evaluate('window.__pocketTest.state().beacons')==5 and page.evaluate('window.__pocketTest.state().scoutVisible'))
+    invalid=root/'dom-world-bad.json'
+    invalid.write_text('not JSON')
+    previous=page.locator('#source-label').inner_text()
+    page.locator('#load').set_input_files(str(invalid))
+    page.wait_for_timeout(80)
+    check('invalid JSON leaves current world intact',page.locator('#source-label').inner_text()==previous and 'Invalid' in page.locator('#notice').inner_text())
+    invalid.unlink(missing_ok=True)
+    saved.unlink(missing_ok=True)
     check('no JS uncaught exceptions', not errs)
     print('RESULT',sum(1 for _,ok in checks if ok),'/',len(checks),'errors',errs)
     browser.close()

@@ -137,6 +137,49 @@ export function tileHeight(heightByte, relief = 1) {
   return .32 + Math.pow(heightByte / 255, 1.45) * 3.8 * relief;
 }
 
+/** Export a bounded, versioned numeric terrain receipt that needs no source photo. */
+export function serializeWorld(data, relief = 1) {
+  validateWorld(data);
+  if (data.size !== GRID_SIZE) throw new RangeError('Saved worlds must use the 28x28 grid');
+  tileHeight(0, relief);
+  return JSON.stringify({
+    kind: 'img2threejs-pocket-world',
+    version: 1,
+    relief,
+    world: { size: data.size, colors: data.colors, heights: data.heights, visible: data.visible },
+  });
+}
+
+/** Refuse schema drift, oversized receipts and invalid numeric terrain. */
+export function deserializeWorld(text) {
+  if (typeof text !== 'string' || text.length > 128 * 1024) throw new RangeError('World receipt too large or not text');
+  const receipt = JSON.parse(text);
+  if (!receipt || Array.isArray(receipt) || receipt.kind !== 'img2threejs-pocket-world' || receipt.version !== 1) {
+    throw new RangeError('Unsupported Pocket World receipt');
+  }
+  if (typeof receipt.relief !== 'number' || !Number.isFinite(receipt.relief) || receipt.relief < 0 || receipt.relief > 3) {
+    throw new RangeError('Invalid saved world relief');
+  }
+  const data = validateWorld(receipt.world);
+  if (data.size !== GRID_SIZE) throw new RangeError('Saved worlds must use the 28x28 grid');
+  tileHeight(0, receipt.relief);
+  return { data, relief: receipt.relief };
+}
+
+/** The saved numeric terrain is enough to preview it without recovering the source image. */
+export function previewWorldPixels(data) {
+  validateWorld(data);
+  if (data.size !== GRID_SIZE) throw new RangeError('Preview must be 28x28');
+  const rgba = new Uint8ClampedArray(data.colors.length * 4);
+  for (let i = 0; i < data.colors.length; i++) {
+    rgba[4 * i] = (data.colors[i] >>> 16) & 255;
+    rgba[4 * i + 1] = (data.colors[i] >>> 8) & 255;
+    rgba[4 * i + 2] = data.colors[i] & 255;
+    rgba[4 * i + 3] = data.visible[i] ? 255 : 0;
+  }
+  return rgba;
+}
+
 /** Produces a standalone, inspectable ES module; no source image or remote asset is required. */
 export function exportThreeFactory(data, relief = 1) {
   validateWorld(data);
