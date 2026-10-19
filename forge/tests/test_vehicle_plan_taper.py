@@ -123,6 +123,21 @@ class PlanTaperContract(unittest.TestCase):
         with self.assertRaisesRegex(module.PlanTaperInputError, "world"):
             module.evaluate(mesh, table(), mesh_name="body")
 
+    def test_partial_receipt_requires_explicit_boolean_false(self):
+        # An exporter that skipped unsupported geometry cannot be certified
+        # merely because its incomplete field was serialized incorrectly.
+        for value in (True, None, 0, 1, "", "false", "true", [], {}):
+            with self.subTest(incomplete=value):
+                receipt = car_mesh()
+                receipt["incomplete"] = value
+                with self.assertRaisesRegex(module.PlanTaperInputError, "partial or unverified"):
+                    module.evaluate(receipt, table(), mesh_name="body")
+        receipt = car_mesh()
+        del receipt["incomplete"]
+        with self.assertRaisesRegex(module.PlanTaperInputError, "partial or unverified"):
+            module.evaluate(receipt, table(), mesh_name="body")
+        self.assertTrue(module.evaluate(car_mesh(), table(), mesh_name="body")["passed"])
+
     def test_missing_top_view_reference_is_refused(self):
         spec = table()
         spec["reference"]["source"] = ""
