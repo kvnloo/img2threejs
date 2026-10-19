@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import sys
 from pathlib import Path
+
+STAGE4 = Path(__file__).resolve().parents[1] / "stage4_review"
+sys.path.insert(0, str(STAGE4))
 
 from forge.stage4_review.browser_evidence_brief import build_brief
 from forge.stage4_review.render_bridge import (
