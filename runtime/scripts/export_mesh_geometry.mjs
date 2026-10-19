@@ -55,6 +55,10 @@ export function collectMeshGeometry(options = {}) {
     }
     if ((include && !include.test(name)) || (exclude && exclude.test(name))) return skip('filtered');
     if (mesh.isSkinnedMesh) return skip('skinned-mesh');
+    // Instanced morph weights live in morphTexture; pseudo-mesh expansion does not bake them.
+    if (mesh.morphTargetInfluences?.some(value => value !== 0) || (mesh.isInstancedMesh && mesh.morphTexture)) {
+      return skip('active-morph-targets');
+    }
     if (mesh.isInstancedMesh) {
       const count = mesh.count;
       const limit = options.maxInstances ?? 1000;
@@ -89,7 +93,6 @@ export function collectMeshGeometry(options = {}) {
       }
       return;
     }
-    if (mesh.morphTargetInfluences?.some((value) => value !== 0)) return skip('active-morph-targets');
     const geometry = mesh.geometry;
     const position = geometry?.getAttribute?.('position');
     if (!position || !Number.isSafeInteger(position.count) || position.count < 3) return skip('missing-position');
