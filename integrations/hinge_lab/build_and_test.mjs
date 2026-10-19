@@ -116,11 +116,16 @@ try {
   const hit = await page.evaluate(()=>window.__hingeLab.getStatus());
   assert.equal(hit.lastEvaluation?.status,'collision');
   assert.ok(hit.lastEvaluation?.collision?.overlap>0);
+  const positiveBars = await page.locator('#collision-timeline span[data-hit="true"]').count();
+  assert.ok(positiveBars > 0, 'positive sweep must show sampled penetrations');
+  assert.ok(hit.lastEvaluation?.sampledAngles > 1);
   await page.screenshot({path:join(output,'lab-collision.png')});
   await page.evaluate(()=>window.__hingeLab.setFold('back-flap',-90));
   await page.locator('#check').click();
   assert.equal(await page.evaluate(()=>window.__hingeLab.getStatus().lastEvaluation?.status),
     'certified-clear');
+  assert.equal(await page.locator('#collision-timeline span[data-hit="true"]').count(),0,
+    'supported reverse sweep must not show sampled penetration');
   await page.locator('#collision-part').selectOption('right-flap');
   await page.evaluate(()=>window.__hingeLab.setFold('right-flap',90));
   await page.locator('#check').click();
