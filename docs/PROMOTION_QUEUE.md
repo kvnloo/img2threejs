@@ -1,5 +1,44 @@
 # img2threejs — canonical downstream promotion queue
 
+## Current verified wave — 2026-10-19 (supersedes older entries below)
+
+**Goal:** maximize upstream acceptance, native correctness, and measurable Three.js reconstruction fidelity without duplicate contribution-intent issues or speculative PRs. Origin `img2threejs/img2threejs`; fork `kvnloo/img2threejs`. Fork Issues disabled (410), so this project-local document is the canonical queue, not an oss-factory fallback issue.
+
+### Existing upstream PR — action required by maintainer
+
+- **ORIGIN_LIVE / BLOCKED_EXTERNAL:** [upstream #149](https://github.com/img2threejs/img2threejs/pull/149), current exact head `4c69704ddb8d66b52a0990f6c02ee16d05a600d3`, code changes limited to intended four files and current origin `main`. [Fork verification PR #22](https://github.com/kvnloo/img2threejs/pull/22) / [native CI #39202797533](https://github.com/kvnloo/img2threejs/actions/runs/39202797533) passed full Python and npm Node 18/22. Existing origin PR description updated with these results. **Origin Actions still `action_required` due maintainer approval requirement.** No reviewer feedback. Remains draft. No second upstream PR.
+
+### Ready for human promotion review — maintainer triage still pending
+
+- **READY_FOR_HUMAN_REVIEW / NOT ORIGIN_PUBLISHED:** [fork #10](https://github.com/kvnloo/img2threejs/pull/10) at `fd80986fe4e0ac033752ff631d6fb36711ad2216`, [CI #39203172523](https://github.com/kvnloo/img2threejs/actions/runs/39203172523) full Python/npm/policy green. Fixes unsafe filename derivation, long names and collisions, preserving authored semantic ID. Origin [bug #103](https://github.com/img2threejs/img2threejs/issues/103) reported by truongsontung; existing contribution intents [#151](https://github.com/img2threejs/img2threejs/issues/151), [#157](https://github.com/img2threejs/img2threejs/issues/157). **One shared implementation only; wait for maintainer claim**.
+- **READY_FOR_HUMAN_REVIEW / NOT ORIGIN_PUBLISHED:** [fork #9](https://github.com/kvnloo/img2threejs/pull/9) at `9e212d593ebcfc978ecac901a5f71d5d554bd715`, [CI #39202669384](https://github.com/kvnloo/img2threejs/actions/runs/39202669384) full Python/npm/policy green. Non-destructively merged current origin main, covers stale reviewCursor and deliberate out-of-sequence stop exclusions. Origin [bug #92](https://github.com/img2threejs/img2threejs/issues/92) reported by ludekvodicka; contribution intents [#152](https://github.com/img2threejs/img2threejs/issues/152), [#156](https://github.com/img2threejs/img2threejs/issues/156). **Wait for maintainer claim**.
+
+The user's explicit approval of a bounded promotion wave is recorded in the existing fork PRs #9/#10. It does **not** replace upstream contributor claim/triage or grant a default-branch merge.
+
+### Real-runtime evidence — not learned-model acceptance
+
+- **MEASURED PRELIMINARY / HOLD from origin:** [fork draft #15](https://github.com/kvnloo/img2threejs/pull/15), exact `4fd34463bbcf6d874d08f0753a4c4d7e4193b5ed`, [native WebGL2/Divine Eye CI #39204567096](https://github.com/kvnloo/img2threejs/actions/runs/39204567096) **passed**; [Python/npm CI #39204567758](https://github.com/kvnloo/img2threejs/actions/runs/39204567758) **passed**. [Screenshots, source hashes, evaluator JSON and replay-world artifact](https://github.com/kvnloo/img2threejs/actions/runs/39204567096/artifacts/12164804152). One fixed procedural equipment-case scene, browser rendered with real generated Three.js and scored by native Divine Eye: target 1.0000, root .9179, c0− .8953, c0+ .9430, c1− .8995, c1+ .9384 silhouette IoU. Immutable observed-score replay world with two budget-three policies emitted. **No train/validation/holdout, no learned improvement, no real-photo test.** Next: multi-family 12/6/6 real-render split, equal-budget ABAB; do not promote replay policy upstream.
+
+### Still needs evidence, tests, or triage
+
+- **CHECK:** [#11](https://github.com/kvnloo/img2threejs/pull/11) head `a3c9bbf40387b5ffe70e75c6b423dc0fd1bf9208`, [CI #39200578418](https://github.com/kvnloo/img2threejs/actions/runs/39200578418) green; validator backward-compatibility decision needed.
+- **CHECK:** [#12](https://github.com/kvnloo/img2threejs/pull/12) head `09679a4947cd0b6d2d2b93dbba162af836776169`, [CI #39201493165](https://github.com/kvnloo/img2threejs/actions/runs/39201493165) green; corrected interior-only masking opt-in, needs real crop comparison.
+- **CHECK:** [#13](https://github.com/kvnloo/img2threejs/pull/13) head `c4f6c88e317397081215ffd98df82a147abd4027`, native Python CI green; needs unknown-family material tests and maintainer scope.
+- **CHECK:** [#14](https://github.com/kvnloo/img2threejs/pull/14) head `4a127625f8769c37a68ed0b1fdaf39b41a7294d5`, native Python CI green; needs actual matte material render verification.
+- **LIMITED:** [#16](https://github.com/kvnloo/img2threejs/pull/16) head `7511186991133b1cde881bfb410a9200ee6de9de` at this audit, still requires genuine external-producer evidence and equal-budget score-parity demonstration. Do not mistake #15's generated WebGL depth evidence for real Depth Anything/ComfyUI inference.
+- **NEW / NO PROMOTION ASSERTED:** [#17](https://github.com/kvnloo/img2threejs/pull/17) curve-sweep correction; [#18](https://github.com/kvnloo/img2threejs/pull/18) Pocket World experiment; both draft and independently active. [#19](https://github.com/kvnloo/img2threejs/pull/19) closed; preserve provenance.
+- **REGISTRATION PROPOSED, NOT MERGED:** [factory draft #197](https://github.com/kvnloo/oss-factory/pull/197).
+
+### Outcome receipt
+
+This wave refreshed two existing fork PRs, removed upstream-base drift, repaired security-adjacent filename handling and ran verified native CI. Refreshed existing upstream PR #149 with passing **fork** CI but did not approve its upstream workflow. Built and verified the first genuine WebGL2→Divine Eye procedural reference test with full screenshot and replay records. **Upstream merges: 0 verified. New upstream PRs: 0.** Maintainer-controlled origin CI/triage and substantive real-world multi-scene holdout remain the gates.
+
+Do not open further duplicate origin intent tickets. Keep all source authors and reviewers credited via linked original issues and PRs. Never reclassify a passing synthetic or single-world probe as broad reconstruction fidelity.
+
+---
+
+## Historical audit and prior wave receipts (superseded by current wave above)
+
 - Audit: 2026-10-18
 - Origin: https://github.com/img2threejs/img2threejs
 - Coordination fork: https://github.com/kvnloo/img2threejs
