@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { collectMeshGeometry, main } from './export_mesh_geometry.mjs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 
 const attr = rows => ({ count: rows.length, getX: i => rows[i][0], getY: i => rows[i][1], getZ: i => rows[i][2] });
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -72,4 +77,34 @@ test('missing viewer errors and help works without Playwright', async () => {
   assert.equal(await main(['--help']), 0);
   assert.equal(await main(['--url', 'file:///etc/passwd', '--out', 'bad.json']), 2);
   assert.equal(await main(['--url', 'http://localhost', '--out', 'bad.json', '--include', '[']), 2);
+});
+
+test('CLI invalidates stale evidence and writes partial captures separately', () => {
+  const root = mkdtempSync(join(tmpdir(), 'img2-mesh-export-'));
+  try {
+    const moduleDir = join(root, 'node_modules', 'playwright');
+    mkdirSync(moduleDir, { recursive: true });
+    writeFileSync(join(moduleDir, 'index.js'), [
+      'exports.chromium = { launch: async () => ({',
+      '  newPage: async () => ({ goto: async () => {}, waitForFunction: async () => {},',
+      '    evaluate: async () => ({ meshes: [{ name: "fixture", vertices: [[0,0,0]], indices: [0,0,0] }],',
+      '      skipped: process.env.PARTIAL ? [{ name: "another", reason: "triangle-cap" }] : [],',
+      '      incomplete: Boolean(process.env.PARTIAL) }) }),',
+      '  close: async () => {}',
+      '}) };',
+    ].join('\n'));
+    const out = join(root, 'meshes.json');
+    const cli = fileURLToPath(new URL('./export_mesh_geometry.mjs', import.meta.url));
+    const run = partial => spawnSync(process.execPath, [cli, '--url', 'http://localhost:1234', '--out', out], {
+      cwd: root, encoding: 'utf8', env: { ...process.env, IMG2THREEJS_SHOWCASE_ROOT: root, PARTIAL: partial ? '1' : '' },
+    });
+    assert.equal(run(false).status, 0);
+    assert.equal(JSON.parse(readFileSync(out, 'utf8')).meshes.length, 1);
+    const failed = run(true);
+    assert.equal(failed.status, 2, failed.stderr);
+    assert.equal(existsSync(out), false, 'old meshes.json must not survive a failed capture');
+    assert.equal(JSON.parse(readFileSync(out + '.incomplete.json', 'utf8')).incomplete, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
