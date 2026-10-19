@@ -205,7 +205,7 @@ export async function main(argv, { chromium: injectedChromium } = {}) {
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(String(error)));
     await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: options.timeoutMs });
-    await page.waitForFunction('() => Boolean(window.__IMG2THREEJS_READY__)', null, { timeout: options.timeoutMs });
+    await page.waitForFunction('() => window.__IMG2THREEJS_READY__ === true', null, { timeout: options.timeoutMs });
     if (options.readyFlag) {
       await page.waitForFunction('(flag) => window[flag] === true', options.readyFlag,
         { timeout: options.timeoutMs });
