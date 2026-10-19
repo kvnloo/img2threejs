@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -22,6 +24,8 @@ def aggregate(rows: list[dict]) -> dict:
     seen: set[tuple[str, str]] = set()
     totals: dict[str, dict] = {}
     for index, row in enumerate(rows, 1):
+        if not isinstance(row, dict):
+            raise ValueError(f"receipt {index}: expected a JSON object")
         for name in ("run_id", "event_id", "stage", "model", "provider"):
             if not isinstance(row.get(name), str) or not row[name].strip():
                 raise ValueError(f"receipt {index}: missing {name}")
@@ -168,6 +172,24 @@ def compare_paired(baseline_rows: list[dict], candidate_rows: list[dict]) -> dic
     }
 
 
+def write_report_atomically(destination: Path, report: dict) -> None:
+    """Leave prior verified receipts intact if writing or publishing fails."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            json.dump(report, stream, sort_keys=True, indent=2, allow_nan=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, destination)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("usage_jsonl", type=Path)
@@ -176,6 +198,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baseline", type=Path, help="measured JSONL receipts for paired A/B comparison")
     args = parser.parse_args(argv)
     try:
+        # Output aliases (including symlinks and relative spellings) would
+        # destroy the provider's original measurement evidence on success.
+        # Reject them before reading inputs or creating an output directory.
+        destination = args.out.expanduser().resolve()
+        inputs = [args.usage_jsonl]
+        if args.baseline is not None:
+            inputs.append(args.baseline)
+        if any(destination == source.expanduser().resolve() for source in inputs):
+            raise ValueError("--out must differ from provider usage and baseline input files")
         rows = [json.loads(line) for line in args.usage_jsonl.read_text(encoding="utf-8").splitlines() if line.strip()]
         report = aggregate(rows)
         if args.minimum_runs < 1 or report["runCount"] < args.minimum_runs:
@@ -185,8 +216,7 @@ def main(argv: list[str] | None = None) -> int:
             if aggregate(baseline)["runCount"] < args.minimum_runs:
                 raise ValueError("not enough complete baseline runs for requested minimum")
             report = compare_paired(baseline, rows)
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        write_report_atomically(args.out, report)
     except (OSError, ValueError, TypeError) as exc:
         print(f"measured token benchmark: {exc}", file=sys.stderr)
         return 2
