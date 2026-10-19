@@ -204,7 +204,9 @@ def _cross(a: Vec, b: Vec) -> Vec:
 def _area2(vertices: list[Vec], triangle: tuple[int, int, int]) -> float:
     a, b, c = (vertices[i] for i in triangle)
     n = _cross(_sub(b, a), _sub(c, a))
-    return math.sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2])
+    # hypot does not square an already tiny/huge cross product: the naïve
+    # sqrt(nx**2 + ny**2 + nz**2) underflows valid submicron triangles.
+    return math.hypot(*n)
 
 
 def _normal(vertices: list[Vec], triangle: tuple[int, int, int]) -> Vec:
@@ -357,7 +359,12 @@ def scale_to_longest_edge(vertices: list[Vec], longest_edge: float) -> tuple[lis
     if extent <= 0:
         raise PrintExportError("model has zero extent; cannot scale")
     factor = longest_edge / extent
-    return [(x * factor, y * factor, z * factor) for x, y, z in vertices], factor
+    if not math.isfinite(factor) or factor <= 0:
+        raise PrintExportError("scale factor is outside finite float range")
+    result = [(x * factor, y * factor, z * factor) for x, y, z in vertices]
+    if not all(math.isfinite(c) for vertex in result for c in vertex):
+        raise PrintExportError("scaled geometry exceeds finite float range")
+    return result, factor
 
 
 def assert_stl_float32_geometry(
@@ -440,10 +447,13 @@ def build_export(meshes: list[dict[str, Any]], *, weld: float = DEFAULT_WELD,
         remap = {old: new for new, old in enumerate(used)}
         vertices = [vertices[old] for old in used]
         triangles = [(remap[a], remap[b], remap[c]) for a, b, c in triangles]
-    manifold = analyze_manifold(vertices, triangles)
     scale = 1.0
     if longest_edge_mm is not None:
         vertices, scale = scale_to_longest_edge(vertices, longest_edge_mm)
+    # Evaluate volumes in the final coordinate system. Multiplying a tiny
+    # source volume by scale**3 can overflow even when the final volume is
+    # entirely finite and accurately representable.
+    manifold = analyze_manifold(vertices, triangles)
     low, high = bounds(vertices)
     report = {
         "sourceMeshCount": merged["sourceMeshCount"],
@@ -457,9 +467,11 @@ def build_export(meshes: list[dict[str, Any]], *, weld: float = DEFAULT_WELD,
         "bounds": {"min": list(low), "max": list(high), "size": [high[i] - low[i] for i in range(3)]},
         **manifold,
     }
-    report["volume"] = sum(shell["signedVolume"] for shell in manifold["shells"]) * scale ** 3
-    for shell in report["shells"]:
-        shell["signedVolume"] *= scale ** 3
+    report["volume"] = math.fsum(shell["signedVolume"] for shell in manifold["shells"])
+    if not math.isfinite(report["volume"]) or any(
+        not math.isfinite(shell["signedVolume"]) for shell in manifold["shells"]
+    ):
+        raise PrintExportError("scaled mesh volume exceeds finite float range")
     return {"vertices": vertices, "triangles": triangles, "report": report}
 
 

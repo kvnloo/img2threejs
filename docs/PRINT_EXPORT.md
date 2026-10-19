@@ -167,3 +167,13 @@ geometry, STL/OBJ, independently parsed import receipts, and G-code.
 proof of likeness to a supplied photograph or printable completion of the
 loot-chest demo. Actual print safety, wall thickness, supports, calibration
 and physical output must be independently checked for the chosen printer.
+
+### Stable geometric scaling
+
+Triangle area uses a stable vector norm so very small, but finite, input
+features are not silently discarded before the requested physical scaling.
+Signed shell volumes are measured on the final scaled geometry rather than
+using a potentially overflowing intermediate `scaleFactor ** 3`. A
+non-finite factor, coordinate or volume is a hard input error; none produces a
+printable artifact. Input-vertex welding is still performed before scaling,
+so set `--weld` in the source coordinate units.

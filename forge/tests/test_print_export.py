@@ -113,6 +113,31 @@ class ClosedSolids(unittest.TestCase):
         self.assertEqual(report["vertexCount"], 8)
         self.assertTrue(report["watertight"])
 
+    def test_tiny_source_can_scale_to_print_millimetres_without_overflow(self):
+        # A tiny but topologically valid source cube used to vanish during
+        # double-precision area checks; scale**3 subsequently overflowed.
+        result = print_export.build_export(
+            [cube(size=1e-120)], weld=1e-125, longest_edge_mm=100.0
+        )
+        report = result["report"]
+        self.assertTrue(report["watertight"])
+        self.assertEqual(report["degenerateTrianglesDropped"], 0)
+        self.assertEqual(report["zeroVolumeShellCount"], 0)
+        self.assertAlmostEqual(report["volume"], 1_000_000, places=4)
+        self.assertAlmostEqual(max(report["bounds"]["size"]), 100.0, places=9)
+
+    def test_stable_area_norm_avoids_cross_product_square_underflow(self):
+        vertices = [(0.0, 0.0, 0.0), (1e-100, 0.0, 0.0), (0.0, 1e-100, 0.0)]
+        area2 = print_export._area2(vertices, (0, 1, 2))
+        self.assertGreater(area2, 0.0)
+        self.assertAlmostEqual(area2 / 1e-200, 1.0)
+
+    def test_extreme_scale_factor_is_rejected_before_obj_output(self):
+        with self.assertRaisesRegex(print_export.PrintExportError, "finite float"):
+            print_export.scale_to_longest_edge(
+                [(0, 0, 0), (1e-200, 0, 0)], 1e200
+            )
+
     def test_two_disjoint_parts_are_two_closed_shells(self):
         report = print_export.build_export([cube(), cube(offset=(3, 0, 0), name="b")])["report"]
         self.assertTrue(report["watertight"])
