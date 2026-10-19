@@ -19,6 +19,12 @@ skipped. Missing/unready/changed shots are requeued. The manifest and the PNG
 files are never edited by this planner, so a timeout cannot discard previously
 valid captures.
 
+For `glb-mediated-v2` manifests, the planner also verifies the published
+`renderProfile.path` against `renderProfile.sha256`. A changed or missing profile
+invalidates the entire resume: a screenshot with an intact hash is **not**
+comparable when the shared camera/lighting contract has changed. Initialize a
+new governed capture manifest rather than relabeling stale captures.
+
 An actual browser adapter still must await the viewer's runtime-ready signal,
 save the screenshot, and use `render_bridge.py record` or `record-reference`
 to persist a truthful ready receipt. Re-run the planner after each completed
