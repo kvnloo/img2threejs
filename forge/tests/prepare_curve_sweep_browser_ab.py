@@ -34,7 +34,6 @@ def main() -> None:
     old_spec.loader.exec_module(baseline)
 
     spec = spec_with("curve-sweep", "continuous-sculpt")
-    spec["materials"][0]["textureless"] = {"declared": True}
     spec["componentTree"][1]["geometryDescriptor"] = {
         "curveSweep": {
             "spine": [[-0.48, -0.32, 0], [0.0, 0.44, 0.08], [0.48, -0.20, 0]],
