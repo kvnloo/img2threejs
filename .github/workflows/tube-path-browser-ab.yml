@@ -1,0 +1,59 @@
+name: Tube-path real-browser A/B
+on:
+  pull_request:
+    paths:
+      - 'forge/stage3_build/generate_threejs_factory.py'
+      - 'forge/tests/prepare_tube_path_browser_ab.py'
+      - 'runtime/scripts/tube_path_browser_ab.mjs'
+      - '.github/workflows/tube-path-browser-ab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chromium-threejs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated browser dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/img2-tube-path-deps"
+          cd "$RUNNER_TEMP/img2-tube-path-deps"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --no-save playwright@1.56.0 three@0.169.0 esbuild@0.25.12 pngjs@7.0.0
+          npx playwright install --with-deps chromium
+      - name: Generate exact-spec baseline versus patched factories
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show origin/main:forge/stage3_build/generate_threejs_factory.py > "$RUNNER_TEMP/img2-tube-path-deps/base_generator.py"
+          python3 forge/tests/prepare_tube_path_browser_ab.py \
+            --baseline-generator "$RUNNER_TEMP/img2-tube-path-deps/base_generator.py" \
+            --out-dir "$RUNNER_TEMP/img2-tube-path-deps"
+          cd "$RUNNER_TEMP/img2-tube-path-deps"
+          ./node_modules/.bin/esbuild before.ts --bundle --platform=browser --format=esm --outfile=before.js
+          ./node_modules/.bin/esbuild after.ts --bundle --platform=browser --format=esm --outfile=after.js
+      - name: Screenshot fixed-camera WebGL A/B and assert geometry change
+        shell: bash
+        env:
+          IMG2THREEJS_AB_ROOT: ${{ runner.temp }}/img2-tube-path-deps
+        run: |
+          set -euo pipefail
+          node runtime/scripts/tube_path_browser_ab.mjs
+      - name: Upload geometric A/B evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tube-path-browser-ab
+          path: ${{ runner.temp }}/img2-tube-path-ab/
+          if-no-files-found: ignore
+          retention-days: 7
