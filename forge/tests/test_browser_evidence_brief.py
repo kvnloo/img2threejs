@@ -122,6 +122,39 @@ class BrowserBriefTests(unittest.TestCase):
         self.assertIn("unverified-reference", brief["errorCategories"])
         self.assertIn("duplicate-capture", brief["errorCategories"])
 
+    def test_unsafe_identifiers_are_redacted_without_fake_duplicate_errors(self):
+        # Two distinct URLs can have the same truncated/sanitized prefix.
+        # Display their positions, not parts of hostnames, paths or tokens.
+        first = self.manifest["captures"][0]
+        first["id"] = "https://secret.example/private/alpha?token=SENSITIVE"
+        second = dict(first)
+        second["id"] = "https://secret.example/private/beta?token=DIFFERENT"
+        self.manifest["captures"].append(second)
+        write_manifest(self.path, self.manifest)
+        brief = build_brief(self.path)
+        rendered = json.dumps(brief)
+        self.assertEqual(brief["pendingIds"], ["capture-0", "capture-1"])
+        self.assertNotIn("secret", rendered)
+        self.assertNotIn("token", rendered)
+        self.assertNotIn("duplicate-capture", brief["errorCategories"])
+
+        # Real duplicates must still be detected using raw identity, not aliases.
+        second["id"] = first["id"]
+        write_manifest(self.path, self.manifest)
+        brief = build_brief(self.path)
+        self.assertIn("duplicate-capture", brief["errorCategories"])
+
+    def test_nonstring_and_long_ids_never_crash_or_leak(self):
+        first = self.manifest["captures"][0]
+        for raw in (["untrusted"], {"token": "SECRET"}, "A" * 96):
+            with self.subTest(raw_type=type(raw).__name__):
+                first["id"] = raw
+                write_manifest(self.path, self.manifest)
+                brief = build_brief(self.path)
+                self.assertFalse(brief["evidenceComplete"])
+                self.assertEqual(brief["pendingIds"], ["capture-0"])
+                self.assertNotIn("SECRET", json.dumps(brief))
+
     def test_cli_exit_codes_and_bounded_ids(self):
         args = ["--manifest", str(self.path), "--strict"]
         with redirect_stdout(io.StringIO()) as out:
