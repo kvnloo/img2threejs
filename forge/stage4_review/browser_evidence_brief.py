@@ -180,8 +180,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         result = build_brief(args.manifest, since=args.since, max_ids=args.max_ids)
-    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
-        # No raw manifest excerpts or browser logs in the error path, either.
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, json.JSONDecodeError) as exc:
+        # An invalid nested reference object can trigger AttributeError in an
+        # older render_bridge validator. Fail closed without printing its
+        # absolute-path traceback or any raw manifest data.
         print(f"browser brief: {type(exc).__name__}", file=sys.stderr)
         return 2
     print(json.dumps(result, ensure_ascii=True, separators=(",", ":") if not args.pretty else None,
