@@ -27,7 +27,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/img2-browser-deps"
           cd "$RUNNER_TEMP/img2-browser-deps"
           npm init -y >/dev/null
-          npm install --no-audit --no-fund --no-save playwright@1.56.0 three@0.169.0
+          npm install --no-audit --no-fund --no-save playwright@1.56.0 three@0.169.0 esbuild@0.25.12
           npx playwright install --with-deps chromium
       - name: Capture actual Three.js scene and run Python gate
         shell: bash
