@@ -228,6 +228,10 @@ def fit(initial: Sequence[float], bounds: Sequence[Sequence[float]], objective: 
                 if evaluations >= config.max_evaluations:
                     if candidate_direction:
                         parameters, current_score = candidate_parameters, candidate_score
+                    # Carry the independently verified telemetry fix from fork PR #29.
+                    # An earlier coordinate in this iteration may already have
+                    # improved the accepted score before the next probe hits budget.
+                    if candidate_direction or improved:
                         history.append(FitTelemetry(iteration, evaluations, current_score, True, step_sizes))
                         return _result(parameters, current_score, "max-evaluations", iteration, evaluations, config, history, coordinate_order)
                     return _result(parameters, current_score, "max-evaluations", iteration - 1, evaluations, config, history, coordinate_order)
