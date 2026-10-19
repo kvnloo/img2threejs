@@ -54,6 +54,22 @@ def unindexed_cube():
     return {"name": "soup", "vertices": soup}
 
 
+def cube_with_split_corner(low, high):
+    """Two instances of the origin vertex occur in the same triangle soup.
+
+    A closed cube uses its origin corner six times, across three pairs of
+    faces. Alternating their positions models a tiny seam in imported data.
+    """
+    soup = unindexed_cube()
+    seen = 0
+    for index, vertex in enumerate(soup["vertices"]):
+        if vertex == [0, 0, 0]:
+            soup["vertices"][index] = list(low if seen % 2 == 0 else high)
+            seen += 1
+    assert seen == 6
+    return soup
+
+
 def run_cli(*argv):
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -80,6 +96,22 @@ class ClosedSolids(unittest.TestCase):
         noisy = unindexed_cube()
         noisy["vertices"] = [[c + (1e-9 if n % 2 else -1e-9) for c in v] for n, v in enumerate(noisy["vertices"])]
         self.assertTrue(print_export.build_export([noisy])["report"]["watertight"])
+
+    def test_sub_tolerance_seam_crossing_rounding_boundary_stays_closed(self):
+        # round(0.49) and round(0.51) disagree, but these positions are
+        # only 0.02 * weld apart; a geometric weld must join them.
+        weld = 0.001
+        soup = cube_with_split_corner([0.49 * weld, 0, 0], [0.51 * weld, 0, 0])
+        report = print_export.build_export([soup], weld=weld)["report"]
+        self.assertEqual(report["vertexCount"], 8)
+        self.assertTrue(report["watertight"])
+
+    def test_sub_tolerance_seam_across_spatial_bucket_boundary_stays_closed(self):
+        weld = 0.001
+        soup = cube_with_split_corner([0.999 * weld, 0, 0], [1.001 * weld, 0, 0])
+        report = print_export.build_export([soup], weld=weld)["report"]
+        self.assertEqual(report["vertexCount"], 8)
+        self.assertTrue(report["watertight"])
 
     def test_two_disjoint_parts_are_two_closed_shells(self):
         report = print_export.build_export([cube(), cube(offset=(3, 0, 0), name="b")])["report"]
@@ -117,6 +149,20 @@ class BrokenSolidsAreReported(unittest.TestCase):
         self.assertEqual(len(report["nonManifoldVertexSample"]), 1)
         self.assertEqual(report["shellCount"], 2)
         self.assertFalse(report["watertight"])
+
+    def test_diagonal_points_inside_same_rounding_cell_do_not_hide_a_gap(self):
+        # Both points round to (0, 0, 0) per coordinate, but their
+        # Euclidean distance is sqrt(3) * 0.98 * weld (> weld).
+        # Collapsing the gap would incorrectly certify a cracked cube.
+        weld = 0.001
+        soup = cube_with_split_corner(
+            [-0.49 * weld] * 3,
+            [0.49 * weld] * 3,
+        )
+        report = print_export.build_export([soup], weld=weld)["report"]
+        self.assertEqual(report["vertexCount"], 9)
+        self.assertFalse(report["watertight"])
+        self.assertGreater(report["boundaryEdgeCount"], 0)
 
     def test_fin_sharing_an_edge_is_non_manifold(self):
         mesh = cube()
