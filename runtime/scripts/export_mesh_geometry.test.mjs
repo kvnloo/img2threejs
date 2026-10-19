@@ -135,6 +135,30 @@ test('instance budgets and missing matrices fail closed', () => {
   assert.deepEqual(collectMeshGeometry(opts).skippedMeshes.map(m => m.reason), ['missing-instance-matrices']);
 });
 
+test('active instanced morph poses are not exported as unchanged geometry', () => {
+  const copies = makeMesh('morph-copies');
+  copies.isInstancedMesh = true;
+  copies.count = 1;
+  copies.instanceMatrix = { array: [...IDENTITY] };
+  const opts = install(copies);
+  copies.morphTexture = { image: { data: Float32Array.of(1) } };
+  let result = collectMeshGeometry(opts);
+  assert.equal(result.incomplete, true);
+  assert.equal(result.meshes.length, 0);
+  assert.deepEqual(result.skippedMeshes.map(m => m.reason), ['active-morph-targets']);
+
+  copies.morphTexture = null;
+  copies.morphTargetInfluences = [0.25];
+  result = collectMeshGeometry(opts);
+  assert.equal(result.incomplete, true);
+  assert.deepEqual(result.skippedMeshes.map(m => m.reason), ['active-morph-targets']);
+
+  copies.morphTargetInfluences = [0];
+  result = collectMeshGeometry(opts);
+  assert.equal(result.incomplete, false, 'neutral static instances remain supported');
+  assert.deepEqual(result.meshes.map(m => m.name), ['morph-copies[0]']);
+});
+
 test('skinned meshes remain explicitly incomplete evidence', () => {
   const skin = makeMesh('skin');
   skin.isSkinnedMesh = true;
