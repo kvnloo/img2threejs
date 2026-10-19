@@ -345,8 +345,9 @@ any readiness flag remain supported.
 
 Static `InstancedMesh` is expanded to one world-space receipt per instance (with
 instance colors), bounded by explicit instance, vertex, and total-triangle caps.
-Unsupported active geometry (skinned, morphed, invalid, or over budget)
-and active partial draw ranges yield `incomplete: true`. Hidden and explicitly filtered
+Unsupported active geometry (skinned, active morph targets including instanced
+`morphTexture`, invalid, or over budget) and active partial draw ranges yield
+`incomplete: true`. Instanced morph weights are not silently treated as static. Hidden and explicitly filtered
 meshes are named in `skippedMeshes` but are not errors. If there is no usable subject mesh,
 the export is also incomplete. A failed/incomplete run removes stale `--out` evidence and
 writes `<out>.incomplete.json` diagnostics (exit 2), not a successful mesh manifest.
