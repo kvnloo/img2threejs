@@ -10,8 +10,30 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: pocket-world-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  data-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        node: ['18', '22']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Run Pocket World data regressions
+        run: node --test integrations/pocket_world/world-data.test.mjs
+      - name: Check application syntax
+        run: node --check integrations/pocket_world/app.mjs
   chromium-pocket-world:
+    needs: data-tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

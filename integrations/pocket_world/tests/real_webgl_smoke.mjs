@@ -19,6 +19,30 @@ const { build } = require('esbuild');
 const threeRoot = join(resolve(depsRoot), 'node_modules', 'three');
 const threePackage = JSON.parse(await readFile(join(threeRoot, 'package.json'), 'utf8'));
 assert.equal(threePackage.version, '0.169.0', 'browser smoke must match pinned Three.js r169');
+// Read-only observers are appended only to the test bundle, never the preview.
+const observer = `
+globalThis.__pocketSmoke = {
+  snapshot: () => ({scoutCell, scoutDestination, collected, relief}),
+  tapTarget: () => {
+    const rect = canvas.getBoundingClientRect();
+    const picker = new THREE.Raycaster();
+    for (const cell of cells) {
+      if (cell === scoutCell) continue;
+      const [x, , z] = positionOf(cell, 0);
+      const point = new THREE.Vector3(x, tileHeight(data.heights[cell], relief), z).project(camera);
+      const clientX = rect.left + (point.x + 1) * rect.width / 2;
+      const clientY = rect.top + (1 - point.y) * rect.height / 2;
+      if (clientX < 20 || clientY < 20 || clientX > rect.right - 20 || clientY > rect.bottom - 20 ||
+          document.elementFromPoint(clientX, clientY) !== canvas) continue;
+      picker.setFromCamera(new THREE.Vector2(point.x, point.y), camera);
+      if (picker.intersectObjects(beacons.filter(beacon => beacon.visible), false).length) continue;
+      const hit = picker.intersectObject(world, false)[0];
+      if (hit && cells[hit.instanceId] === cell) return {x:clientX, y:clientY, cell};
+    }
+    return null;
+  },
+};`;
+
 const bundlePath = join(resolve(depsRoot), 'pocket-world-real-webgl.js');
 await build({
   entryPoints: [join(ROOT, 'app.mjs')],
@@ -31,6 +55,11 @@ await build({
   plugins: [{
     name: 'pinned-three',
     setup(bundler) {
+      bundler.onLoad({ filter: /[\\/]app\.mjs$/ }, async args => ({
+        contents: (await readFile(args.path, 'utf8')) + '\n' + observer,
+        loader: 'js',
+        resolveDir: dirname(args.path),
+      }));
       bundler.onResolve({ filter: /^three$/ }, () => ({ path: join(threeRoot, 'build', 'three.module.js') }));
       bundler.onResolve({ filter: /^three\/addons\// }, args => ({
         path: join(threeRoot, 'examples', 'jsm', args.path.slice('three/addons/'.length)),
@@ -118,12 +147,54 @@ try {
   await page.locator('#load').setInputFiles({ name:'pocket-world.json', mimeType:'application/json', buffer: json });
   await page.waitForFunction(() => document.querySelector('#source-label')?.textContent === 'Restored world');
   assert.equal(await page.locator('#count').textContent(), progress);
+  // Touch emulation uses the actual app, OrbitControls and browser capture.
+  // It is not a claim of physical Android/iOS device performance.
+  const mobile = await browser.newPage({
+    viewport: {width: 390, height: 844}, deviceScaleFactor: 2,
+    isMobile: true, hasTouch: true, acceptDownloads: true,
+  });
+  mobile.on('pageerror', error => errors.push(String(error)));
+  await mobile.goto(url, {waitUntil: 'domcontentloaded'});
+  await mobile.waitForFunction(() => globalThis.__pocketSmoke?.tapTarget());
+  const target = await mobile.evaluate(() => globalThis.__pocketSmoke.tapTarget());
+  assert.ok(target, 'mobile controls cover all tappable terrain');
+  await mobile.touchscreen.tap(target.x, target.y);
+  await mobile.waitForFunction(cell => {
+    const state = globalThis.__pocketSmoke.snapshot();
+    return state.scoutCell === cell && state.scoutDestination === -1;
+  }, target.cell, {timeout: 30000});
+
+  const beforePinch = await mobile.evaluate(() => globalThis.__pocketSmoke.snapshot());
+  const center = await mobile.evaluate(() => globalThis.__pocketSmoke.tapTarget());
+  assert.ok(center, 'mobile terrain unavailable after navigation');
+  const session = await mobile.context().newCDPSession(mobile);
+  const first = {x:center.x, y:center.y, id:1};
+  const second = {x:center.x + 16, y:center.y, id:2};
+  await session.send('Input.dispatchTouchEvent', {type:'touchStart', touchPoints:[first]});
+  await session.send('Input.dispatchTouchEvent', {type:'touchStart', touchPoints:[first, second]});
+  await session.send('Input.dispatchTouchEvent', {type:'touchMove', touchPoints:[
+    {...first, x:first.x - 5}, {...second, x:second.x + 5},
+  ]});
+  await session.send('Input.dispatchTouchEvent', {type:'touchEnd', touchPoints:[]});
+  await session.detach();
+  assert.deepEqual(await mobile.evaluate(() => globalThis.__pocketSmoke.snapshot()), beforePinch,
+    'pinch zoom must not move the scout or collect a beacon');
+  await mobile.locator('#viewport').screenshot({path:join(shotDir, 'world-mobile-portrait.png')});
+  await mobile.setViewportSize({width:844, height:390});
+  await mobile.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);
+  await mobile.locator('#hint').scrollIntoViewIfNeeded();
+  await mobile.locator('#hint').tap();
+  await mobile.waitForFunction(() => globalThis.__pocketSmoke.snapshot().collected > 0, null, {timeout:30000});
+  await mobile.locator('#viewport').screenshot({path:join(shotDir, 'world-mobile-landscape.png')});
+  const mobileState = await mobile.evaluate(() => globalThis.__pocketSmoke.snapshot());
+  await mobile.close();
   assert.deepEqual(errors, [], 'browser page errors');
   await writeFile(join(shotDir, 'verification.json'), JSON.stringify({
     webgl, brightSubjectPixels: visible, collected: progress, receiptVersion: receipt.version,
     errorCount: errors.length,
+    mobileEmulation: {touchTarget:target.cell, pinchPreservedAdventure:true, landscapeCollected:mobileState.collected},
   }, null, 2));
-  console.log(`PASS real WebGL r169, ${visible} visible island pixels, beacons ${progress}, JSON v2 restored`);
+  console.log(`PASS real WebGL r169, ${visible} visible island pixels, beacons ${progress}, JSON v2 restored, mobile touch/pinch/landscape passed`);
 } finally {
   if (browser) await browser.close();
   await new Promise(resolveClose => server.close(resolveClose));

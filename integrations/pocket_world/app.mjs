@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, buildBridge, nextBeaconRoute, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } from './world-data.mjs';
+import {
+  GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, buildBridge,
+  nextBeaconRoute, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld,
+  previewWorldPixels,
+} from './world-data.mjs';
 
 const $ = id => document.getElementById(id);
 const canvas = $('viewport');
@@ -169,21 +173,30 @@ function beginScoutStep() {
   scoutFraction = 0;
 }
 
-function routeScout(goal) {
-  if (scoutCell === -1) return;
-  const path = findTilePath(data, scoutCell, goal);
+function scoutRouteStart() {
+  return scoutDestination === -1 ? scoutCell : scoutDestination;
+}
+
+function followScoutPath(path) {
   if (!path.length) {
     announce('That tile is on a disconnected island. Try another.');
     return;
   }
-  if (path.length === 1) {
+  // Finish the current edge before turning. Restarting from a fractional
+  // position can cut diagonally across invisible cells or ignore a return tap.
+  const moving = scoutDestination !== -1;
+  scoutQueue = path.slice(1);
+  if (!moving && path.length === 1) {
     addRipple(scout.position.x, scout.position.z);
     for (const beacon of beacons) if (beacon.userData.cell === scoutCell) collectBeacon(beacon);
     return;
   }
-  scoutQueue = path.slice(1);
-  beginScoutStep();
-  $('scout-status').textContent = `Scout hiking · ${path.length - 1} tile journey`;
+  if (!moving) beginScoutStep();
+  $('scout-status').textContent = `Scout hiking · ${path.length - 1 + Number(moving)} tile journey`;
+}
+
+function routeScout(goal) {
+  if (scoutCell !== -1) followScoutPath(findTilePath(data, scoutRouteStart(), goal));
 }
 
 function collectBeacon(beacon) {
@@ -207,10 +220,11 @@ function animateScout(dt, reducedMotion) {
   }
 }
 
-function chooseBeaconIndices() {
+function chooseBeaconIndices(previous = []) {
   const anchors = [[.16, .22], [.81, .19], [.5, .49], [.2, .82], [.82, .8]];
-  const chosen = new Set();
-  return anchors.map(([ax, ay]) => {
+  const chosen = new Set(previous.filter(i => data.visible[i]));
+  for (const [ax, ay] of anchors) {
+    if (chosen.size >= Math.min(5, cells.length)) break;
     let best = -1, score = Infinity;
     for (let i = 0; i < data.size ** 2; i++) {
       if (!data.visible[i] || chosen.has(i)) continue;
@@ -220,15 +234,15 @@ function chooseBeaconIndices() {
       if (rank < score) { best = i; score = rank; }
     }
     if (best !== -1) chosen.add(best);
-    return best;
-  }).filter(i => i !== -1);
+  }
+  return [...chosen];
 }
 
 function resetBeacons(previous = null) {
   for (const beacon of beacons) scene.remove(beacon);
   beacons = [];
-  const oldCells = previous?.beaconCells;
-  const cellsToUse = oldCells?.length && oldCells.every(i => data.visible[i]) ? oldCells : chooseBeaconIndices();
+  // Keep surviving beacons, but fill newly available slots after a sparse-world bridge.
+  const cellsToUse = chooseBeaconIndices(previous?.beaconCells);
   const discovered = new Set(previous?.collectedCells || []);
   collected = 0;
   for (const [index, cell] of cellsToUse.entries()) {
@@ -339,10 +353,10 @@ $('hint').addEventListener('click', () => {
   if (scoutCell < 0) { announce('No visible terrain to explore.'); return; }
   const missing = beacons.filter(b => b.visible).map(b => b.userData.cell);
   if (!missing.length) { announce('All beacons found!'); return; }
-  const route = nextBeaconRoute(data, scoutCell, missing);
+  const route = nextBeaconRoute(data, scoutRouteStart(), missing);
   if (!route) { announce('No beacon is reachable. Build a bridge to another island.'); return; }
   setBridgeMode(false);
-  routeScout(route.target);
+  followScoutPath(route.path);
   if (route.steps) announce(`Compass found a beacon ${route.steps} tile${route.steps === 1 ? '' : 's'} away.`);
 });
 
@@ -448,14 +462,17 @@ $('reset').addEventListener('click', () => {
   controls.update();
 });
 
-$('save').addEventListener('click', () => {
-  const receipt = serializeWorld(data, relief, saveAdventure());
-  const url = URL.createObjectURL(new Blob([receipt], { type: 'application/json' }));
+function downloadFile(contents, type, filename) {
+  const url = URL.createObjectURL(new Blob([contents], { type }));
   const link = document.createElement('a');
   link.href = url;
-  link.download = 'pocket-world.json';
+  link.download = filename;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+$('save').addEventListener('click', () => {
+  downloadFile(serializeWorld(data, relief, saveAdventure()), 'application/json', 'pocket-world.json');
   announce('World saved as a portable JSON receipt.');
 });
 
@@ -487,21 +504,26 @@ $('load').addEventListener('change', async event => {
 });
 
 $('export').addEventListener('click', () => {
-  const code = exportThreeFactory(data, relief);
-  const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'pocket-world.mjs';
-  a.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+  downloadFile(exportThreeFactory(data, relief), 'text/javascript', 'pocket-world.mjs');
   announce('Standalone Three.js factory exported.');
 });
 
 let down = null;
-canvas.addEventListener('pointerdown', event => { down = { x: event.clientX, y: event.clientY }; });
+canvas.addEventListener('pointerdown', event => {
+  down = event.isPrimary && event.button === 0 && !down
+    ? { id: event.pointerId, x: event.clientX, y: event.clientY }
+    : null;
+});
+canvas.addEventListener('pointermove', event => {
+  // Once a drag begins, returning to its origin must not turn it into a tap.
+  if (down && (event.pointerId !== down.id ||
+      Math.hypot(event.clientX - down.x, event.clientY - down.y) > 7)) down = null;
+});
 canvas.addEventListener('pointerup', event => {
-  if (!down || Math.hypot(event.clientX - down.x, event.clientY - down.y) > 7) { down = null; return; }
+  const tap = down;
   down = null;
+  if (!tap || !event.isPrimary || event.button !== 0 || event.pointerId !== tap.id ||
+      Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 7) return;
   const rect = canvas.getBoundingClientRect();
   pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
@@ -525,7 +547,10 @@ canvas.addEventListener('pointerup', event => {
     routeScout(cell);
   }
 });
-canvas.addEventListener('pointercancel', () => { down = null; });
+for (const type of ['pointercancel', 'lostpointercapture']) {
+  canvas.addEventListener(type, () => { down = null; });
+}
+window.addEventListener('blur', () => { down = null; });
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;

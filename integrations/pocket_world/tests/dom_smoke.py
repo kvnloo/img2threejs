@@ -2,14 +2,16 @@
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 from PIL import Image
+import os
 import re
+import shutil
 
 root=Path(__file__).resolve().parents[1]
 html=(root/'index.html').read_text()
 html=re.sub(r'<script type="importmap">.*?</script>', '', html, flags=re.S)
 html=re.sub(r'<script type="module" src="./app.mjs"></script>', '', html)
 world=re.sub(r'(?m)^export ', '', (root/'world-data.mjs').read_text())
-app='\n'.join(line for line in (root/'app.mjs').read_text().splitlines() if not line.startswith('import '))
+app=re.sub(r'(?ms)^import\s.*?;\n', '', (root/'app.mjs').read_text())
 source="""
 const { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, buildBridge, nextBeaconRoute, validateAdventure, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } = (() => {
 """+world+"""
@@ -19,12 +21,13 @@ const THREE=window.__THREE;
 const OrbitControls=window.__OrbitControls;
 """+app+"""
 window.__pocketTest={state:()=>({cells:cells.length,beacons:beacons.length,collected,scoutCell,scoutDestination,scoutVisible:scout.visible,scoutY:scout.position.y, dataSize:data.size}),
-    send: cell=>routeScout(cell),step:(dt)=>animateScout(dt,false),path:(a,b)=>findTilePath(data,a,b),beaconCells:()=>beacons.map(b=>b.userData.cell),indexOf:cell=>cells.indexOf(cell),preview:()=>$('reference').getContext('2d').getImageData(0,0,28,28).data.length
+    bridge:cell=>bridgeClick(cell),validPassport:()=>{try{serializeWorld(data,relief,saveAdventure());return true}catch{return false}},reset:cell=>resetScout(cell),navigation:()=>({scoutCell,scoutDestination,scoutFraction,queue:[...scoutQueue],x:scout.position.x,z:scout.position.z}),send: cell=>routeScout(cell),step:(dt)=>animateScout(dt,false),path:(a,b)=>findTilePath(data,a,b),beaconCells:()=>beacons.map(b=>b.userData.cell),indexOf:cell=>cells.indexOf(cell),preview:()=>$('reference').getContext('2d').getImageData(0,0,28,28).data.length
 };
 """
 
 with sync_playwright() as p:
-    browser=p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
+    executable = os.environ.get('CHROMIUM_EXECUTABLE') or shutil.which('chromium')
+    browser=p.chromium.launch(executable_path=executable,headless=True,args=['--no-sandbox'])
     page=browser.new_page(viewport={'width':1100,'height':740},accept_downloads=True)
     errs=[]
     page.on('pageerror', lambda e: errs.append(str(e)))
@@ -222,6 +225,81 @@ with sync_playwright() as p:
     check('invalid JSON leaves current world intact',page.locator('#source-label').inner_text()==previous and 'Invalid' in page.locator('#notice').inner_text())
     invalid.unlink(missing_ok=True)
     saved.unlink(missing_ok=True)
+    # Retargeting must finish the current cardinal hop before making a turn.
+    page.locator('#remix').click()
+    turn = page.evaluate("""() => {
+        const t = window.__pocketTest;
+        t.reset(0); t.send(1); t.step(.125);
+        const before = t.navigation();
+        t.send(28);
+        const after = t.navigation();
+        for (let i=0; i<100; i++) t.step(.4);
+        return {before, after, final:t.navigation()};
+    }""")
+    check('retarget preserves the current cardinal hop',
+          turn['after']['scoutDestination']==1 and turn['after']['scoutFraction']==turn['before']['scoutFraction'])
+    check('retarget eventually reaches the new requested tile',turn['final']['scoutCell']==28)
+    returned = page.evaluate("""() => {
+        const t = window.__pocketTest;
+        t.reset(0); t.send(1); t.step(.125); t.send(0);
+        for (let i=0; i<100; i++) t.step(.4);
+        return t.navigation();
+    }""")
+    check('retargeting to the last completed tile returns there',returned['scoutCell']==0)
+
+    # A tap is one primary contact with no drag, cancellation or pinch history.
+    def gesture(events):
+        return page.evaluate("""events => {
+            window.__pocketTest.reset(0);
+            window.__pickTile=1;
+            const canvas=document.getElementById('viewport');
+            for (const [type,extra] of events) {
+                canvas.dispatchEvent(new PointerEvent(type, {
+                    bubbles:true, pointerId:1, isPrimary:true, button:0,
+                    clientX:500, clientY:320, ...extra,
+                }));
+            }
+            delete window.__pickTile;
+            return window.__pocketTest.navigation().scoutDestination;
+        }""",events)
+    for label, events in [
+        ('right-button orbit is not a terrain tap', [('pointerdown',{'button':2}),('pointerup',{'button':2})]),
+        ('drag returning to its origin is not a terrain tap', [('pointerdown',{}),('pointermove',{'clientX':520}),('pointermove',{}),('pointerup',{})]),
+        ('second touch cancels the first tap candidate', [('pointerdown',{}),('pointerdown',{'pointerId':2,'isPrimary':False}),('pointerup',{'pointerId':2,'isPrimary':False}),('pointerup',{})]),
+        ('mismatched pointer cannot finish a tap', [('pointerdown',{}),('pointerup',{'pointerId':2})]),
+        ('cancelled pointer cannot finish a tap', [('pointerdown',{}),('pointercancel',{}),('pointerup',{})]),
+        ('lost pointer capture cancels a tap', [('pointerdown',{}),('lostpointercapture',{}),('pointerup',{})]),
+    ]:
+        check(label, gesture(events)==-1)
+    check('single primary touch still navigates',gesture([
+        ('pointerdown',{'pointerType':'touch'}),('pointerup',{'pointerType':'touch'})])==1)
+
+    # The receipt domain permits 3.0 relief: the HTML control must not clamp it.
+    relief_receipt = dict(receipt, relief=3.0)
+    page.locator('#load').set_input_files({
+        'name':'relief.json', 'mimeType':'application/json',
+        'buffer':json.dumps(relief_receipt).encode(),
+    })
+    page.wait_for_timeout(70)
+    check('valid maximum relief remains editable without clamping',
+          page.locator('#relief').input_value()=='3' and page.locator('#relief-value').inner_text()=='3.0×')
+    # Bridging a two-cell image adds terrain and must fill missing beacon slots.
+    sparse_world = dict(receipt['world'], visible=[int(i in (10,17)) for i in range(784)])
+    sparse = dict(receipt, version=1, world=sparse_world)
+    sparse.pop('adventure', None)
+    page.locator('#load').set_input_files({
+        'name':'sparse.json', 'mimeType':'application/json',
+        'buffer':json.dumps(sparse).encode(),
+    })
+    page.wait_for_timeout(70)
+    check('two-cell source has two beacons and a valid passport',
+          page.evaluate('window.__pocketTest.state().beacons')==2 and page.evaluate('window.__pocketTest.validPassport()'))
+    page.evaluate('() => {window.__pocketTest.bridge(10); window.__pocketTest.bridge(17);}')
+    check('bridge adds missing beacon slots without breaking saves',
+          page.evaluate('window.__pocketTest.state().beacons')==5 and page.evaluate('window.__pocketTest.validPassport()'))
+    page.locator('#undo-bridge').click()
+    check('undo restores the sparse-world beacon count and valid passport',
+          page.evaluate('window.__pocketTest.state().beacons')==2 and page.evaluate('window.__pocketTest.validPassport()'))
     check('no JS uncaught exceptions', not errs)
     print('RESULT',sum(1 for _,ok in checks if ok),'/',len(checks),'errors',errs)
     browser.close()

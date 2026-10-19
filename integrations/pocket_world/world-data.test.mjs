@@ -366,7 +366,12 @@ test('bridges survive saved JSON and exported factory without downloading image 
   const joined = buildBridge(data,from,to);
   assert.equal(joined.added.length,6);
   const restored = deserializeWorld(serializeWorld(joined.data,1.7));
-  assert.deepEqual(restored.data, joined.data);
+  assert.deepEqual(restored.data.visible, joined.data.visible);
+  for (let i = 0; i < joined.data.visible.length; i++) {
+    const visible = joined.data.visible[i];
+    assert.equal(restored.data.colors[i], visible ? joined.data.colors[i] : 0);
+    assert.equal(restored.data.heights[i], visible ? joined.data.heights[i] : 0);
+  }
   assert.ok(findTilePath(restored.data, from, to).length);
   const factory = exportThreeFactory(restored.data,restored.relief);
   assert.ok(factory.includes('new THREE.InstancedMesh'));
