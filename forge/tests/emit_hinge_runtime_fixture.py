@@ -55,10 +55,10 @@ def main():
 
     spec['componentTree'] = [
         box('base', 'Bottom', None, [0, 0, 0], [1.5, 0.1, 1.1]),
-        box('lid', 'Lid', 'base', [0.5, 0, 0], [1.0, 0.06, 1.0],
-            {'axisStart': [0, 0, 0], 'axisEnd': [0, 0, 1], 'restAngleDeg': 0}),
-        box('flap', 'Flap', 'lid', [1.5, 0, 0], [1.0, 0.06, 1.0],
-            {'axisStart': [1, 0, 0], 'axisEnd': [1, 0, 1], 'restAngleDeg': 0}),
+        box('lid', 'Lid', 'base', [1.5, 0, 0], [1.5, 0.06, 1.1],
+            {'axisStart': [0.75, 0, 0], 'axisEnd': [0.75, 0, 1], 'restAngleDeg': 0}),
+        box('flap', 'Flap', 'lid', [1.0, 0, 0], [0.5, 0.06, 1.1],
+            {'axisStart': [0.75, 0, 0], 'axisEnd': [0.75, 0, 1], 'restAngleDeg': 0}),
         box('diagonal', 'Diagonal', 'base', [0.8, -0.8, -0.2], [0.25, 0.25, 0.25],
             {'axisStart': [0.2, -0.7, -0.2], 'axisEnd': [1.2, 0.3, 0.8], 'restAngleDeg': 0}),
     ]
