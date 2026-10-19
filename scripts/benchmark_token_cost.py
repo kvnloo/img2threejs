@@ -79,17 +79,112 @@ def aggregate(rows: list[dict]) -> dict:
     }
 
 
+def compare_paired(baseline_rows: list[dict], candidate_rows: list[dict]) -> dict:
+    """Pair measured runs only when reference, camera, evaluator and budget match.
+
+    This compares token usage, NOT reconstruction fidelity. Treat a smaller
+    token delta as a cost observation, never automatic quality improvement.
+    """
+    baseline = aggregate(baseline_rows)
+    candidate = aggregate(candidate_rows)
+    if baseline["runIds"] != candidate["runIds"]:
+        raise ValueError("paired comparison requires exactly matching run IDs")
+
+    def validate_conditions(rows: list[dict], label: str) -> dict[str, tuple]:
+        conditions: dict[str, tuple] = {}
+        for index, row in enumerate(rows, 1):
+            sha_fields = ("reference_sha256", "render_profile_sha256")
+            for field in sha_fields:
+                value = row.get(field)
+                if (not isinstance(value, str) or len(value) != 64
+                        or any(char not in "0123456789abcdef" for char in value)):
+                    raise ValueError(f"{label} receipt {index}: {field} must be lowercase SHA-256")
+            evaluator = row.get("evaluator_revision")
+            if not isinstance(evaluator, str) or not evaluator.strip():
+                raise ValueError(f"{label} receipt {index}: evaluator_revision is required")
+            budget = row.get("render_budget")
+            if type(budget) is not int or budget < 1:
+                raise ValueError(f"{label} receipt {index}: render_budget must be positive")
+            run_id = row["run_id"]
+            signature = (row["reference_sha256"], row["render_profile_sha256"],
+                         evaluator.strip(), budget)
+            if run_id in conditions and conditions[run_id] != signature:
+                raise ValueError(f"{label} run {run_id}: inconsistent comparison conditions")
+            conditions[run_id] = signature
+        return conditions
+
+    base_meta = validate_conditions(baseline_rows, "baseline")
+    cand_meta = validate_conditions(candidate_rows, "candidate")
+    if base_meta != cand_meta:
+        bad_runs = sorted(k for k in base_meta if base_meta[k] != cand_meta[k])
+        raise ValueError("paired comparison conditions differ for runs: " + ", ".join(bad_runs))
+
+    def by_run(rows: list[dict]) -> dict[str, dict]:
+        sums: dict[str, dict] = {}
+        for row in rows:
+            stats = sums.setdefault(row["run_id"], {
+                "totalTokens": 0, "requests": 0, "costUsd": Decimal(0),
+                "allCostsKnown": True,
+            })
+            stats["totalTokens"] += row["usage"]["total_tokens"]
+            stats["requests"] += 1
+            if "cost_usd" not in row:
+                stats["allCostsKnown"] = False
+            else:
+                stats["costUsd"] += Decimal(str(row["cost_usd"]))
+        return sums
+
+    b, c = by_run(baseline_rows), by_run(candidate_rows)
+    run_rows = {}
+    for run in baseline["runIds"]:
+        left, right = b[run], c[run]
+        both_priced = left["allCostsKnown"] and right["allCostsKnown"]
+        run_rows[run] = {
+            "baselineTokens": left["totalTokens"],
+            "candidateTokens": right["totalTokens"],
+            "deltaTokens": right["totalTokens"] - left["totalTokens"],
+            "baselineRequests": left["requests"],
+            "candidateRequests": right["requests"],
+            "deltaRequests": right["requests"] - left["requests"],
+            "deltaCostUsd": format(right["costUsd"] - left["costUsd"], "f")
+            if both_priced else None,
+            "conditions": {
+                "referenceSha256": base_meta[run][0],
+                "renderProfileSha256": base_meta[run][1],
+                "evaluatorRevision": base_meta[run][2],
+                "renderBudget": base_meta[run][3],
+            },
+        }
+    cost_known = all(x["deltaCostUsd"] is not None for x in run_rows.values())
+    return {
+        "comparisonKind": "paired-provider-usage",
+        "qualityCompared": False,
+        "baseline": baseline,
+        "candidate": candidate,
+        "deltaTokens": candidate["totalTokens"] - baseline["totalTokens"],
+        "deltaCostUsd": format(sum(Decimal(x["deltaCostUsd"]) for x in run_rows.values()), "f")
+        if cost_known else None,
+        "pairedRuns": run_rows,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("usage_jsonl", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--minimum-runs", type=int, default=1)
+    parser.add_argument("--baseline", type=Path, help="measured JSONL receipts for paired A/B comparison")
     args = parser.parse_args(argv)
     try:
         rows = [json.loads(line) for line in args.usage_jsonl.read_text(encoding="utf-8").splitlines() if line.strip()]
         report = aggregate(rows)
         if args.minimum_runs < 1 or report["runCount"] < args.minimum_runs:
             raise ValueError("not enough complete runs for requested minimum")
+        if args.baseline is not None:
+            baseline = [json.loads(line) for line in args.baseline.read_text(encoding="utf-8").splitlines() if line.strip()]
+            if aggregate(baseline)["runCount"] < args.minimum_runs:
+                raise ValueError("not enough complete baseline runs for requested minimum")
+            report = compare_paired(baseline, rows)
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     except (OSError, ValueError, TypeError) as exc:
