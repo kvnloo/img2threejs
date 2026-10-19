@@ -195,13 +195,26 @@ Required:
 - `results.json`
 - `REPORT.md`
 
-## Preregistered multi-family v1 study (separate from one-case calibration)
+## Preregistered multi-family v2 study (after isolating true primitive silhouettes)
 
-The protocol is now committed as
-[`MULTIFAMILY_V1_REGISTERED.json`](MULTIFAMILY_V1_REGISTERED.json)
-*before* any multi-family browser outcomes were obtained. It specifies
-exactly **24 procedural worlds**: 12 training (four per family), 6
-validation (two per family) and 6 reserved holdout (two per family).
+A first [v1 registration](MULTIFAMILY_V1_REGISTERED.json) was run as
+an exploratory three-family pilot. **Visual inspection found that the
+inherited equipment-case lid remained macro geometry across all scenes**,
+dominating the frame even for the lathe/tapered-sweep roots. The affected
+v1 image/evaluator outcomes cannot establish a clean multi-family result:
+they are retained for provenance and **excluded** from subsequent
+training, validation and holdout.
+
+The corrected, separate
+[`MULTIFAMILY_V2_REGISTERED.json`](MULTIFAMILY_V2_REGISTERED.json)
+was committed **before the first v2 browser render**. It preserves the
+same 24 world IDs, train/validation/holdout division and thresholds,
+but demotes the old lid from blockout-macro to later-stage geometry.
+The native generator is tested to emit *exactly the isolated root*
+in each family. Different registration byte hashes prevent inadvertent
+mixing of v1 and v2 receipts. It specifies 12 training worlds (four
+per family), six validation worlds (two per family) and six reserved
+holdouts (two per family).
 
 The three **different native Three.js geometry constructors**, not simply
 new labels for the case model, are:
@@ -263,7 +276,8 @@ source-photo A/B remain future work.
 This is **split-isolated but publicly registered**: a reader can inspect
 holdout parameters in the committed file. We therefore do not advertise
 this as cryptographically secret or human-blinded. The earlier calibrated
-case is excluded from all 24 worlds. None of these procedures changes
+case and all v1 lid-confounded scenes are excluded from every v2 training,
+validation and holdout world. None of these procedures changes
 upstream core thresholds or justifies an upstream PR before human triage.
 
 ### Reproduce the registration and pilot
