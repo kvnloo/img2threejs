@@ -37,12 +37,7 @@ const noticeSection =
   '<summary>Bundled library and repository license notices</summary>' +
   '<pre style="white-space:pre-wrap;font-size:11px">' +
   escaped(notices) + '</pre></details>';
-// Use replacement CALLBACKS, not replacement strings: minified Three.js
-// contains "const single = html.replace(externalImage,
-    'src="data:image/jpeg;base64,' + photo64 + '"')
-  .replace(externalScript, '<script>\n' + escapedBundle + '\n</script>')
-  .replace('</body>', noticeSection + '\n</body>');" and other dollar tokens which String.replace would interpret
-// as special substitutions, silently corrupting the inlined JavaScript.
+// Use a replacement callback so minified bundle text is copied literally.
 const single = html.replace(externalImage,
     () => 'src="data:image/jpeg;base64,' + photo64 + '"')
   .replace(externalScript, () => '<script>\n' + escapedBundle + '\n</script>')
