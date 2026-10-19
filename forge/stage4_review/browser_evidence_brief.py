@@ -122,8 +122,9 @@ def build_brief(path: Path, *, since: str = "", max_ids: int = 8) -> dict[str, A
         if not capture.get("path") or not _has_sha(capture.get("screenshotSha256")):
             categories.add("missing-capture-hash")
             repair.append(cid)
-        if capture.get("consoleErrors") != []:
-            categories.add("missing-or-errored-browser-receipt")
+        console_receipt = capture.get("consoleErrors")
+        if console_receipt != []:
+            categories.add("browser-error" if _has_browser_errors(console_receipt) else "unverified-browser-errors")
             repair.append(cid)
         if reference.get("kind") == "glb":
             baseline = capture.get("reference")
@@ -137,8 +138,9 @@ def build_brief(path: Path, *, since: str = "", max_ids: int = 8) -> dict[str, A
                 if not baseline.get("path") or not _has_sha(baseline.get("screenshotSha256")):
                     categories.add("missing-capture-hash")
                     repair.append(cid)
-                if baseline.get("consoleErrors") != []:
-                    categories.add("missing-or-errored-browser-receipt")
+                baseline_errors = baseline.get("consoleErrors")
+                if baseline_errors != []:
+                    categories.add("browser-error" if _has_browser_errors(baseline_errors) else "unverified-browser-errors")
                     repair.append(cid)
         if v2:
             for record in (capture, capture.get("reference") if reference.get("kind") == "glb" else None):
