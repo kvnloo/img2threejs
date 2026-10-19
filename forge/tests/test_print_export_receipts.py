@@ -72,6 +72,52 @@ class MeshReceiptGateTest(unittest.TestCase):
         self.assertEqual(print_export.load_meshes([MESH]), [MESH])
         self.assertEqual(print_export.load_meshes({"meshes": [MESH]}), [MESH])
 
+    def test_exporter_markers_require_explicit_false_completeness(self):
+        for fragment in (
+            {"schemaVersion": 1, "coordinateSpace": "world"},
+            {"coordinateSpace": "world"},
+            {"skippedMeshes": []},
+            {"skipped": [{"name": "invisible-floor", "reason": "filtered"}]},
+        ):
+            with self.subTest(fragment=fragment):
+                receipt = {"meshes": [MESH], **fragment}
+                with self.assertRaisesRegex(print_export.PrintExportError, "incomplete"):
+                    print_export.load_meshes(receipt)
+        # Historical mesh-only JSON remains a valid raw input, not a browser receipt.
+        self.assertEqual(print_export.load_meshes({"meshes": [MESH]}), [MESH])
+
+    def test_unknown_exporter_schema_version_is_not_certified(self):
+        for invalid in (0, 2, "1", 1.0, True, None):
+            with self.subTest(schemaVersion=invalid):
+                receipt = {"meshes": [MESH], "schemaVersion": invalid,
+                           "coordinateSpace": "world", "incomplete": False}
+                with self.assertRaisesRegex(print_export.PrintExportError, "schemaVersion"):
+                    print_export.load_meshes(receipt)
+        self.assertEqual(print_export.load_meshes({
+            "schemaVersion": 1, "coordinateSpace": "world",
+            "incomplete": False, "meshes": [MESH]}), [MESH])
+
+    def test_allow_open_and_force_cannot_override_missing_completeness(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "incomplete-without-flag.json"
+            destination = root / "model.obj"
+            sentinel = b"keep existing geometry output"
+            destination.write_bytes(sentinel)
+            source.write_text(json.dumps({
+                "schemaVersion": 1, "coordinateSpace": "world",
+                "meshes": [MESH],
+            }), encoding="utf-8")
+            errors = io.StringIO()
+            with contextlib.redirect_stderr(errors):
+                status = print_export.main([
+                    str(source), "--out", str(destination),
+                    "--allow-open", "--force",
+                ])
+            self.assertEqual(status, 2, errors.getvalue())
+            self.assertEqual(destination.read_bytes(), sentinel)
+            self.assertIn("incomplete", errors.getvalue())
+
     def test_allow_open_cannot_override_incomplete_evidence(self):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder)
