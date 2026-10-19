@@ -1185,7 +1185,11 @@ def validate_subdivision_budget(
             "because generated PlaneGeometry has open boundary edges"
         )
         return
-    uses_attachment_cylinder = attachment_emits_cylinder(attachment)
+    # A declared curveSweep spine uses ExtrudeGeometry, never the endpoint cylinder.
+    # Do not incorrectly apply the cylinder's fixed face budget to that mesh.
+    uses_attachment_cylinder = attachment_emits_cylinder(attachment) and not (
+        primitive == "curve-sweep" and isinstance(descriptor.get("curveSweep"), dict)
+    )
     if emitted_primitive == "torus" and not uses_attachment_cylinder:
         errors.append(
             f"component {component_id!r} geometryDescriptor.subdivide.iterations torus subdivision topology is unsupported "
