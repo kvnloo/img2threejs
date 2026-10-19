@@ -221,6 +221,18 @@ Full flags: `grimoire/scripts.md`. Never let a script *score* visuals — that i
    `forge/stage4_review/turntable_gate.py --capture 0=front.png --capture 90=right.png --capture 180=rear.png --capture 270=left.png --json`
    `node runtime/scripts/export_mesh_geometry.mjs --url <preview> --out meshes.json` then
    `forge/stage4_review/self_intersection.py meshes.json --json`
+   The preview must expose a subject model root via
+   `window.__IMG2THREEJS_MESH_ROOT__`, `window.__IMG2THREEJS_CAPTURE__.getModelRoot()`,
+   or `window.__IMG2THREEJS_VIEWER__.explodeRoot/modelRoot`. The studio scene is
+   **never** the default subject: `--allow-scene-root` explicitly opts into a
+   whole-scene diagnostic, which is not proof of an isolated subject.
+   Export requires a real ready viewer and refuses empty, deformed, uninspected,
+   partially drawn, or over-budget active geometry. A failed attempt invalidates
+   earlier `meshes.json` and writes separate `meshes.json.incomplete.json`
+   diagnostics; complete JSON is published atomically. Install optional Playwright
+   and Chromium in an isolated preview environment; the stdlib forge stays
+   dependency-free. Record the exact `skippedMeshes` receipt and do not call a
+   partial capture clean.
    `forge/stage4_review/attachment_anchor.py object-sculpt-spec.json --measured measured.json --json`
    All three exit `0` clean / `1` gate failure / `2` error. A failure blocks `continue` even when
    the global fidelity score passes. Read `sampledVertexCount` / `unmeasuredAttachments` /
