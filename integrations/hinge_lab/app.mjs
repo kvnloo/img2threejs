@@ -226,7 +226,8 @@ document.getElementById('export').addEventListener('click', () => {
   const a = document.createElement('a');
   a.href = href; a.download = 'hinge-lab-pose.json';
   document.body.append(a); a.click(); a.remove();
-  URL.revokeObjectURL(href);
+  // Let the browser finish the download before releasing the local Blob.
+  window.setTimeout(() => URL.revokeObjectURL(href), 10000);
 });
 const importFile = document.getElementById('import-file');
 document.getElementById('import').addEventListener('click', () => importFile.click());
