@@ -56,6 +56,25 @@ def resume_plan(manifest_file: Path) -> dict[str, Any]:
     source_path = manifest_path(manifest_file, source)
     if not source_path.is_file() or sha256(source_path) != expected.lower():
         raise ValueError("source reference hash changed or file is missing")
+    # A v2 render profile defines the camera/lighting environment shared by GLB
+    # reference and procedural shots. A profile edit makes otherwise intact
+    # screenshot receipts incomparable; do not reuse them across that boundary.
+    if manifest.get("fidelityTrack") == "glb-mediated-v2":
+        profile = manifest.get("renderProfile")
+        if not isinstance(profile, dict):
+            raise ValueError("GLB-mediated resume requires renderProfile")
+        profile_name, profile_hash = profile.get("path"), profile.get("sha256")
+        if not isinstance(profile_name, str) or not profile_name.strip():
+            raise ValueError("GLB-mediated resume requires renderProfile.path")
+        if (
+            not isinstance(profile_hash, str)
+            or len(profile_hash) != 64
+            or any(ch not in "0123456789abcdef" for ch in profile_hash)
+        ):
+            raise ValueError("GLB-mediated resume requires a lowercase renderProfile.sha256")
+        profile_path = manifest_path(manifest_file, profile_name)
+        if not profile_path.is_file() or sha256(profile_path) != profile_hash:
+            raise ValueError("render profile hash changed or file is missing")
     captures = manifest.get("captures")
     if not isinstance(captures, list) or not captures:
         raise ValueError("captures must be a nonempty list")
