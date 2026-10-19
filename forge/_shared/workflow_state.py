@@ -273,6 +273,16 @@ def next_entry(state: dict[str, Any]) -> dict[str, Any] | None:
     setup_pending = _pending(_entries(state, "setup"))
     if setup_pending:
         return setup_pending[0]
+    if not state.get("currentPass"):
+        # The pass checklist is materialized at init but cannot be acted on until
+        # next.py opens an actual pass from the spec. Never offer a placeholder
+        # build command that will be reset as soon as the real pass opens.
+        return {
+            "id": "await-pass-open",
+            "scope": "pass",
+            "status": "pending",
+            "command": "Write or restore {spec}, then rerun python3 forge/next.py --state .img2threejs/state.json {spec}",
+        }
     if state.get("currentPass") != "complete":
         pass_pending = _pending(_entries(state, "pass"))
         if pass_pending:
@@ -430,7 +440,7 @@ def status_payload(state: dict[str, Any]) -> dict[str, Any]:
     current_pass = str(state.get("currentPass") or "")
     loops = state["loops"]
     visible_scopes = {"setup", "final", "rig"}
-    if current_pass != "complete":
+    if current_pass and current_pass != "complete":
         visible_scopes.add("pass")
     return {
         "status": state["status"],

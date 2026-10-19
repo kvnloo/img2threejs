@@ -123,6 +123,45 @@ class WorkflowStateTest(unittest.TestCase):
         self.assertLess(ids.index("tier1-diagnostics"), ids.index("pass-gate-check"))
         self.assertLess(ids.index("pass-gate-check"), ids.index("ai-review-recorded"))
 
+    def test_pass_steps_are_not_offered_before_a_pass_opens(self):
+        state = new_state("reference.png", spec="spec.json")
+        self.assertNotIn("build-current-pass", status_payload(state)["pending"])
+
+        setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+        payload = status_payload(state)
+        self.assertEqual(payload["currentPass"], "")
+        self.assertEqual(payload["currentStep"], "await-pass-open")
+        self.assertIn("Write or restore", payload["nextCommand"])
+        self.assertNotIn("generate_threejs_factory.py", payload["nextCommand"])
+        self.assertNotIn("build-current-pass", payload["pending"])
+        with self.assertRaisesRegex(WorkflowStateError, "expected await-pass-open"):
+            mark_steps(state, ["build-current-pass"], status="done", evidence=["premature.json"])
+
+        set_current_pass(state, "blockout")
+        opened = status_payload(state)
+        self.assertEqual(opened["currentStep"], "build-current-pass")
+        self.assertIn("build-current-pass", opened["pending"])
+
+    def test_next_cli_does_not_offer_pass_steps_when_spec_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            spec_path = Path(directory) / "missing.json"
+            state = new_state("reference.png", spec=str(spec_path))
+            setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+            mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "forge" / "next.py"), "--state", str(state_path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("step=await-pass-open pass=none", result.stdout)
+            self.assertNotIn("generate_threejs_factory.py", result.stdout)
+            self.assertNotIn("- build-current-pass", result.stdout)
+            self.assertIn(str(spec_path), result.stdout)
+
     def test_skipping_a_mandatory_step_requires_reason(self):
         state = new_state("reference.png")
         with self.assertRaises(WorkflowStateError):
