@@ -274,9 +274,12 @@ def next_entry(state: dict[str, Any]) -> dict[str, Any] | None:
     if setup_pending:
         return setup_pending[0]
     if state.get("currentPass") != "complete":
-        pass_pending = _pending(_entries(state, "pass"))
-        if pass_pending:
-            return pass_pending[0]
+        # Init allocates pass rows before a spec-derived pass has been opened.
+        # Do not dispatch build/review work until next.py syncs that pass.
+        if state.get("currentPass"):
+            pass_pending = _pending(_entries(state, "pass"))
+            if pass_pending:
+                return pass_pending[0]
         return {
             "id": "await-pass-transition",
             "scope": "pass",
@@ -430,7 +433,7 @@ def status_payload(state: dict[str, Any]) -> dict[str, Any]:
     current_pass = str(state.get("currentPass") or "")
     loops = state["loops"]
     visible_scopes = {"setup", "final", "rig"}
-    if current_pass != "complete":
+    if current_pass and current_pass != "complete":
         visible_scopes.add("pass")
     return {
         "status": state["status"],
