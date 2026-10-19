@@ -45,6 +45,11 @@ jobs:
           HINGE_REFERENCE_PHOTO: ${{ runner.temp }}/box.agr.jpg
           HINGE_AB_OUTPUT: ${{ runner.temp }}/hinge-photo-ab
         run: node forge/tests/hinge_photo_ab.mjs
+      - name: Build and test offline interactive hinge lab
+        env:
+          HINGE_REFERENCE_PHOTO: ${{ runner.temp }}/box.agr.jpg
+          HINGE_LAB_OUTPUT: ${{ runner.temp }}/hinge-lab-offline
+        run: node integrations/hinge_lab/build_and_test.mjs
       - name: Upload credited comparison and measured raw results
         if: always()
         uses: actions/upload-artifact@v4
@@ -53,3 +58,11 @@ jobs:
           path: ${{ runner.temp }}/hinge-photo-ab/
           if-no-files-found: warn
           retention-days: 7
+      - name: Upload offline interactive lab and browser smoke screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hinge-lab-offline
+          path: ${{ runner.temp }}/hinge-lab-offline/
+          if-no-files-found: warn
+          retention-days: 14
