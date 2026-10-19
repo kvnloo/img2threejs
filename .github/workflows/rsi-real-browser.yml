@@ -1,0 +1,63 @@
+name: RSI real-browser preflight
+
+on:
+  pull_request:
+    paths:
+      - "experiments/dream_rsi_mesh_fidelity/**"
+      - ".github/workflows/rsi-real-browser.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.10"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Isolated browser dependencies (not core)
+        run: |
+          npm install --no-save --no-package-lock \
+            --prefix experiments/dream_rsi_mesh_fidelity \
+            esbuild@0.25.6 playwright-core@1.55.0 three@0.170.0
+
+      - name: Generate true ObjectSculptSpec and TypeScript variants
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 experiments/dream_rsi_mesh_fidelity/real_render_smoke.py \
+            prepare "$RUNNER_TEMP/rsi-real-smoke"
+
+      - name: Browser capture, fail if WebGL is absent
+        run: |
+          CHROME_BIN="$(command -v google-chrome || command -v chromium || true)"
+          test -n "$CHROME_BIN"
+          CHROME_BIN="$CHROME_BIN" node \
+            experiments/dream_rsi_mesh_fidelity/real_browser_capture.mjs \
+            "$RUNNER_TEMP/rsi-real-smoke"
+
+      - name: Score real browser images with native Divine Eye
+        run: |
+          python3 experiments/dream_rsi_mesh_fidelity/real_render_smoke.py \
+            score "$RUNNER_TEMP/rsi-real-smoke"
+
+      - name: Preserve all receipts and failure artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rsi-real-browser-receipts
+          path: ${{ runner.temp }}/rsi-real-smoke/
+          if-no-files-found: warn
