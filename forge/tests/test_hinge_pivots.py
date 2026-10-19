@@ -90,8 +90,10 @@ class OffCenterHingeTest(unittest.TestCase):
         self.assertIn("new THREE.Vector3(0, 1, 0)", output)
         self.assertIn(".quaternion.setFromUnitVectors(", output)
         self.assertRegex(output, r"hingeRestore_\w+\.quaternion\.copy\(hingeFrame_\w+\.quaternion\)\.invert\(\)")
-        self.assertRegex(output, r"node_\w+\.position\.sub\(hingePivot_\w+\.position\)")
-        self.assertRegex(output, r"hingeRestore_\w+\.add\(node_\w+\)")
+        self.assertRegex(output, r"hingeOffset_\w+\.position\.copy\(hingePivot_\w+\.position\)\.negate\(\)")
+        self.assertRegex(output, r"hingeRestore_\w+\.add\(hingeOffset_\w+\)")
+        self.assertRegex(output, r"hingeOffset_\w+\.add\(node_\w+\)")
+        self.assertNotRegex(output, r"node_\w+\.position\.sub\(hingePivot_")
         self.assertRegex(output, r'hinges\["lid"\] = hingeJoint_')
         self.assertIn("destructionGroups, hinges } satisfies ProceduralModelRuntime", output)
 
@@ -133,7 +135,7 @@ class OffCenterHingeTest(unittest.TestCase):
         errors, _ = validate_spec(spec)
         self.assertEqual(errors, [])
         output = generate(spec, "blockout")
-        self.assertLess(output.find(".position.copy(endpoint_"), output.find(".position.sub(hingePivot_"))
+        self.assertLess(output.find(".position.copy(endpoint_"), output.find(".position.copy(hingePivot_"))
 
     def test_rejects_bad_axes_and_angles_before_codegen(self):
         bad = [
