@@ -11,9 +11,9 @@ html=re.sub(r'<script type="module" src="./app.mjs"></script>', '', html)
 world=re.sub(r'(?m)^export ', '', (root/'world-data.mjs').read_text())
 app='\n'.join(line for line in (root/'app.mjs').read_text().splitlines() if not line.startswith('import '))
 source="""
-const { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, buildBridge, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } = (() => {
+const { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, buildBridge, nextBeaconRoute, validateAdventure, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } = (() => {
 """+world+"""
-return {GRID_SIZE,demoPixels,voxelize,nearestVisibleTile,findTilePath,buildBridge,tileHeight,exportThreeFactory,serializeWorld,deserializeWorld,previewWorldPixels};
+return {GRID_SIZE,demoPixels,voxelize,nearestVisibleTile,findTilePath,buildBridge,nextBeaconRoute,validateAdventure,tileHeight,exportThreeFactory,serializeWorld,deserializeWorld,previewWorldPixels};
 })();
 const THREE=window.__THREE;
 const OrbitControls=window.__OrbitControls;
@@ -112,19 +112,50 @@ with sync_playwright() as p:
     generated.unlink(missing_ok=True)
     check('browser export creates standalone factory',"export function buildPocketWorld" in contents and 'fetch(' not in contents)
     # Persist an entire numeric terrain and its relief; reload after a remix.
+    # The compass should guide instead of teleporting, with ordinary scout/beacon state.
+    page.locator('#hint').click()
+    hint_status=page.locator('#scout-status').inner_text()
+    check('compass starts a real scout path', 'Scout hiking' in hint_status)
+    beacon_goal=page.evaluate('window.__pocketTest.state().scoutDestination')
+    page.evaluate('() => { for(let i=0;i<200;i++)window.__pocketTest.step(.4); }')
+    journal_before=page.evaluate('window.__pocketTest.state()')
+    check('compass reaches and collects beacon',journal_before['collected']>=1 and beacon_goal>=0)
     with page.expect_download(timeout=5000) as download:
         page.locator('#save').click()
     saved=root/'dom-world-save.json'
     download.value.save_as(str(saved))
     import json
     receipt=json.loads(saved.read_text())
-    check('world JSON saves version, terrain and relief', receipt['version']==1 and receipt['relief']==2 and len(receipt['world']['colors'])==784)
+    check('world JSON v2 saves adventure, terrain and relief', receipt['version']==2 and receipt['relief']==2 and len(receipt['world']['colors'])==784 and receipt['adventure']['scoutCell']==journal_before['scoutCell'] and len(receipt['adventure']['collectedCells'])==journal_before['collected'])
     page.locator('#remix').click()
     page.locator('#relief').fill('0.4')
     page.locator('#load').set_input_files(str(saved))
     page.wait_for_timeout(80)
     check('saved JSON restores relief and preview',page.locator('#relief-value').inner_text()=='2.0×' and page.locator('#source-label').inner_text()=='Restored world')
-    check('saved JSON restores scout and beacons',page.evaluate('window.__pocketTest.state().beacons')==5 and page.evaluate('window.__pocketTest.state().scoutVisible'))
+    restored_status=page.evaluate('window.__pocketTest.state()')
+    check('saved JSON restores scout and beacons',restored_status['beacons']==5 and restored_status['scoutVisible'])
+    check('saved v2 adventure restores exact scout tile and collected count',restored_status['scoutCell']==journal_before['scoutCell'] and restored_status['collected']==journal_before['collected'])
+    # V1 terrain remains readable but starts a new adventure.
+    legacy=root/'dom-world-v1.json'
+    legacy_json=dict(receipt)
+    legacy_json.pop('adventure')
+    legacy_json['version']=1
+    legacy.write_text(json.dumps(legacy_json))
+    page.locator('#load').set_input_files(str(legacy))
+    page.wait_for_timeout(70)
+    check('legacy v1 terrain still loads and resets adventure',page.evaluate('window.__pocketTest.state().collected')==0)
+    legacy.unlink(missing_ok=True)
+    # Tampered bookmark must not mutate the active world.
+    tamper=root/'dom-world-tamper.json'
+    invalid_json=dict(receipt)
+    invalid_json['adventure']=dict(receipt['adventure'])
+    invalid_json['adventure']['collectedCells']=[783,783]
+    tamper.write_text(json.dumps(invalid_json))
+    previous=page.evaluate('window.__pocketTest.state()')
+    page.locator('#load').set_input_files(str(tamper))
+    page.wait_for_timeout(70)
+    check('tampered v2 adventure refused without replacing world',page.evaluate('window.__pocketTest.state()')==previous and 'Invalid' in page.locator('#notice').inner_text())
+    tamper.unlink(missing_ok=True)
     # An uploaded transparent channel splits the island. A player can build and
     # undo a 4-connected bridge, preserving existing beacon collection.
     gap=root/'channel-test.png'

@@ -172,33 +172,92 @@ export function tileHeight(heightByte, relief = 1) {
   return .32 + Math.pow(heightByte / 255, 1.45) * 3.8 * relief;
 }
 
-/** Export a bounded, versioned numeric terrain receipt that needs no source photo. */
-export function serializeWorld(data, relief = 1) {
+/** Validate a compact treasure-hunt bookmark against the exact saved terrain.
+ * A saved scout may have been moving; bookmarks record only its last completed tile.
+ */
+export function validateAdventure(data, adventure) {
+  validateWorld(data);
+  if (!adventure || Array.isArray(adventure) || typeof adventure !== 'object') {
+    throw new RangeError('Invalid adventure bookmark');
+  }
+  const n = data.size * data.size;
+  const isTile = i => Number.isInteger(i) && i >= 0 && i < n && data.visible[i] === 1;
+  const visibleCount = data.visible.reduce((a, b) => a + b, 0);
+  const scoutCell = adventure.scoutCell;
+  if (visibleCount === 0 ? scoutCell !== -1 : !isTile(scoutCell)) {
+    throw new RangeError('Invalid scout bookmark');
+  }
+  const beaconCells = adventure.beaconCells, collectedCells = adventure.collectedCells;
+  if (!Array.isArray(beaconCells) || beaconCells.length !== Math.min(5, visibleCount) ||
+      beaconCells.some(i => !isTile(i)) || new Set(beaconCells).size !== beaconCells.length) {
+    throw new RangeError('Invalid beacon bookmarks');
+  }
+  if (!Array.isArray(collectedCells) || collectedCells.length > beaconCells.length ||
+      collectedCells.some(i => !isTile(i) || !beaconCells.includes(i)) ||
+      new Set(collectedCells).size !== collectedCells.length) {
+    throw new RangeError('Invalid collected bookmarks');
+  }
+  return { scoutCell, beaconCells: [...beaconCells], collectedCells: [...collectedCells] };
+}
+
+/** Suggest a reachable uncollected beacon using the same slope-aware path cost as A*.
+ * Paths are never fabricated across invisible cells; a blocked world returns null.
+ */
+export function nextBeaconRoute(data, scoutCell, beaconCells, collectedCells = []) {
+  validateWorld(data);
+  if (!Number.isInteger(scoutCell) || scoutCell < -1 || scoutCell >= data.visible.length ||
+      (scoutCell >= 0 && !data.visible[scoutCell])) throw new RangeError('Invalid scout route');
+  if (!Array.isArray(beaconCells) || !Array.isArray(collectedCells) ||
+      beaconCells.some(i => !Number.isInteger(i) || i < 0 || i >= data.visible.length || !data.visible[i]) ||
+      new Set(beaconCells).size !== beaconCells.length ||
+      collectedCells.some(i => !beaconCells.includes(i))) throw new RangeError('Invalid beacon targets');
+  if (scoutCell < 0) return null;
+  const collected = new Set(collectedCells);
+  let best = null;
+  for (const target of beaconCells) {
+    if (collected.has(target)) continue;
+    const path = findTilePath(data, scoutCell, target);
+    if (!path.length) continue;
+    let cost = 0;
+    for (let i = 1; i < path.length; i++) {
+      cost += 1 + Math.abs(data.heights[path[i]] - data.heights[path[i - 1]]) / 255 * 1.5;
+    }
+    if (!best || cost < best.cost - 1e-9 || (Math.abs(cost - best.cost) < 1e-9 && target < best.target)) {
+      best = { target, path, steps: path.length - 1, cost };
+    }
+  }
+  return best;
+}
+
+/** Legacy v1 terrain stays readable; new v2 receipts optionally preserve the adventure. */
+export function serializeWorld(data, relief = 1, adventure = null) {
   validateWorld(data);
   if (data.size !== GRID_SIZE) throw new RangeError('Saved worlds must use the 28x28 grid');
   tileHeight(0, relief);
-  return JSON.stringify({
+  const receipt = {
     kind: 'img2threejs-pocket-world',
-    version: 1,
+    version: adventure === null ? 1 : 2,
     relief,
     world: { size: data.size, colors: data.colors, heights: data.heights, visible: data.visible },
-  });
+  };
+  if (adventure !== null) receipt.adventure = validateAdventure(data, adventure);
+  return JSON.stringify(receipt);
 }
 
-/** Refuse schema drift, oversized receipts and invalid numeric terrain. */
+/** Refuse schema drift, oversized receipts and invalid numeric terrain/bookmarks. */
 export function deserializeWorld(text) {
   if (typeof text !== 'string' || text.length > 128 * 1024) throw new RangeError('World receipt too large or not text');
   const receipt = JSON.parse(text);
-  if (!receipt || Array.isArray(receipt) || receipt.kind !== 'img2threejs-pocket-world' || receipt.version !== 1) {
-    throw new RangeError('Unsupported Pocket World receipt');
-  }
+  if (!receipt || Array.isArray(receipt) || receipt.kind !== 'img2threejs-pocket-world' ||
+      (receipt.version !== 1 && receipt.version !== 2)) throw new RangeError('Unsupported Pocket World receipt');
   if (typeof receipt.relief !== 'number' || !Number.isFinite(receipt.relief) || receipt.relief < 0 || receipt.relief > 3) {
     throw new RangeError('Invalid saved world relief');
   }
   const data = validateWorld(receipt.world);
   if (data.size !== GRID_SIZE) throw new RangeError('Saved worlds must use the 28x28 grid');
   tileHeight(0, receipt.relief);
-  return { data, relief: receipt.relief };
+  const adventure = receipt.version === 2 ? validateAdventure(data, receipt.adventure) : null;
+  return { data, relief: receipt.relief, adventure };
 }
 
 /** The saved numeric terrain is enough to preview it without recovering the source image. */

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, buildBridge, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } from './world-data.mjs';
+import { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, buildBridge, nextBeaconRoute, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } from './world-data.mjs';
 
 const $ = id => document.getElementById(id);
 const canvas = $('viewport');
@@ -178,6 +178,7 @@ function routeScout(goal) {
   }
   if (path.length === 1) {
     addRipple(scout.position.x, scout.position.z);
+    for (const beacon of beacons) if (beacon.userData.cell === scoutCell) collectBeacon(beacon);
     return;
   }
   scoutQueue = path.slice(1);
@@ -254,8 +255,8 @@ function updateUndoState() {
   $('undo-bridge').disabled = undoWorlds.length === 0;
 }
 
-function rebuildWorld(nextData, preserveAdventure = false) {
-  const old = preserveAdventure ? saveAdventure() : null;
+function rebuildWorld(nextData, preserveAdventure = false, restoredAdventure = null) {
+  const old = restoredAdventure || (preserveAdventure ? saveAdventure() : null);
   if (!preserveAdventure) {
     undoWorlds = [];
     bridgeStart = -1;
@@ -334,6 +335,16 @@ function undoBridge() {
 
 $('bridge').addEventListener('click', () => setBridgeMode(!bridgeMode));
 $('undo-bridge').addEventListener('click', undoBridge);
+$('hint').addEventListener('click', () => {
+  if (scoutCell < 0) { announce('No visible terrain to explore.'); return; }
+  const missing = beacons.filter(b => b.visible).map(b => b.userData.cell);
+  if (!missing.length) { announce('All beacons found!'); return; }
+  const route = nextBeaconRoute(data, scoutCell, missing);
+  if (!route) { announce('No beacon is reachable. Build a bridge to another island.'); return; }
+  setBridgeMode(false);
+  routeScout(route.target);
+  if (route.steps) announce(`Compass found a beacon ${route.steps} tile${route.steps === 1 ? '' : 's'} away.`);
+});
 
 function showPreview(rgba) {
   const ctx = $('reference').getContext('2d', { willReadFrequently: false });
@@ -438,7 +449,7 @@ $('reset').addEventListener('click', () => {
 });
 
 $('save').addEventListener('click', () => {
-  const receipt = serializeWorld(data, relief);
+  const receipt = serializeWorld(data, relief, saveAdventure());
   const url = URL.createObjectURL(new Blob([receipt], { type: 'application/json' }));
   const link = document.createElement('a');
   link.href = url;
@@ -465,8 +476,10 @@ $('load').addEventListener('change', async event => {
     $('relief-value').textContent = relief.toFixed(1) + '×';
     showPreview(previewWorldPixels(receipt.data));
     $('source-label').textContent = 'Restored world';
-    rebuildWorld(receipt.data);
-    announce('World restored locally. Explore your saved terrain.');
+    rebuildWorld(receipt.data, false, receipt.adventure);
+    announce(receipt.adventure
+      ? 'Adventure restored: beacons and scout progress recovered.'
+      : 'Legacy island restored. Start a new treasure hunt.');
   } catch (error) {
     if (importId !== lastImport) return;
     announce('Invalid or unsupported Pocket World JSON.');

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { demoPixels, voxelize, validateWorld, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels, buildBridge, findTilePath } from './world-data.mjs';
+import { demoPixels, voxelize, validateWorld, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels, buildBridge, findTilePath, validateAdventure, nextBeaconRoute } from './world-data.mjs';
 
 test('deterministic presets produce RGBA without random or hidden image data', () => {
   for (const theme of ['sunset', 'forest', 'cosmic']) {
@@ -163,7 +163,7 @@ test('world receipts fail closed on malformed schema, relief, dimensions and siz
   const valid = JSON.parse(serializeWorld(data, 1));
   for (const fake of [
     { ...valid, kind: 'different' },
-    { ...valid, version: 2 },
+    { ...valid, version: 3 },
     { ...valid, relief: 9 },
     { ...valid, relief: null },
     { ...valid, relief: undefined },
@@ -249,4 +249,79 @@ test('bridges survive saved JSON and exported factory without downloading image 
   const factory = exportThreeFactory(restored.data,restored.relief);
   assert.ok(factory.includes('new THREE.InstancedMesh'));
   assert.doesNotMatch(factory,/fetch\(|https?:|\.glb|\.png/i);
+});
+
+
+test('v2 adventure passport preserves scout, beacon identities and collected progress', () => {
+  const world = voxelize(demoPixels('forest'));
+  const adventure = { scoutCell: 421, beaconCells: [5, 70, 243, 601, 740], collectedCells: [70, 601] };
+  const receipt = serializeWorld(world, 1.8, adventure);
+  assert.equal(JSON.parse(receipt).version, 2);
+  assert.deepEqual(deserializeWorld(receipt), { data: world, relief: 1.8, adventure });
+  assert.equal(receipt, serializeWorld(world, 1.8, adventure));
+  assert.doesNotMatch(receipt, /fetch\(|https?:|base64|data:image/i);
+  // The consumer must never receive a mutable alias of the caller's bookmark.
+  const validated = validateAdventure(world, adventure);
+  validated.beaconCells[0] = 333;
+  assert.equal(adventure.beaconCells[0], 5);
+  const legacy = deserializeWorld(serializeWorld(world, 1.8));
+  assert.equal(legacy.adventure, null);
+  assert.deepEqual(legacy.data, world);
+});
+
+test('v2 refuses fabricated/missing/duplicate/hidden bookmark state', () => {
+  const world = voxelize(demoPixels('cosmic'));
+  const adventure = { scoutCell: 120, beaconCells: [3, 5, 10, 300, 500], collectedCells: [5] };
+  const receipt = JSON.parse(serializeWorld(world, 1, adventure));
+  for (const altered of [
+    null,
+    {},
+    { ...adventure, scoutCell: -1 },
+    { ...adventure, scoutCell: 784 },
+    { ...adventure, scoutCell: 1.5 },
+    { ...adventure, beaconCells: [3, 3, 10, 300, 500] },
+    { ...adventure, beaconCells: [3] },
+    { ...adventure, beaconCells: [-1, 5, 10, 300, 500] },
+    { ...adventure, collectedCells: [900] },
+    { ...adventure, collectedCells: [3, 3] },
+    { ...adventure, collectedCells: [9] },
+  ]) assert.throws(() => deserializeWorld(JSON.stringify({ ...receipt, adventure: altered })), RangeError);
+  const masked = structuredClone(world);
+  masked.visible[120] = 0;
+  assert.throws(() => serializeWorld(masked, 1, adventure), /scout/);
+  const empty = structuredClone(world);
+  empty.visible.fill(0);
+  const none = { scoutCell: -1, beaconCells: [], collectedCells: [] };
+  assert.deepEqual(deserializeWorld(serializeWorld(empty, 0, none)).adventure, none);
+  assert.throws(() => serializeWorld(empty, 0, adventure), RangeError);
+});
+
+test('compass selects minimum-cost reachable uncollected beacon with deterministic ties', () => {
+  const world = voxelize(demoPixels('forest', 8), 8);
+  world.heights.fill(100);
+  assert.deepEqual(nextBeaconRoute(world, 0, [8, 1]).target, 1);
+  const route = nextBeaconRoute(world, 0, [8, 1]);
+  assert.deepEqual(route.path, [0, 1]);
+  assert.equal(route.steps, 1);
+  assert.equal(route.cost, 1);
+  assert.deepEqual(nextBeaconRoute(world, 0, [8, 1], [1]).path, [0, 8]);
+  assert.equal(nextBeaconRoute(world, 0, [8, 1], [8, 1]), null);
+  world.heights[1] = 255;
+  assert.equal(nextBeaconRoute(world, 0, [8, 1]).target, 8, 'prefer lower uphill cost');
+  assert.equal(nextBeaconRoute(world, -1, [8, 1]), null);
+  assert.throws(() => nextBeaconRoute(world, 0, [100]), /beacon/);
+  assert.throws(() => nextBeaconRoute(world, 0, [1, 1]), /beacon/);
+  assert.throws(() => nextBeaconRoute(world, 64, [1]), /scout/);
+});
+
+test('compass never suggests unreachable beacons until a bridge connects islands', () => {
+  const world = voxelize(demoPixels('sunset', 8), 8);
+  for (let y = 0; y < 8; y++) for (const x of [3, 4]) world.visible[y * 8 + x] = 0;
+  const start = 2 * 8 + 1, target = 2 * 8 + 7;
+  assert.equal(nextBeaconRoute(world, start, [target]), null);
+  const result = buildBridge(world, 2 * 8 + 2, 2 * 8 + 5);
+  const route = nextBeaconRoute(result.data, start, [target]);
+  assert.equal(route.target, target);
+  assert.ok(route.steps >= 4);
+  for (const i of route.path) assert.equal(result.data.visible[i], 1);
 });
