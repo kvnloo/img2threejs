@@ -269,6 +269,74 @@ test('full non-indexed geometry passes; partial draw ranges are not clean eviden
   assert.equal(partial.meshes.length, 0);
 });
 
+test('complete visible multi-material groups are valid geometry evidence', () => {
+  const grouped = makeMesh('painted');
+  grouped.material = [{ visible: true }, { visible: true }];
+  grouped.geometry.index = { count: 6, getX: i => i % 3 };
+  grouped.geometry.groups = [
+    { start: 0, count: 3, materialIndex: 0 },
+    { start: 3, count: 3, materialIndex: 1 },
+  ];
+  const result = collectMeshGeometry(install(grouped));
+  assert.equal(result.incomplete, false);
+  assert.equal(result.meshes[0].triangleCount, 2);
+  assert.deepEqual(result.skippedMeshes, []);
+});
+
+test('partial or overlapping multi-material groups cannot certify unseen triangles', () => {
+  const mesh = makeMesh('partial-paint');
+  mesh.material = [{ visible: true }];
+  mesh.geometry.index = { count: 6, getX: i => i % 3 };
+  mesh.geometry.groups = [{ start: 0, count: 3, materialIndex: 0 }];
+  const options = install(mesh);
+  let result = collectMeshGeometry(options);
+  assert.equal(result.incomplete, true);
+  assert.deepEqual(result.skippedMeshes.map(m => m.reason), ['partial-material-groups']);
+  assert.equal(result.meshes.length, 0);
+
+  mesh.geometry.groups = [{ start: 0, count: 6, materialIndex: 0 },
+    { start: 0, count: 3, materialIndex: 0 }];
+  result = collectMeshGeometry(options);
+  assert.equal(result.incomplete, true);
+  assert.deepEqual(result.skippedMeshes.map(m => m.reason), ['overlapping-material-groups']);
+});
+
+test('missing, invalid and hidden multi-material groups fail closed', () => {
+  const mesh = makeMesh('unrendered-material');
+  mesh.material = [{ visible: true }];
+  const options = install(mesh);
+  let result = collectMeshGeometry(options);
+  assert.deepEqual(result.skippedMeshes.map(m => m.reason), ['missing-material-groups']);
+
+  mesh.geometry.groups = [{ start: 0, count: 3, materialIndex: 9 }];
+  result = collectMeshGeometry(options);
+  assert.deepEqual(result.skippedMeshes.map(m => m.reason), ['invalid-material-groups']);
+
+  mesh.geometry.groups = [{ start: 0, count: 3, materialIndex: 0 }];
+  mesh.material[0].visible = false;
+  result = collectMeshGeometry(options);
+  assert.deepEqual(result.skippedMeshes.map(m => m.reason), ['hidden-material-group']);
+  assert.equal(result.incomplete, true);
+});
+
+test('instanced multi-material expansion preserves group visibility contract', () => {
+  const copies = makeMesh('painted-instances');
+  copies.material = [{ visible: true }];
+  copies.geometry.groups = [{ start: 0, count: 3, materialIndex: 0 }];
+  copies.isInstancedMesh = true;
+  copies.count = 2;
+  copies.instanceMatrix = { array: [...IDENTITY, ...IDENTITY] };
+  copies.instanceColor = attr([[1, 1, 1], [1, 1, 1]]);
+  const options = install(copies);
+  assert.equal(collectMeshGeometry(options).incomplete, false);
+  copies.material[0].visible = false;
+  const invalid = collectMeshGeometry(options);
+  assert.equal(invalid.incomplete, true);
+  assert.deepEqual(invalid.skippedMeshes.map(m => m.reason),
+    ['hidden-material-group', 'hidden-material-group']);
+  assert.equal(invalid.meshes.length, 0);
+});
+
 test('modelRoot is used before falling back to full studio scene', () => {
   const ground = makeMesh('ground'), subject = makeMesh('subject');
   const opts = install(ground, subject);
