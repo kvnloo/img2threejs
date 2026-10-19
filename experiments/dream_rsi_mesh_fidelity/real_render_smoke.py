@@ -147,6 +147,89 @@ def score(out: Path) -> None:
     if scored["target"]["silhouetteIoU"] < 0.999:
         raise RuntimeError("a reference compared to itself must have silhouette IoU 1")
 
+    # Exercise the actual bounded fitter against the observed Chromium pixels.
+    # Each policy receives exactly root + two proposals (three *evaluator*
+    # calls), but all five images were pre-rendered. This is a dispatch/quality
+    # preflight, NOT an end-to-end budgeted live-render or learned-policy test.
+    sys.path.insert(0, str(ROOT))
+    from forge.stage4_review.fit_params import (  # noqa: E402
+        FitConfig, FitInputError, fit_against_divine_eye,
+    )
+    from forge.stage4_review._fit_divine_eye import (  # noqa: E402
+        is_approved_divine_eye_result,
+    )
+
+    by_vector = {
+        tuple(round(float(value), 2) for value in vector): name
+        for name, vector in PARAMETERS.items()
+        if name != "target"
+    }
+    if len(by_vector) != len(PARAMETERS) - 1:
+        raise RuntimeError("duplicate rounded real-browser fit candidates")
+    paired_fits: dict[str, dict[str, object]] = {}
+    for label, order, expected in (
+        ("index-order", (0, 1), ("root", "c0-minus", "c0-plus")),
+        ("reverse-order", (1, 0), ("root", "c1-minus", "c1-plus")),
+    ):
+        attempted: list[str] = []
+
+        def render_observed(parameters: tuple[float, ...]) -> Path:
+            key = tuple(round(value, 2) for value in parameters)
+            name = by_vector.get(key)
+            if name is None or any(
+                abs(value - authored) > 1e-9
+                for value, authored in zip(parameters, PARAMETERS[name])
+            ):
+                raise RuntimeError(f"fit requested unrendered candidate: {key}")
+            attempted.append(name)
+            return out / name / "render.png"
+
+        actual_fit = fit_against_divine_eye(
+            PARAMETERS["root"],
+            ((0.50, 1.06), (0.48, 1.04)),
+            render_observed,
+            reference,
+            evaluate,
+            FitConfig(max_evaluations=3, coordinate_order=order),
+        )
+        if tuple(attempted) != expected or actual_fit.fit_result.evaluations != 3:
+            raise RuntimeError(f"real-browser {label} candidate/budget drift: {attempted}")
+        clean_iou = []
+        for name, observed in zip(attempted, actual_fit.divine_eye_results):
+            # Independent re-evaluation must agree with the preflight's native
+            # scorer. Neither a synthetic score nor a replay guess may enter.
+            if (
+                abs(float(observed["fidelity"]) - scored[name]["fidelity"]) > 1e-12
+                or observed["hardGateFailures"] != scored[name]["hardGateFailures"]
+            ):
+                raise RuntimeError(f"native evaluator/provenance drift for {name}")
+            if is_approved_divine_eye_result(observed, FitInputError, "Divine Eye result"):
+                clean_iou.append(scored[name]["silhouetteIoU"])
+        paired_fits[label] = {
+            "coordinateOrder": list(order),
+            "candidateNames": attempted,
+            "candidatePngSha256": [scored[name]["imageSha256"] for name in attempted],
+            "actualEvaluatorCalls": actual_fit.fit_result.evaluations,
+            "bestCleanSilhouetteIoUInVisitedCandidates": max(clean_iou, default=None),
+            "fit": actual_fit.to_json(),
+        }
+    worlds_dir = out / "worlds"
+    worlds_dir.mkdir(exist_ok=True)
+    (worlds_dir / "paired-real-fitter.json").write_text(json.dumps({
+        "schemaVersion": 1,
+        "kind": "real-chromium-image-paired-native-fit-preflight",
+        "sourceGitSha": manifest["gitSha"],
+        "fixtureSha256": manifest["fixtureSha256"],
+        "renderMode": "pre-rendered verified Chromium screenshots (shared candidate pool)",
+        "evaluator": "native Divine Eye, re-evaluated per fitter call",
+        "evaluationsPerOrder": 3,
+        "liveRenderBudgetClaim": False,
+        "learnedPolicyClaim": False,
+        "holdoutClaim": False,
+        "policies": paired_fits,
+    }, indent=2) + "\n", encoding="utf-8")
+    manifest["pairedNativeFit"] = "worlds/paired-real-fitter.json"
+
     # Convert only the *observed* browser renders into an exact-support replay world.
     # There is no policy learning, counterfactual prediction, or unseen geometry here.
     sys.path.insert(0, str(Path(__file__).resolve().parent))
