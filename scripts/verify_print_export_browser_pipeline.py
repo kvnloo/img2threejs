@@ -133,8 +133,23 @@ def verify_refusals(incomplete_path: Path, good_source: Path, output_dir: Path) 
     need(result.returncode == 2, f"local-space geometry unexpectedly accepted: {result.stdout}")
     need(staged.read_bytes() == old and not local_report.exists(),
          "wrong-coordinate input clobbered prior STL")
+
+    # An apparently complete receipt must not hide active missing parts.
+    # This protects against a buggy producer that sets incomplete:false
+    # but still reports skipped skinned geometry or budget overrun.
+    lied = json.loads(good_source.read_text(encoding="utf-8"))
+    lied["incomplete"] = False
+    lied["skippedMeshes"] = [{"name": "skinned-arm", "reason": "skinned-mesh"}]
+    lied_path = output_dir / "false-complete.json"
+    lied_path.write_text(json.dumps(lied), encoding="utf-8")
+    skipped_report = output_dir / "rejected-skipped.report.json"
+    result = invoke(lied_path, staged, skipped_report, extra=("--allow-open", "--force"))
+    need(result.returncode == 2, f"active skipped geometry was printed: {result.stdout}")
+    need(staged.read_bytes() == old and not skipped_report.exists(),
+         "false-complete evidence overwrote prior STL or published a report")
     return {"realPartialBrowserReceiptRejected": True,
             "fabricatedLocalCoordinateReceiptRejected": True,
+            "falseCompleteWithActiveSkippedMeshRejected": True,
             "existingSTLPreservedDespiteForceAndAllowOpen": True}
 
 
