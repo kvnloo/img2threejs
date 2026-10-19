@@ -341,8 +341,11 @@ Vertices use **world** coordinates; normals use the inverse-transpose, with
 mirrored winding corrected. Indexed, non-indexed and bounded instanced geometry
 are supported. Vertex-colored meshes also expose flat world `positions` and
 `colors` arrays for `vertex_region_gate.py`. Include/exclude regexes deliberately
-limit the inspected set; an empty set, unsupported animated geometry or a mesh
-over `--max-triangles` is an **error**, not a clean gate.
+limit the inspected set and record every filtered/hidden mesh in a
+`skippedMeshes` coverage receipt. Only intentionally filtered or invisible
+meshes may be skipped without marking `incomplete`. An empty measured set,
+unsupported animated geometry or a mesh over `--max-triangles` is an
+**error**, not a clean gate.
 
 `--ready-flag F` requires an additional browser-ready signal. A failed new
 capture removes any prior `--out` file before starting; writes use an atomic

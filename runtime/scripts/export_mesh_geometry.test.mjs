@@ -131,8 +131,26 @@ test('documented include/exclude filters preserve selected meshes and refuse emp
   install(mesh({ name: 'panel-left' }), mesh({ name: 'studio-floor' }), mesh({ name: 'panel-right' }));
   const result = extractMeshGeometry({ include: '^panel', exclude: 'right$' });
   assert.deepEqual(result.meshes.map((item) => item.name), ['panel-left']);
+  assert.deepEqual(result.skippedMeshes, [
+    { name: 'studio-floor', reason: 'filtered' },
+    { name: 'panel-right', reason: 'filtered' },
+  ]);
+  assert.equal(result.incomplete, false);
   assert.throws(() => extractMeshGeometry({ include: '^no-such-mesh$' }), /No visible triangulated meshes/);
   assert.throws(() => extractMeshGeometry({ include: '[' }), /Invalid regular expression/);
+});
+
+test('hidden subtrees have honest coverage receipts without contaminating measured geometry', () => {
+  const child = mesh({ name: 'hidden-inner' });
+  const hidden = { visible: false, children: [mesh({ name: 'hidden-root' }), child] };
+  install(mesh({ name: 'shown' }), hidden);
+  const result = extractMeshGeometry();
+  assert.deepEqual(result.meshes.map((item) => item.name), ['shown']);
+  assert.deepEqual(result.skippedMeshes, [
+    { name: 'hidden-root', reason: 'hidden' },
+    { name: 'hidden-inner', reason: 'hidden' },
+  ]);
+  assert.equal(result.incomplete, false);
 });
 
 test('viewer-handle fallback selects the explicit model root, not the studio scene', () => {

@@ -44,12 +44,23 @@ export function extractMeshGeometry({
   const includePattern = include ? new RegExp(include) : null;
   const excludePattern = exclude ? new RegExp(exclude) : null;
   const meshes = [];
+  const skippedMeshes = [];
+  let unnamedMeshOrdinal = 0;
+  const meshName = (node) => String(
+    node.name || node.userData?.componentId || `mesh-${unnamedMeshOrdinal++}`,
+  );
+  const rememberHidden = (node) => {
+    if (node.isMesh) skippedMeshes.push({ name: meshName(node), reason: 'hidden' });
+    for (const child of node.children || []) rememberHidden(child);
+  };
   let vertexBudgetUsed = 0;
   const walk = (node) => {
-    if (node.visible === false) return;
-    const name = String(node.name || node.userData?.componentId || `mesh-${meshes.length}`);
-    if (node.isMesh && (!includePattern || includePattern.test(name))
-      && (!excludePattern || !excludePattern.test(name))) {
+    if (node.visible === false) { rememberHidden(node); return; }
+    const name = node.isMesh ? meshName(node) : '';
+    const filtered = node.isMesh && ((includePattern && !includePattern.test(name))
+      || (excludePattern && excludePattern.test(name)));
+    if (filtered) skippedMeshes.push({ name, reason: 'filtered' });
+    if (node.isMesh && !filtered) {
       const geometry = node.geometry;
       const position = geometry?.attributes?.position;
       const normal = geometry?.attributes?.normal;
@@ -154,7 +165,7 @@ export function extractMeshGeometry({
   };
   walk(root);
   if (meshes.length === 0) throw new Error('No visible triangulated meshes in the model root');
-  return { coordinateSpace: 'world', meshes };
+  return { coordinateSpace: 'world', meshes, skippedMeshes, incomplete: false };
 }
 
 function parseArgs(argv) {
