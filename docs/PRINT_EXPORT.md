@@ -121,3 +121,34 @@ tiny source geometry for printing.
   weld occurs before rescaling. For distant world origins, recenter the source
   geometry before exporting. OBJ writes 17 significant decimal digits, so it
   can retain double-precision detail that binary STL cannot.
+
+
+## Optional end-to-end browser and slicer verification
+
+The downstream PR includes the print-browser-integration GitHub workflow to
+verify the **actual cross-repository boundary**, not just the serializer.
+It pins the browser mesh-exporter candidate from fork PR #35 to a reviewed
+commit, captures real headless Chromium/Three.js geometry from both static
+instances and an actual stage3-generated procedural factory, then:
+
+1. Converts those captured world-space meshes to STL and OBJ in millimeters.
+2. Independently re-imports both formats with an isolated Trimesh library:
+   tests watertightness, winding, dimensions, shell count, and volume parity.
+   Trimesh is an optional integration-test dependency, **not** a forge dependency.
+3. Rejects a real incomplete browser receipt, false local-coordinate receipt,
+   and conflicting incomplete:false/active-skipped receipt, even with
+   --allow-open --force, while preserving any prior STL file.
+4. Uses the Ubuntu Slic3r 1.3 command-line slicer to generate actual G-code
+   from the browser-derived instanced-box STL and checks extrusion moves and
+   multiple layer heights. The G-code is test evidence, not printer instructions.
+
+Verified 2026-10-19:
+https://github.com/kvnloo/img2threejs/actions/runs/39270922479
+The controlled slicer fixture produced 5,149 extrusion moves across
+68 commanded Z heights. Artifacts include browser screenshots, source
+geometry, STL/OBJ, independently parsed import receipts, and G-code.
+
+**Limits:** These are controlled original procedural fixtures. They are NOT
+proof of likeness to a supplied photograph or printable completion of the
+loot-chest demo. Actual print safety, wall thickness, supports, calibration
+and physical output must be independently checked for the chosen printer.
