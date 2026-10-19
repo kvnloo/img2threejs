@@ -26,11 +26,20 @@ def _has_sha(value: Any) -> bool:
     return isinstance(value, str) and _SHA256.fullmatch(value) is not None
 
 
-def _short_id(value: Any) -> str:
-    """Expose bounded capture IDs, never embedded paths or arbitrary page strings."""
-    if not isinstance(value, str) or not value:
-        return "unnamed"
-    return _SAFE_ID.sub("_", value)[:48] or "unnamed"
+def _short_id(value: Any, index: int) -> str:
+    """Emit only intact safe short IDs; redact arbitrary URL/path/token-shaped IDs.
+
+    Sanitizing a URL character by character leaks its hostname and path.
+    Truncating can also make distinct raw IDs look identical.
+    """
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 48
+        or _SAFE_ID.search(value) is not None
+    ):
+        return f"capture-{index}"
+    return value
 
 
 def _has_browser_errors(value: Any) -> bool:
@@ -70,14 +79,17 @@ def build_brief(path: Path, *, since: str = "", max_ids: int = 8) -> dict[str, A
             categories.add("invalid-capture")
             repair.append(f"capture-{index}")
             continue
-        cid = _short_id(capture.get("id"))
-        if not isinstance(capture.get("id"), str) or not capture["id"]:
+        raw_id = capture.get("id")
+        cid = _short_id(raw_id, index)
+        if not isinstance(raw_id, str) or not raw_id:
             categories.add("invalid-capture")
             repair.append(cid)
-        if cid in observed:
-            categories.add("duplicate-capture")
-            repair.append(cid)
-        observed.add(cid)
+        else:
+            # Identity is the original ID, never a truncated/redacted display alias.
+            if raw_id in observed:
+                categories.add("duplicate-capture")
+                repair.append(cid)
+            observed.add(raw_id)
         if capture.get("status") != "recorded":
             pending.append(cid)
             continue
