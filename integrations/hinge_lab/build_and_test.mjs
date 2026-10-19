@@ -7,7 +7,6 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync,
   rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
@@ -25,7 +24,7 @@ if (referenceBytes.length < 25000 ||
   throw new Error('reference must be an actual JPEG, not a placeholder');
 }
 const digest = createHash('sha256').update(referenceBytes).digest('hex');
-const work = mkdtempSync(join(tmpdir(), 'hinge-lab-build-'));
+const work = mkdtempSync(join(root, '.hinge-lab-build-'));
 let browser;
 try {
   mkdirSync(output, {recursive:true});
