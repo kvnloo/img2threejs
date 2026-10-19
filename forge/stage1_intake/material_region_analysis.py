@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from argparse import Namespace
 from pathlib import Path
@@ -51,6 +52,13 @@ def _bounded_bbox(raw: Any, width: int, height: int) -> tuple[int, int, int, int
     if (x1 - x0) < 8 or (y1 - y0) < 8:
         raise ValueError("material crop is too small; minimum crop dimension is 8 pixels")
     return x0, y0, x1 - x0, y1 - y0
+
+
+def _safe_region_token(region_id: str) -> str:
+    """Return a filename-only token for a semantic region id."""
+    token = re.sub(r"[^A-Za-z0-9._-]+", "-", region_id).strip("._-")
+    token = re.sub(r"\.{2,}", "-", token).strip("._-")
+    return token or "region"
 
 
 def crop_region(source: Path, bbox: dict[str, Any], output: Path) -> dict[str, Any]:
@@ -117,10 +125,11 @@ def analyze_manifest(
             source = (manifest_path.parent / source).resolve()
         if not source.exists():
             raise ValueError(f"region {region_id!r} source image does not exist: {source}")
-        crop_path = out_dir / f"{index:02d}-{region_id.replace('/', '-').replace(' ', '-')}.png"
+        region_token = _safe_region_token(region_id)
+        crop_path = out_dir / f"{index:02d}-{region_token}.png"
         crop_info = crop_region(source, region.get("bbox"), crop_path)
         texture_report = analyze(crop_path)
-        pbr_dir = out_dir / f"pbr-{index:02d}-{region_id.replace('/', '-').replace(' ', '-')}"
+        pbr_dir = out_dir / f"pbr-{index:02d}-{region_token}"
         args = Namespace(
             image=crop_path,
             out_dir=pbr_dir,
