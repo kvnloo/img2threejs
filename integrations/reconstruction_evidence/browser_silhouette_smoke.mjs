@@ -126,7 +126,7 @@ try {
   ], {cwd:ROOT, encoding:'utf8', maxBuffer:6_000_000});
   assert.equal(result.status, 0, `Python silhouette/evidence gate: ${result.stdout}\n${result.stderr}`);
   const report = JSON.parse(await readFile(reportPath, 'utf8'));
-  assert.equal(report.fixtureClass, 'synthetic-independent-webgl-reference');
+  assert.equal(report.fixtureClass, 'synthetic-controlled-webgl-reference');
   assert.equal(report.shadowParity, true);
   assert.ok(report.matchingIoU >= 0.98, 'matching scene unexpectedly low silhouette IoU');
   assert.ok(report.shiftedIoU <= report.matchingIoU - 0.05,
