@@ -115,7 +115,11 @@
     <section class="panel">
       <h2>Evidence limits</h2>
       <p>This is a manually authored carton proxy. Fold continuity is testable; photorealistic reconstruction, universal collision freedom, and automatic dimension recovery are not claimed.</p>
-      <button id="export">Export pose JSON</button>
+      <div class="action-row">
+        <button id="export">Export pose JSON</button>
+        <button id="import">Import pose JSON</button>
+      </div>
+      <input id="import-file" type="file" accept=".json,application/json" hidden aria-label="Import saved fold angles">
     </section>
     <footer>Isolated research demo. No mesh downloads, account access, tracking, or backend calls. The generated geometry and collision checker are bundled locally.</footer>
   </aside>
