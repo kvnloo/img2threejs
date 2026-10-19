@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { boxPenetration, readBox, sampleFold } from './hinge_sweep_collision.mjs';
+import { boxPenetration, readBox, sampleFold, certifyFoldSweep } from './hinge_sweep_collision.mjs';
 
 function model() {
   const root = new THREE.Group();
@@ -94,11 +94,77 @@ test('non-box, malformed transforms and invalid sweeps fail closed', () => {
   assert.equal(joint.rotation.y, 0);
 });
 
+test('adaptive check catches a 2.5-degree collision missed by the 5-degree samples', () => {
+  const { joint, panel, obstacle } = model();
+  panel.geometry.dispose();
+  panel.geometry = new THREE.BoxGeometry(0.12, 0.008, 0.1);
+  obstacle.geometry.dispose();
+  obstacle.geometry = new THREE.BoxGeometry(0.012, 0.012, 0.12);
+  const angle = THREE.MathUtils.degToRad(2.5);
+  obstacle.position.set(0.5 + 0.5 * Math.cos(angle), 0.5 * Math.sin(angle), 0);
+  const coarse = sampleFold(joint, panel, obstacle, [0, 5]);
+  assert.equal(coarse.collisionSamples, 0, 'sparse endpoint samples should miss the collision');
+  const verified = certifyFoldSweep(joint, panel, obstacle, 0, 5);
+  assert.equal(verified.status, 'collision', JSON.stringify(verified));
+  assert.equal(verified.collision.degrees, 2.5);
+  assert.ok(verified.collision.overlap > 0);
+  assert.equal(joint.rotation.y, 0, 'adaptive check must restore pose');
+});
+
+test('adaptive bound certifies a distant box without a dense sweep', () => {
+  const { joint, panel, obstacle } = model();
+  obstacle.position.set(12, 4, 0);
+  const check = certifyFoldSweep(joint, panel, obstacle, 0, 180);
+  assert.equal(check.status, 'certified-clear', JSON.stringify(check));
+  assert.equal(check.unresolvedIntervals.length, 0);
+  assert.ok(check.evaluatedAngles <= 20, 'far-field certificates should avoid dense sampling');
+});
+
+test('positive sweep detects obstacle; negative sweep is bounded-clear', () => {
+  const { joint, panel, obstacle } = model();
+  const positive = certifyFoldSweep(joint, panel, obstacle, 0, 180);
+  const negative = certifyFoldSweep(joint, panel, obstacle, 0, -180);
+  assert.equal(positive.status, 'collision', JSON.stringify(positive));
+  assert.equal(negative.status, 'certified-clear', JSON.stringify(negative));
+  assert.equal(joint.rotation.y, 0);
+});
+
+test('insufficient angular resolution is unresolved, not a false safety verdict', () => {
+  const { joint, panel, obstacle } = model();
+  panel.geometry.dispose();
+  panel.geometry = new THREE.BoxGeometry(0.12, 0.008, 0.1);
+  obstacle.geometry.dispose();
+  obstacle.geometry = new THREE.BoxGeometry(0.012, 0.012, 0.12);
+  obstacle.position.set(1.085, 0, 0);
+  const shallow = certifyFoldSweep(joint, panel, obstacle, 0, 5, { maxDepth: 0 });
+  assert.equal(shallow.status, 'unresolved', JSON.stringify(shallow));
+  assert.equal(shallow.unresolvedIntervals.length, 1);
+  assert.equal(joint.rotation.y, 0);
+});
+
+test('adaptive check refuses moving obstacle, nonuniform parent and invalid budget', () => {
+  const { root, joint, panel, obstacle } = model();
+  assert.throws(() => certifyFoldSweep(joint, panel, obstacle, 0, 90,
+    { maxChecks: 2 }), /budget/);
+  assert.throws(() => certifyFoldSweep(joint, panel, obstacle, 0, 90,
+    { maxDepth: -1 }), /depth/);
+  assert.throws(() => certifyFoldSweep(joint, panel, obstacle, NaN, 90), /finite/);
+  joint.add(obstacle);
+  assert.throws(() => certifyFoldSweep(joint, panel, obstacle, 0, 90), /subtree/);
+  root.add(obstacle);
+  root.scale.set(2, 1, 1);
+  assert.throws(() => certifyFoldSweep(joint, panel, obstacle, 0, 90), /uniform scale/);
+  root.scale.set(1, 1, 1);
+  assert.equal(joint.rotation.y, 0);
+});
+
 if (process.env.HINGE_SWEEP_OUTPUT) {
   const { writeFileSync } = await import('node:fs');
   const { joint, panel, obstacle } = model();
   const forward = sampleFold(joint, panel, obstacle, sample(0, 180, 5));
   const reverse = sampleFold(joint, panel, obstacle, sample(0, -180, 5));
+  const forwardAdaptive = certifyFoldSweep(joint, panel, obstacle, 0, 180);
+  const reverseAdaptive = certifyFoldSweep(joint, panel, obstacle, 0, -180);
   const payload = {
     test: 'sweep OBB SAT, test-only negative control',
     sampleSpacingDegrees: 5,
@@ -106,8 +172,10 @@ if (process.env.HINGE_SWEEP_OUTPUT) {
     positiveCollisionSamples: forward.collisionSamples,
     negativeCollisionSamples: reverse.collisionSamples,
     firstCollision: forward.firstCollision,
-    limitations: ['sampled in time; possible missed between-step impacts',
-      'rigid box volumes only', 'crafted obstacle, not a claim about real cardboard physics'],
+    adaptivePositive: forwardAdaptive,
+    adaptiveNegative: reverseAdaptive,
+    limitations: ['5-degree samples may miss impacts; adaptive result uses conservative displacement-bound certificates',
+      'rigid stationary obstacles and non-sheared boxes only', 'crafted obstacle, not real cardboard physics'],
   };
   writeFileSync(process.env.HINGE_SWEEP_OUTPUT, JSON.stringify(payload, null, 2) + '\n');
   console.log('HINGE_SWEEP_NEGATIVE_CONTROL:', JSON.stringify(payload));
