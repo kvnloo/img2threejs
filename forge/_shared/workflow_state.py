@@ -273,6 +273,16 @@ def next_entry(state: dict[str, Any]) -> dict[str, Any] | None:
     setup_pending = _pending(_entries(state, "setup"))
     if setup_pending:
         return setup_pending[0]
+    if not state.get("currentPass"):
+        # Pass rows exist at init for stable checklist IDs, but cannot run until a real pass
+        # opens. Otherwise an agent can complete them before sync_from_spec() calls
+        # set_current_pass(), which silently resets that unarchived work.
+        return {
+            "id": "await-pass-start",
+            "scope": "setup",
+            "status": "pending",
+            "command": "python3 forge/next.py --state .img2threejs/state.json {spec}",
+        }
     if state.get("currentPass") != "complete":
         pass_pending = _pending(_entries(state, "pass"))
         if pass_pending:
@@ -430,7 +440,7 @@ def status_payload(state: dict[str, Any]) -> dict[str, Any]:
     current_pass = str(state.get("currentPass") or "")
     loops = state["loops"]
     visible_scopes = {"setup", "final", "rig"}
-    if current_pass != "complete":
+    if current_pass and current_pass != "complete":
         visible_scopes.add("pass")
     return {
         "status": state["status"],
