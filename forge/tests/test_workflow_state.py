@@ -155,6 +155,88 @@ class WorkflowStateTest(unittest.TestCase):
         pass_entries = [entry for entry in state["checklist"] if entry["scope"] == "pass"]
         self.assertTrue(all(entry["status"] == "pending" for entry in pass_entries))
 
+    def test_pass_rows_are_hidden_and_unmarkable_until_a_pass_opens(self):
+        state = new_state("reference.png", spec="spec.json")
+        setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+
+        payload = status_payload(state)
+        self.assertEqual(payload["currentPass"], "")
+        self.assertEqual(payload["currentStep"], "await-pass-start")
+        self.assertNotIn("build-current-pass", payload["pending"])
+        with self.assertRaisesRegex(WorkflowStateError, "expected await-pass-start"):
+            mark_steps(state, ["build-current-pass"], status="done", evidence=["premature.png"])
+
+        sync_from_spec(state, {"reviewHistory": []}, "blockout")
+        self.assertEqual(status_payload(state)["currentStep"], "build-current-pass")
+        self.assertIn("build-current-pass", status_payload(state)["pending"])
+
+    def test_review_cannot_fast_forward_a_partially_recorded_pass(self):
+        state = new_state("reference.png", spec="spec.json")
+        setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+        pass_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "pass"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+        set_current_pass(state, "blockout")
+        mark_steps(state, pass_ids[:-2], status="done", evidence=["render-and-gates.json"])
+
+        spec = {"reviewHistory": [{"passId": "blockout", "action": "continue"}]}
+        sync_from_spec(state, spec, "structural-pass")
+        payload = status_payload(state)
+        self.assertEqual(payload["currentPass"], "blockout")
+        self.assertEqual(payload["currentStep"], "ai-review-recorded")
+        self.assertEqual(state["passHistory"], [])
+        self.assertEqual(state["reviewCursor"], 0)
+        self.assertEqual(
+            [entry["id"] for entry in state["checklist"] if entry["status"] == "pending"
+             and entry["scope"] == "pass"],
+            pass_ids[-2:],
+        )
+
+        mark_steps(state, pass_ids[-2:], status="done", evidence=["review-and-sync.json"])
+        sync_from_spec(state, spec, "structural-pass")
+        self.assertEqual(state["currentPass"], "structural-pass")
+        self.assertEqual(state["reviewCursor"], 1)
+        self.assertEqual(status_payload(state)["currentStep"], "build-current-pass")
+        self.assertEqual(
+            [entry["status"] for entry in state["passHistory"][-1]["checklist"]],
+            ["done"] * len(pass_ids),
+        )
+        self.assertTrue(
+            all(entry["status"] == "pending"
+                for entry in state["checklist"] if entry["scope"] == "pass")
+        )
+
+    def test_refinement_does_not_erase_unmarked_pass_evidence(self):
+        state = new_state("reference.png", spec="spec.json")
+        setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+        pass_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "pass"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+        set_current_pass(state, "blockout")
+        mark_steps(state, pass_ids[:1], status="done", evidence=["before-refine.png"])
+
+        spec = {"reviewHistory": [{"passId": "blockout", "action": "refine-code"}]}
+        sync_from_spec(state, spec, "blockout")
+        self.assertEqual(status_payload(state)["currentStep"], "render-capture")
+        self.assertEqual(state["reviewCursor"], 0)
+        self.assertEqual(state["passHistory"], [])
+        self.assertEqual(
+            [entry for entry in state["checklist"] if entry["scope"] == "pass"][0]["evidence"],
+            ["before-refine.png"],
+        )
+
+        mark_steps(state, pass_ids[1:], status="done", evidence=["review-and-sync.json"])
+        sync_from_spec(state, spec, "blockout")
+        self.assertEqual(state["reviewCursor"], 1)
+        self.assertEqual(state["passHistory"][-1]["iteration"], "refine")
+        self.assertIn("do not regenerate", status_payload(state)["nextCommand"])
+        self.assertTrue(
+            all(entry["status"] == "pending"
+                for entry in state["checklist"] if entry["scope"] == "pass")
+        )
+        archives = len(state["passHistory"])
+        sync_from_spec(state, spec, "blockout")
+        self.assertEqual(len(state["passHistory"]), archives)
+
     def test_checklist_cannot_be_completed_out_of_order(self):
         state = new_state("reference.png")
         with self.assertRaisesRegex(WorkflowStateError, "out-of-order"):
