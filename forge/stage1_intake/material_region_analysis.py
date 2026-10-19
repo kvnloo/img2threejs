@@ -19,6 +19,7 @@ confidence inference to ``proceed``.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -57,8 +58,13 @@ def _bounded_bbox(raw: Any, width: int, height: int) -> tuple[int, int, int, int
 def _safe_region_token(region_id: str) -> str:
     """Return a filename-only token for a semantic region id."""
     token = re.sub(r"[^A-Za-z0-9._-]+", "-", region_id).strip("._-")
-    token = re.sub(r"\.{2,}", "-", token).strip("._-")
-    return token or "region"
+    token = re.sub(r"\.{2,}", "-", token).strip("._-") or "region"
+    if len(token) > 80:
+        # Fixed component length avoids filesystem errors on untrusted long IDs;
+        # hash the original identifier so distinct truncated IDs stay distinct.
+        suffix = hashlib.sha256(region_id.encode("utf-8")).hexdigest()[:12]
+        token = f"{token[:80].rstrip('._-') or 'region'}-{suffix}"
+    return token
 
 
 def crop_region(source: Path, bbox: dict[str, Any], output: Path) -> dict[str, Any]:
