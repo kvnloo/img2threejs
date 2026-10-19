@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / "stage4_review"))
 
 from materials.compatibility import check_compatibility  # noqa: E402
 from materials.reference import build_assignment, load_reference, resolve_material  # noqa: E402
-from material_region_analysis import analyze_manifest  # noqa: E402
+from material_region_analysis import _safe_region_token, analyze_manifest  # noqa: E402
 from apply_material_analysis import apply_material_analysis  # noqa: E402
 from material_comparator import compare_material_crops  # noqa: E402
 from material_feedback import apply_material_feedback  # noqa: E402
@@ -139,6 +139,16 @@ class MaterialPipelineTest(unittest.TestCase):
         self.assertNotIn("..", crop.name)
         self.assertNotIn("\\", crop.name)
         self.assertFalse((self.tmp / "escape.png").exists())
+
+    def test_region_tokens_are_bounded_and_distinguish_long_ids(self) -> None:
+        normal = "paint-main_02"
+        self.assertEqual(_safe_region_token(normal), normal)
+        self.assertEqual(_safe_region_token("../..\\\\paint"), "paint")
+        left = "body-" + "x" * 500 + "-left"
+        right = "body-" + "x" * 500 + "-right"
+        self.assertNotEqual(_safe_region_token(left), _safe_region_token(right))
+        self.assertLessEqual(len(_safe_region_token(left)), 93)
+        self.assertEqual(_safe_region_token(left), _safe_region_token(left))
 
     def test_low_confidence_analysis_cannot_enter_without_override(self) -> None:
         analysis = {
