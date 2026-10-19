@@ -169,7 +169,10 @@ class PlanTaperContract(unittest.TestCase):
             bad = subprocess.run(args, capture_output=True, text=True)
             self.assertEqual(bad.returncode, 1, bad.stderr)
             self.assertFalse(json.loads(bad.stdout)["passed"])
-            geometry.write_text(json.dumps({"coordinateSpace": "local"}), encoding="utf-8")
+            # Keep a valid completeness receipt so this case specifically
+            # exercises coordinate-space rejection rather than the earlier
+            # fail-closed completeness gate.
+            geometry.write_text(json.dumps({"coordinateSpace": "local", "incomplete": False}), encoding="utf-8")
             invalid = subprocess.run(args, capture_output=True, text=True)
             self.assertEqual(invalid.returncode, 2)
             self.assertIn("coordinateSpace", invalid.stderr)
