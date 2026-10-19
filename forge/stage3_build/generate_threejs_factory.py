@@ -3523,6 +3523,16 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
         visual_hull = descriptor.get("visualHull") if isinstance(descriptor, dict) else None
         is_implicit = component.get("topologyClass") == "implicit" and isinstance(sdf, dict)
         is_visual_hull = isinstance(visual_hull, dict)
+        # A measured tubePath defines a non-straight tube; attachment endpoints
+        # describe its connection but must not turn the authored path into a rod.
+        # Keep endpoint-derived geometry for tubes without an explicit path.
+        has_authored_tube_path = (
+            primitive == "tube" and isinstance(geometry_descriptor.get("tubePath"), dict)
+        )
+        use_attachment_endpoint = (
+            primitive in ATTACHMENT_PRIMITIVES and not is_implicit
+            and not has_authored_tube_path
+        )
         iterations = subdivision_iterations(component)
         effective_primitive = resolve_instanced_cluster_base(primitive, geometry_descriptor, VALID_PRIMITIVES)
         if is_visual_hull:
@@ -3588,7 +3598,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
                 "",
                 *(
                     [f"  const {attachment_var} = {json.dumps(attachment, ensure_ascii=False)};"]
-                    if primitive in ATTACHMENT_PRIMITIVES and not is_implicit
+                    if use_attachment_endpoint
                     else []
                 ),
                 # Endpoint-DERIVED GEOMETRY only for primitives that are attachment shapes.
@@ -3614,7 +3624,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
                     # moved the node to `attachment.localStart`: a head authored at y 0.705 was
                     # emitted at y -0.195, inside the body, and the model rendered with no head at
                     # all.
-                    if primitive in ATTACHMENT_PRIMITIVES and not is_implicit
+                    if use_attachment_endpoint
                     # `makeAttachmentEndpoint(null)` rather than a bare `null`, so the
                     # binding keeps its `AttachmentEndpoint | null` type. A literal null narrows to
                     # `never` and every later `endpoint.start` stops compiling.
