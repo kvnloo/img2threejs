@@ -22,6 +22,14 @@ node --test integrations/pocket_world/world-data.test.mjs
 node --check integrations/pocket_world/app.mjs
 ```
 
+An optional DOM-interaction smoke test runs in headless Chromium with a mocked Three.js runtime (requires `python3` with `playwright` and `Pillow` installed):
+
+```sh
+python3 integrations/pocket_world/tests/dom_smoke.py
+```
+
+It covers real browser image decoding, async upload race handling, pointer controls, scout movement, and downloadable exports. **It does not verify WebGL rendering or Three.js import-map/CDN loading.**
+
 Node 18+ works for the pure-data tests. Browser interaction requires modern WebGL and import-map support; mobile tap/drag/pinch are supported. Images are center-cropped and downsampled to 28 × 28 RGBA cells. This limits detail and intentionally avoids claims of true 3D reconstruction.
 
 The scout only follows connected nontransparent cells. Its slope-aware A* planner uses pixel brightness, not measured terrain elevation. Transparent gaps may be unreachable; directly tapping a beacon still collects it. Animated hopping stops under reduced-motion preferences. Image files over 12 MB or decoded images over 36 megapixels are refused.
