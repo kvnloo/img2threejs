@@ -360,10 +360,16 @@ def validate_manifest(path: Path, require_complete: bool = False) -> dict[str, A
                 baseline_path = manifest_path(path, str(baseline["path"]))
                 if not baseline_path.is_file():
                     errors.append(f"GLB reference baseline is missing: {baseline_path}")
-                elif baseline.get("screenshotSha256") and baseline["screenshotSha256"] != sha256(baseline_path):
-                    errors.append(f"GLB reference baseline hash changed: {baseline_path}")
-                if baseline.get("consoleErrors"):
-                    errors.append(f"browser console errors recorded for GLB baseline: {capture_id}")
+                else:
+                    expected_hash = baseline.get("screenshotSha256")
+                    if not isinstance(expected_hash, str) or len(expected_hash) != 64 or any(
+                        c not in "0123456789abcdef" for c in expected_hash
+                    ):
+                        errors.append(f"GLB reference baseline has no valid SHA-256 receipt: {capture_id}")
+                    elif expected_hash != sha256(baseline_path):
+                        errors.append(f"GLB reference baseline hash changed: {baseline_path}")
+                if baseline.get("consoleErrors") != []:
+                    errors.append(f"browser errors or unverified console receipt for GLB baseline: {capture_id}")
                 errors.extend(
                     validate_pass_records(
                         path,
@@ -391,10 +397,15 @@ def validate_manifest(path: Path, require_complete: bool = False) -> dict[str, A
         image = probe(screenshot)
         if not image.get("type") or not image.get("width"):
             errors.append(f"screenshot is unreadable: {screenshot}")
-        if capture.get("screenshotSha256") and capture["screenshotSha256"] != sha256(screenshot):
+        expected_hash = capture.get("screenshotSha256")
+        if not isinstance(expected_hash, str) or len(expected_hash) != 64 or any(
+            c not in "0123456789abcdef" for c in expected_hash
+        ):
+            errors.append(f"recorded capture has no valid SHA-256 receipt: {capture_id}")
+        elif expected_hash != sha256(screenshot):
             errors.append(f"screenshot hash changed: {screenshot}")
-        if capture.get("consoleErrors"):
-            errors.append(f"browser console errors recorded for: {capture_id}")
+        if capture.get("consoleErrors") != []:
+            errors.append(f"browser errors or unverified console receipt for: {capture_id}")
         errors.extend(
             validate_pass_records(
                 path,
