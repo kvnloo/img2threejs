@@ -184,6 +184,10 @@ def write_png_rgb(path: Path, width: int, height: int, rgb: bytes) -> None:
     if len(rgb) != width * height * 3:
         raise ValueError("RGB payload has the wrong size")
     path.parent.mkdir(parents=True, exist_ok=True)
+    # These filenames can originate in a material manifest; do not follow
+    # pre-existing output symlinks when writing generated pixel evidence.
+    if path.is_symlink():
+        raise ValueError(f"refusing to overwrite symlinked PNG artifact: {path}")
 
     def chunk(kind: bytes, payload: bytes) -> bytes:
         checksum = zlib.crc32(kind)
