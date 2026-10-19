@@ -118,10 +118,40 @@ def merge_meshes(meshes: list[dict[str, Any]], *, weld: float = DEFAULT_WELD) ->
     if not meshes:
         raise PrintExportError("no meshes to export")
     vertices: list[Vec] = []
-    lookup: dict[tuple[int, int, int], int] = {}
+    # Quantized rounding alone is not a distance test: points on opposite sides
+    # of a cell boundary can be arbitrarily close, while diagonal points inside
+    # one cell can be farther apart than --weld. A spatial hash is only a search
+    # index. Verify the *Euclidean* distance before sharing a vertex index.
+    cells: dict[tuple[int, int, int], list[int]] = defaultdict(list)
     triangles: list[tuple[int, int, int]] = []
     degenerate = 0
     source_triangles = 0
+
+    def cell_for(point: Vec) -> tuple[int, int, int]:
+        scaled = tuple(coordinate / weld for coordinate in point)
+        if not all(math.isfinite(component) for component in scaled):
+            raise PrintExportError("vertex coordinates exceed the --weld numeric range")
+        return (math.floor(scaled[0]), math.floor(scaled[1]), math.floor(scaled[2]))
+
+    def welded_index(point: Vec) -> int:
+        cell = cell_for(point)
+        nearest: tuple[float, int] | None = None
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    for candidate in cells.get((cell[0] + dx, cell[1] + dy, cell[2] + dz), ()):
+                        distance = math.dist(point, vertices[candidate])
+                        if distance <= weld:
+                            match = (distance, candidate)
+                            if nearest is None or match < nearest:
+                                nearest = match
+        if nearest is not None:
+            return nearest[1]
+        index = len(vertices)
+        vertices.append(point)
+        cells[cell].append(index)
+        return index
+
     for position, mesh in enumerate(meshes):
         if not isinstance(mesh, dict):
             raise PrintExportError(f"mesh #{position} is not an object")
@@ -130,14 +160,7 @@ def merge_meshes(meshes: list[dict[str, Any]], *, weld: float = DEFAULT_WELD) ->
         if not isinstance(raw_vertices, list) or not raw_vertices:
             raise PrintExportError(f"{name}: no vertices (refusing to export empty geometry)")
         local = [_vertex(value, name) for value in raw_vertices]
-        remap = []
-        for point in local:
-            key = (round(point[0] / weld), round(point[1] / weld), round(point[2] / weld))
-            index = lookup.get(key)
-            if index is None:
-                index = lookup[key] = len(vertices)
-                vertices.append(point)
-            remap.append(index)
+        remap = [welded_index(point) for point in local]
         for a, b, c in _triangles(mesh, len(local), name):
             source_triangles += 1
             triangle = (remap[a], remap[b], remap[c])
