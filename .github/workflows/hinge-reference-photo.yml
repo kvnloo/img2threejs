@@ -24,6 +24,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Syntax-check research scripts before downloading or building
+        run: |
+          node --check integrations/hinge_lab/package_single_file.mjs
+          node --check integrations/hinge_lab/test_single_file.mjs
+          node --check integrations/hinge_lab/build_and_test.mjs
+          node --check integrations/hinge_lab/app.mjs
+          node --check forge/tests/hinge_sweep_collision.mjs
+          node --check forge/tests/hinge_photo_ab.mjs
       - name: Obtain credited reference photograph, not a mesh or art pack
         run: |
           curl --fail --location --silent --show-error --retry 3 --max-time 90 \
