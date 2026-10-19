@@ -59,7 +59,8 @@ const camera = new THREE.PerspectiveCamera(50, 320/240, 0.1, 100);
 camera.position.set(6, 4, 7);
 camera.lookAt(2, 1, 0);
 renderer.render(scene, camera);
-window.__IMG2THREEJS_VIEWER__ = ${mode === 'studio-only' ? '{scene}' : '{scene, explodeRoot: modelRoot}'};
+window.__IMG2THREEJS_VIEWER__ = ${mode === 'root-only' ? 'undefined' : mode === 'studio-only' ? '{scene}' : '{scene, explodeRoot: modelRoot}'};
+if (${mode === 'root-only' ? 'true' : 'false'}) window.__IMG2THREEJS_MESH_ROOT__ = modelRoot;
 window.__IMG2THREEJS_READY__ = true;
 window.__IMG2THREEJS_WEBGL_RENDERED__ = Boolean(renderer.getContext());
 if (${mode === 'browser-error' ? 'true' : 'false'}) throw new Error('fixture intentional page error');
@@ -69,7 +70,7 @@ if (${mode === 'browser-error' ? 'true' : 'false'}) throw new Error('fixture int
 const server = createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://127.0.0.1').pathname;
   try {
-    if (pathname === '/' || pathname === '/partial' || pathname === '/instances' || pathname === '/studio-only' || pathname === '/browser-error') {
+    if (pathname === '/' || pathname === '/partial' || pathname === '/instances' || pathname === '/studio-only' || pathname === '/root-only' || pathname === '/browser-error') {
       res.writeHead(200, {'content-type': 'text/html; charset=utf-8'});
       res.end(fixture(pathname.slice(1) || 'normal'));
     } else if (pathname === '/generated') {
@@ -117,6 +118,15 @@ try {
   const xs = new Set(evidence.meshes[0].vertices.map(v => v[0]));
   assert.deepEqual([...xs].sort((a,b)=>a-b), [1, 3], 'world-space translation/scale');
   assert.equal(evidence.skippedMeshes.length, 0, 'studio should be outside model root');
+
+  // A standalone preview may export a subject root without publishing a viewer
+  // object. It must still publish an explicit true browser-ready signal.
+  const standaloneOut = join(screenshots, 'standalone-root.json');
+  assert.equal(await runCli(['--url', url + 'root-only', '--out', standaloneOut]), 0);
+  const standalone = JSON.parse(await readFile(standaloneOut, 'utf8'));
+  assert.equal(standalone.rootSource, 'explicit-global');
+  assert.deepEqual(standalone.meshes.map(m => m.name), ['subject-box']);
+  assert.equal(standalone.incomplete, false);
 
   // Verify the existing Python gate can consume actual browser-captured triangles.
   const gate = spawnSync('python3', ['forge/stage4_review/self_intersection.py', out, '--json'], {

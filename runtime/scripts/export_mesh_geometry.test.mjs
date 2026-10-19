@@ -127,6 +127,22 @@ test('capture-provided subject root is used without falling back to studio', () 
   assert.equal(captureReady({ handle: opts.viewerHandle }), true);
 });
 
+test('standalone global subject root requires a true readiness signal', () => {
+  const subject = makeMesh('unwrapped-subject');
+  globalThis.__IMG2THREEJS_MESH_ROOT__ = {
+    traverse(fn) { fn(subject); },
+    updateWorldMatrix() {},
+  };
+  assert.equal(captureReady(), false);
+  globalThis.__IMG2THREEJS_READY__ = 'true';
+  assert.equal(captureReady(), false);
+  globalThis.__IMG2THREEJS_READY__ = true;
+  assert.equal(captureReady(), true);
+  const result = collectMeshGeometry();
+  assert.equal(result.rootSource, 'explicit-global');
+  assert.deepEqual(result.meshes.map(m => m.name), ['unwrapped-subject']);
+});
+
 test('studio-only scenes do not pass the subject-root gate by default', () => {
   const studio = makeMesh('studio-ground');
   const opts = install(studio);

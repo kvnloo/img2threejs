@@ -30,8 +30,8 @@ export function collectMeshGeometry(options = {}) {
       : rootSource === 'explodeRoot' ? viewer.explodeRoot
         : rootSource === 'modelRoot' ? viewer.modelRoot
           : rootSource === 'scene-explicit' ? scene : null;
-  if (!scene || !root || typeof root.traverse !== 'function') {
-    throw new Error(`viewer ${handle} has no explicit subject root (explodeRoot/modelRoot); use --allow-scene-root only for intentional whole-scene inspection`);
+  if (!root || typeof root.traverse !== 'function') {
+    throw new Error(`preview has no explicit subject root (global root/capture API/${handle}.explodeRoot or .modelRoot); use --allow-scene-root only for intentional whole-scene inspection`);
   }
   const include = options.include ? new RegExp(options.include) : null;
   const exclude = options.exclude ? new RegExp(options.exclude) : null;
@@ -42,7 +42,7 @@ export function collectMeshGeometry(options = {}) {
     maxTotalTriangles: options.maxTotalTriangles ?? 100000 })) {
     if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${key} must be a positive integer`);
   }
-  scene.updateMatrixWorld?.(true);
+  scene?.updateMatrixWorld?.(true);
   // An explicit model root may be detached from scene (e.g. a capture adapter).
   // Update its parent chain as well as its descendants before sampling world
   // vertices; otherwise the receipt can contain stale transforms.
@@ -200,7 +200,11 @@ export function captureReady({ handle = '__IMG2THREEJS_VIEWER__', flag, allowSce
       : viewer?.explodeRoot?.traverse ? viewer.explodeRoot
         : viewer?.modelRoot?.traverse ? viewer.modelRoot
           : allowSceneRoot === true ? scene : null;
-  if (!scene || !root || typeof root.traverse !== 'function' || viewer?.disposed === true) return false;
+  if (!root || typeof root.traverse !== 'function' || viewer?.disposed === true) return false;
+  // A standalone model root can be exposed without the normal viewer wrapper.
+  // Such a page MUST publish an explicit ready flag; presence of geometry alone
+  // does not prove initialization or a completed animation frame.
+  if (!viewer && !flag && globalThis.__IMG2THREEJS_READY__ !== true) return false;
   // Viewer.start() can lag behind build(): a geometry handle alone is not readiness.
   if (viewer.started === false) return false;
   let found = false;
