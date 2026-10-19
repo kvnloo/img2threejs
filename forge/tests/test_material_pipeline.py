@@ -117,6 +117,29 @@ class MaterialPipelineTest(unittest.TestCase):
         gate = run_material_gate(spec, analysis=analysis, comparisons=[comparison], view_plan=plan)
         self.assertTrue(gate["passed"], gate)
 
+    def test_region_id_cannot_escape_material_output_directory(self) -> None:
+        manifest = self.tmp / "regions-path-traversal.json"
+        manifest.write_text(json.dumps({
+            "referenceId": "path-safety-fixture",
+            "regions": [{
+                "componentId": "torso-armor",
+                "regionId": "..\\..//escape",
+                "sourceImage": str(self.reference),
+                "bbox": {"x": 64, "y": 64, "width": 384, "height": 384},
+                "family": "coating",
+                "subtype": "paint-over-metal",
+                "finish": "gloss-or-satin",
+                "materialSpecId": "armor-paint",
+            }],
+        }), encoding="utf-8")
+        out_dir = self.tmp / "contained-analysis"
+        analysis = analyze_manifest(manifest, out_dir)
+        crop = Path(analysis["regions"][0]["crop"]["path"]).resolve()
+        self.assertTrue(crop.is_relative_to(out_dir.resolve()))
+        self.assertNotIn("..", crop.name)
+        self.assertNotIn("\\", crop.name)
+        self.assertFalse((self.tmp / "escape.png").exists())
+
     def test_low_confidence_analysis_cannot_enter_without_override(self) -> None:
         analysis = {
             "status": "probe",
