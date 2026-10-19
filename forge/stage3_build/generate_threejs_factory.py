@@ -3523,6 +3523,18 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
         visual_hull = descriptor.get("visualHull") if isinstance(descriptor, dict) else None
         is_implicit = component.get("topologyClass") == "implicit" and isinstance(sdf, dict)
         is_visual_hull = isinstance(visual_hull, dict)
+        # An authored sweep spine is the geometry, not an instruction to draw a
+        # straight cylinder between attachment endpoints. Retain the historical
+        # endpoint behavior when no explicit curveSweep descriptor is supplied.
+        has_authored_curve_spine = (
+            primitive == "curve-sweep"
+            and isinstance(geometry_descriptor.get("curveSweep"), dict)
+        )
+        use_attachment_endpoint = (
+            primitive in ATTACHMENT_PRIMITIVES
+            and not is_implicit
+            and not has_authored_curve_spine
+        )
         iterations = subdivision_iterations(component)
         effective_primitive = resolve_instanced_cluster_base(primitive, geometry_descriptor, VALID_PRIMITIVES)
         if is_visual_hull:
@@ -3588,7 +3600,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
                 "",
                 *(
                     [f"  const {attachment_var} = {json.dumps(attachment, ensure_ascii=False)};"]
-                    if primitive in ATTACHMENT_PRIMITIVES and not is_implicit
+                    if use_attachment_endpoint
                     else []
                 ),
                 # Endpoint-DERIVED GEOMETRY only for primitives that are attachment shapes.
@@ -3602,9 +3614,9 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
                 # wrong shape shipped. That is the same failure mode `GeometryNotImplementedError`
                 # exists to prevent one step earlier.
                 #
-                # So the branch is gated on ATTACHMENT_PRIMITIVES. Every other primitive keeps the
-                # geometry it declared and uses the attachment as what it is: a contract the
-                # anchor gate reads.
+                # Keep the endpoint branch for axial attachment primitives, but not for a
+                # curve-sweep with an explicit spine. Otherwise the generated sweep is dead
+                # code and the render silently substitutes a straight cylinder.
                 (
                     f"  const {endpoint_var} = makeAttachmentEndpoint({attachment_var});"
                     # `not is_implicit` as well as the primitive test. An implicit component's
@@ -3614,7 +3626,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
                     # moved the node to `attachment.localStart`: a head authored at y 0.705 was
                     # emitted at y -0.195, inside the body, and the model rendered with no head at
                     # all.
-                    if primitive in ATTACHMENT_PRIMITIVES and not is_implicit
+                    if use_attachment_endpoint
                     # `makeAttachmentEndpoint(null)` rather than a bare `null`, so the
                     # binding keeps its `AttachmentEndpoint | null` type. A literal null narrows to
                     # `never` and every later `endpoint.start` stops compiling.
