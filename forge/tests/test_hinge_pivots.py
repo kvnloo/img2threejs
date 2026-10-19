@@ -162,6 +162,14 @@ class OffCenterHingeTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "hinge"):
                     generate(spec, "blockout")
 
+    def test_bone_skinned_component_rejects_hinge(self):
+        spec = self.sample()
+        spec['componentTree'][0]['hinge'] = self.hinge()
+        spec.setdefault('preSpecAssessment', {}).setdefault('objectClass', {})['primaryDomain'] = 'character'
+        spec['rig'] = {'bones': [{'id': 'lid-bone', 'component': 'lid', 'jointPos': [0, 0, 0]}]}
+        errors, _ = validate_spec(spec)
+        self.assertTrue(any('hinge' in e and 'bone-track' in e for e in errors), errors)
+
     def test_cli_emits_hinge_as_opt_in_without_additional_dependencies(self):
         spec = self.sample()
         spec["componentTree"][0]["hinge"] = self.hinge(angle=40)
