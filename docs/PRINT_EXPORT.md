@@ -106,3 +106,12 @@ are rejected instead of overwriting a valid geometry artifact with report
 JSON. OBJ vertices retain round-trip float precision to avoid rounding small
 features to zero. STL stores float32; use `--longest-edge-mm` to scale unusually
 tiny source geometry for printing.
+
+- **STL float32 precision.** Binary STL stores every coordinate as a 32-bit float.
+  Extremely tiny triangles or large world offsets can round different vertices
+  to identical coordinates, producing a degenerate print even when the original
+  Python mesh is topologically closed. Before writing STL, the exporter checks
+  each triangle after float32 conversion and refuses any collapse (exit code 2).
+  Use `--longest-edge-mm` to rescale small meshes; for distant origins, recenter
+  the source geometry before export. OBJ remains available for lossless decimal
+  coordinate output when STL precision is inadequate.
