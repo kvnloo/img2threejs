@@ -1,6 +1,8 @@
 """Only repository-owned camera labels may leave a browser evidence manifest."""
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -10,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "forge" / "stage4_review"))
 
-from browser_evidence_brief import build_brief  # noqa: E402
+from browser_evidence_brief import build_brief, main  # noqa: E402
 from make_comparison_sheet import write_png_rgb  # noqa: E402
 from render_bridge import init_manifest, write_manifest  # noqa: E402
 
@@ -77,6 +79,18 @@ class BrowserBriefCaptureIdPrivacyTest(unittest.TestCase):
         self.assertIn("duplicate-capture", result["errorCategories"])
         self.assertEqual(result["pendingIds"], ["capture-0", "capture-1"])
         self.assertNotIn(secret, json.dumps(result))
+
+    def test_malformed_reference_fails_with_generic_error_not_traceback(self):
+        self.manifest["reference"] = None
+        self.brief_file = self.manifest_file
+        write_manifest(self.brief_file, self.manifest)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = main(["--manifest", str(self.brief_file)])
+        self.assertEqual(code, 2)
+        self.assertIn("browser brief: AttributeError", stderr.getvalue())
+        self.assertNotIn(str(self.root), stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
 
     def test_distinct_raw_secrets_do_not_collide_after_redaction(self):
         self.manifest["captures"][0]["id"] = "S3cretUniqueAlpha"
