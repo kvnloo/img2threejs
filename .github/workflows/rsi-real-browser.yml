@@ -5,6 +5,7 @@ on:
     paths:
       - "experiments/dream_rsi_mesh_fidelity/**"
       - ".github/workflows/rsi-real-browser.yml"
+      - "forge/tests/test_rsi_real_browser_manifest.py"
   workflow_dispatch:
 
 permissions:
@@ -32,18 +33,21 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Isolated browser dependencies (not core)
-        run: |
-          npm install --no-save --no-package-lock \
-            --prefix experiments/dream_rsi_mesh_fidelity \
-            esbuild@0.25.6 playwright-core@1.55.0 three@0.170.0
+      - name: Validate cohort and browser receipt invariants without Chrome
+        run: python3 -m unittest forge.tests.test_rsi_real_browser_manifest -v
 
-      - name: Generate true ObjectSculptSpec and TypeScript variants
+      - name: Prepare hashed TypeScript variants before installing browser dependencies
         env:
           SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python3 experiments/dream_rsi_mesh_fidelity/real_render_smoke.py \
             prepare "$RUNNER_TEMP/rsi-real-${{ matrix.neighborhood }}" --neighborhood "${{ matrix.neighborhood }}"
+
+      - name: Isolated browser dependencies (not core)
+        run: |
+          npm install --no-save --no-package-lock \
+            --prefix experiments/dream_rsi_mesh_fidelity \
+            esbuild@0.25.6 playwright-core@1.55.0 three@0.170.0
 
       - name: Browser capture, fail if WebGL is absent
         run: |
