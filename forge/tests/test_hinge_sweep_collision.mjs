@@ -177,6 +177,93 @@ test('adaptive check refuses moving obstacle, nonuniform parent and invalid budg
   assert.equal(joint.rotation.y, 0);
 });
 
+
+test('seeded rigid-box stress check never certifies a densely observed penetration', () => {
+  // Reproducible adversarial set: vary box dimensions, angle sign, obstacle
+  // location, world rotation, and common uniform scale. A dense reference
+  // is a falsification oracle, NOT proof that an interval is always clear.
+  let seed = 0x5eeda11c;
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  const tested = 48;
+  let observedCollisions = 0, certifiedClear = 0, unresolved = 0;
+  for (let trial = 0; trial < tested; trial++) {
+    const { root, joint, panel, obstacle } = model();
+    const uniformScale = 0.65 + random() * 1.5;
+    root.scale.setScalar(uniformScale);
+    root.rotation.set((random() - 0.5) * 1.2,
+                      (random() - 0.5) * 1.5,
+                      (random() - 0.5) * 1.5);
+    panel.geometry.dispose();
+    panel.geometry = new THREE.BoxGeometry(
+      0.4 + random() * 1.2, 0.012 + random() * 0.17,
+      0.14 + random() * 0.8);
+    obstacle.geometry.dispose();
+    obstacle.geometry = new THREE.BoxGeometry(
+      0.025 + random() * 0.23, 0.025 + random() * 0.23,
+      0.025 + random() * 0.23);
+    // Place half the cases on the angular arc, half away from it.
+    const theta = (0.1 + random() * 0.8) * Math.PI;
+    const sign = random() < 0.5 ? -1 : 1;
+    const radius = 0.3 + random() * 0.9;
+    obstacle.position.set(0.5 + radius * Math.cos(theta),
+                          sign * radius * Math.sin(theta),
+                          (random() - 0.5) * 0.3);
+    const end = sign * 180;
+    const oldAngle = (random() - 0.5) * Math.PI;
+    joint.rotation.y = oldAngle;
+    const denseAngles = Array.from({length: 361}, (_, i) => end * i / 360);
+    const dense = sampleFold(joint, panel, obstacle, denseAngles);
+    const actual = certifyFoldSweep(joint, panel, obstacle, 0, end, {
+      maxDepth: 12, maxChecks: 512
+    });
+    assert.ok(Math.abs(joint.rotation.y - oldAngle) < 1e-12,
+      'sweep must restore arbitrary authored joint angle');
+    assert.ok(['collision', 'certified-clear', 'unresolved'].includes(actual.status));
+    if (dense.collisionSamples) {
+      observedCollisions++;
+      assert.notEqual(actual.status, 'certified-clear',
+        'false certification on seeded case ' + trial);
+    }
+    if (actual.status === 'collision') {
+      joint.rotation.y = THREE.MathUtils.degToRad(actual.collision.degrees);
+      root.updateWorldMatrix(true, true);
+      assert.ok(boxPenetration(panel, obstacle).penetrating,
+        'reported collision must include a real penetration witness');
+      joint.rotation.y = oldAngle;
+    }
+    if (actual.status === 'certified-clear') certifiedClear++;
+    if (actual.status === 'unresolved') {
+      unresolved++;
+      assert.ok(actual.unresolvedIntervals.length > 0);
+    }
+  }
+  assert.ok(observedCollisions > 5, 'random cases should exercise collisions');
+  assert.ok(certifiedClear > 5, 'random cases should also exercise clear certificates');
+  console.log('SWEEP_SEEDED_STRESS:', JSON.stringify({
+    seed: '0x5eeda11c', trials: tested, denselyObservedCollisions: observedCollisions,
+    certifiedClear, unresolved, denseSamplingIntervalDegrees: 0.5
+  }));
+});
+
+test('exhausted adaptive check budget does not invent a clear result', () => {
+  const { joint, panel, obstacle } = model();
+  panel.geometry.dispose();
+  panel.geometry = new THREE.BoxGeometry(0.12, 0.008, 0.10);
+  obstacle.geometry.dispose();
+  obstacle.geometry = new THREE.BoxGeometry(0.012, 0.012, 0.12);
+  const angle = THREE.MathUtils.degToRad(1.25);
+  obstacle.position.set(0.5 + 0.5 * Math.cos(angle), 0.5 * Math.sin(angle), 0);
+  const probe = certifyFoldSweep(joint, panel, obstacle, 0, 5, {
+    maxDepth: 12, maxChecks: 3
+  });
+  assert.equal(probe.status, 'unresolved', JSON.stringify(probe));
+  assert.ok(probe.unresolvedIntervals.length >= 1);
+  assert.equal(joint.rotation.y, 0);
+});
+
 if (process.env.HINGE_SWEEP_OUTPUT) {
   const { writeFileSync } = await import('node:fs');
   const { joint, panel, obstacle } = model();
