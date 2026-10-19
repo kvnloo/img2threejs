@@ -201,7 +201,12 @@ python3 forge/stage4_review/browser_evidence_brief.py \
 ```
 
 Repair invalid source provenance, capture hashes, readiness or browser errors
-**before** scheduling remaining camera views. The `nextStep` field chooses
+**before** scheduling remaining camera views. Recorded browser captures require
+an explicit empty console-error receipt. On the v2 diagnostic track, all six
+declared render passes must have recorded status, image metadata and a SHA-256
+receipt before the brief can claim `evidenceComplete`. The normal validator's
+non-strict mode intentionally tolerates unfinished passes, but this summary
+does not treat a lone beauty pass as a complete camera review. The `nextStep` field chooses
 `repair-evidence` whenever any error category exists; otherwise it chooses
 `capture-missing` for valid but incomplete batches.
 
