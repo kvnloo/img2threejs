@@ -6,6 +6,11 @@ on:
       - 'experiments/dream_rsi_mesh_fidelity/registered_multifamily.py'
       - 'experiments/dream_rsi_mesh_fidelity/MULTIFAMILY_V1_REGISTERED.json'
       - 'forge/tests/test_rsi_multifamily_protocol.py'
+      - 'forge/tests/test_rsi_policy_freeze.py'
+      - 'forge/tests/test_rsi_registered_holdout.py'
+      - 'experiments/dream_rsi_mesh_fidelity/registered_policy.py'
+      - 'experiments/dream_rsi_mesh_fidelity/registered_holdout_ab.py'
+      - 'experiments/dream_rsi_mesh_fidelity/aggregate_holdout.py'
       - '.github/workflows/rsi-multifamily-browser.yml'
   workflow_dispatch:
 
@@ -23,7 +28,10 @@ jobs:
           python-version: '3.10'
       - name: Validate preregistration, heldout isolation and actual native codegen
         run: |
-          python3 -m unittest forge.tests.test_rsi_multifamily_protocol -v
+          python3 -m unittest \
+            forge.tests.test_rsi_multifamily_protocol \
+            forge.tests.test_rsi_policy_freeze \
+            forge.tests.test_rsi_registered_holdout -v
           python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py register
 
   three-family-browser:
