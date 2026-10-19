@@ -5,6 +5,7 @@ on:
     paths:
       - 'forge/stage3_build/print_export.py'
       - 'scripts/verify_print_export_browser_pipeline.py'
+      - 'scripts/print_export_openscad_smoke.py'
       - '.github/workflows/print-browser-integration.yml'
   workflow_dispatch:
 
@@ -72,19 +73,23 @@ jobs:
   slice-with-slic3r:
     needs: real-threejs-to-print
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 18
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: print-export-browser-integration
           path: ${{ runner.temp }}/print-input
-      - name: Install independent production slicer
+      - name: Install independent geometry consumer and slicer
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends slic3r
+          sudo apt-get install -y --no-install-recommends slic3r openscad
           slic3r --version
+          openscad --version
+      - name: Independently round-trip binary STL through OpenSCAD
+        run: python3 scripts/print_export_openscad_smoke.py
       - name: Slice actual browser-exported STL to G-code
         shell: bash
         run: |
