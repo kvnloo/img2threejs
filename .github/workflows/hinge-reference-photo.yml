@@ -1,0 +1,49 @@
+name: Hinge Real Photo A/B (research)
+
+on:
+  push:
+    branches: [study/hinge-real-photo-ab-20261019]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Obtain credited reference photograph, not a mesh or art pack
+        run: |
+          curl --fail --location --silent --show-error --retry 3 --max-time 90 \
+            --user-agent "img2threejs-reference-evaluation/1.0 (+https://github.com/kvnloo/img2threejs)" \
+            https://upload.wikimedia.org/wikipedia/commons/e/eb/Box.agr.jpg \
+            --output "$RUNNER_TEMP/box.agr.jpg"
+          test "$(wc -c < "$RUNNER_TEMP/box.agr.jpg")" -gt 25000
+          sha256sum "$RUNNER_TEMP/box.agr.jpg"
+      - name: Install pinned test-only Three.js/browser dependencies
+        run: |
+          npm install --no-save --no-package-lock --ignore-scripts \
+            three@0.180.0 @types/three@0.180.0 \
+            typescript@5.9.3 esbuild@0.25.12 playwright@1.56.1
+          npx --no-install playwright install --with-deps chromium
+      - name: Run real-photo A/B and mechanical seam assertions
+        env:
+          HINGE_REFERENCE_PHOTO: ${{ runner.temp }}/box.agr.jpg
+          HINGE_AB_OUTPUT: ${{ runner.temp }}/hinge-photo-ab
+        run: node forge/tests/hinge_photo_ab.mjs
+      - name: Upload credited comparison and measured raw results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hinge-real-photo-ab
+          path: ${{ runner.temp }}/hinge-photo-ab/
+          if-no-files-found: warn
+          retention-days: 7
