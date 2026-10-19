@@ -390,9 +390,22 @@ def assert_stl_float32_geometry(
             )
 
 
+def _safe_export_name(value: str) -> str:
+    """OBJ object names occupy a full source line; never embed control text.
+
+    Names can originate from arbitrary source filenames, which may contain
+    newlines on POSIX. Limiting the name to one portable token also keeps
+    binary STL headers predictable and prevents stray OBJ directives.
+    """
+    token = "".join(char if char.isascii() and (char.isalnum() or char in "_.-")
+                    else "_" for char in str(value))
+    return token.strip("_.-")[:64] or "img2threejs"
+
+
 def write_stl(path: Path, vertices: list[Vec], triangles: list[tuple[int, int, int]], *, name: str = "img2threejs") -> None:
     assert_stl_float32_geometry(vertices, triangles)
-    header = f"img2threejs print export: {name}".encode("ascii", "replace")[:80].ljust(80, b"\0")
+    safe_name = _safe_export_name(name)
+    header = f"img2threejs print export: {safe_name}".encode("ascii", "replace")[:80].ljust(80, b"\0")
     with path.open("wb") as stream:
         stream.write(header)
         stream.write(struct.pack("<I", len(triangles)))
@@ -404,9 +417,10 @@ def write_stl(path: Path, vertices: list[Vec], triangles: list[tuple[int, int, i
 
 
 def write_obj(path: Path, vertices: list[Vec], triangles: list[tuple[int, int, int]], *, name: str = "img2threejs") -> None:
+    safe_name = _safe_export_name(name)
     with path.open("w", encoding="utf-8", newline="\n") as stream:
-        stream.write(f"# img2threejs print export: {name}\n")
-        stream.write(f"o {name}\n")
+        stream.write(f"# img2threejs print export: {safe_name}\n")
+        stream.write(f"o {safe_name}\n")
         for x, y, z in vertices:
             # Six decimal places can collapse submicron geometry into zero-area faces.
             stream.write(f"v {x:.17g} {y:.17g} {z:.17g}\n")
