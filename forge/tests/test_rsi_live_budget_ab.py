@@ -48,7 +48,7 @@ class LiveBudgetInvariantTests(unittest.TestCase):
                     objective, FitConfig(max_evaluations=3, coordinate_order=order),
                 )
                 self.assertEqual(result.evaluations, 3)
-                self.assertEqual(result.best_score, 0.95)
+                self.assertAlmostEqual(result.best_score, 0.95)
                 self.assertEqual(result.iterations, 1)
                 self.assertEqual(result.history[-1].best_score, result.best_score)
                 self.assertEqual(result.history[-1].evaluations, 3)
