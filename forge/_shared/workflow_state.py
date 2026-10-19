@@ -273,7 +273,17 @@ def next_entry(state: dict[str, Any]) -> dict[str, Any] | None:
     setup_pending = _pending(_entries(state, "setup"))
     if setup_pending:
         return setup_pending[0]
-    if state.get("currentPass") != "complete":
+    # Pass rows exist from init, but they are not executable until a spec has
+    # opened the first pass. Otherwise finishing setup offers work that the
+    # first pipeline sync immediately resets (see issue #123).
+    if not state.get("currentPass"):
+        return {
+            "id": "await-pass-open",
+            "scope": "pass",
+            "status": "pending",
+            "command": "python3 forge/next.py --state .img2threejs/state.json {spec}",
+        }
+    if state["currentPass"] != "complete":
         pass_pending = _pending(_entries(state, "pass"))
         if pass_pending:
             return pass_pending[0]
@@ -430,7 +440,7 @@ def status_payload(state: dict[str, Any]) -> dict[str, Any]:
     current_pass = str(state.get("currentPass") or "")
     loops = state["loops"]
     visible_scopes = {"setup", "final", "rig"}
-    if current_pass != "complete":
+    if current_pass and current_pass != "complete":
         visible_scopes.add("pass")
     return {
         "status": state["status"],
