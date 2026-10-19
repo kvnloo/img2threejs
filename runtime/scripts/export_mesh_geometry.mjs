@@ -3,7 +3,7 @@
  * Browser transport uses an optional, locally installed Playwright; core extraction
  * is dependency-free and exported for deterministic tests.
  */
-import { writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -14,7 +14,8 @@ export function collectMeshGeometry(options = {}) {
   const viewer = globalThis[handle];
   const scene = viewer?.scene;
   // The showcase also renders studio/ground meshes outside its model root.
-  const root = viewer?.explodeRoot?.traverse ? viewer.explodeRoot : scene;
+  const root = viewer?.explodeRoot?.traverse ? viewer.explodeRoot
+    : viewer?.modelRoot?.traverse ? viewer.modelRoot : scene;
   if (!scene || !root || typeof root.traverse !== 'function') {
     throw new Error(`viewer ${handle} has no traversable scene`);
   }
@@ -50,6 +51,8 @@ export function collectMeshGeometry(options = {}) {
     if (![start, end].every(Number.isSafeInteger) || start < 0 || end <= start || start % 3 || (end - start) % 3) {
       return skip('invalid-triangle-range');
     }
+    // A partial drawRange cannot certify the full mesh in an off-axis gate.
+    if (start !== 0 || end !== available) return skip('partial-draw-range');
     if ((end - start) / 3 > cap) return skip('triangle-cap');
     const e = mesh.matrixWorld?.elements;
     if (!e || e.length !== 16 || !Array.from(e).every(Number.isFinite)) return skip('invalid-world-matrix');
@@ -146,6 +149,8 @@ export async function runCli(argv = process.argv.slice(2)) {
     process.stdout.write('Usage: node runtime/scripts/export_mesh_geometry.mjs --url URL --out meshes.json [--include RE] [--exclude RE] [--max-triangles N] [--ready-flag F] [--viewer-handle H] [--timeout-ms N]\n');
     return 0;
   }
+  // Invalidate stale successful/diagnostic receipts before browser capture.
+  await Promise.all([rm(opts.out, { force: true }), rm(`${opts.out}.incomplete.json`, { force: true })]);
   const playwright = loadPlaywright();
   const browser = await playwright.chromium.launch({ headless: true });
   try {
@@ -154,17 +159,20 @@ export async function runCli(argv = process.argv.slice(2)) {
     await page.waitForFunction(({ handle, flag }) => {
       const viewer = globalThis[handle];
       const scene = viewer?.scene;
-      const root = viewer?.explodeRoot?.traverse ? viewer.explodeRoot : scene;
+      const root = viewer?.explodeRoot?.traverse ? viewer.explodeRoot
+        : viewer?.modelRoot?.traverse ? viewer.modelRoot : scene;
       let found = false;
       root?.traverse?.(node => { if (node.isMesh) found = true; });
       return found && (!flag || globalThis[flag] === true);
     }, { handle: opts.viewerHandle || '__IMG2THREEJS_VIEWER__', flag: opts.readyFlag }, { timeout: opts.timeoutMs ?? 30000 });
     const report = await page.evaluate(collectMeshGeometry, opts);
-    await writeFile(opts.out, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
     if (report.incomplete) {
-      process.stderr.write(`Incomplete mesh export: ${report.skippedMeshes.length} skipped; see ${opts.out}\n`);
+      const diagnostics = `${opts.out}.incomplete.json`;
+      await writeFile(diagnostics, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+      process.stderr.write(`Incomplete mesh export: ${report.skippedMeshes.length} skipped; see ${diagnostics}\n`);
       return 2;
     }
+    await writeFile(opts.out, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
     return 0;
   } finally {
     await browser.close();
