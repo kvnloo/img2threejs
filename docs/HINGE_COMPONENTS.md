@@ -51,6 +51,23 @@ valid final angle may still drive a panel through its neighbor. Character
 skin/bone deformation and visual fidelity are not established by the
 generator-only tests.
 
-Validation: `python3 -m unittest discover -s forge/tests -p 'test_*.py'`
-and a separate TypeScript/Three.js showcase compile and visual screenshot
-gate before any visual-fidelity or upstream completion claim.
+Validation:
+```sh
+python3 -m unittest discover -s forge/tests -p 'test_*.py'
+npm install --no-save --no-package-lock --ignore-scripts \
+  three@0.180.0 @types/three@0.180.0 \
+  typescript@5.9.3 esbuild@0.25.12 playwright@1.56.1
+npx --no-install playwright install --with-deps chromium
+HINGE_SCREENSHOTS=/tmp/hinge-screenshots node forge/tests/hinge_runtime.mjs
+```
+
+The separate [WebGL smoke workflow](../.github/workflows/hinge-runtime.yml)
+compiles the actual generated TypeScript, verifies parent-frame and nested
+joint world transforms, checks lid/flap seam continuity across 0–90 degrees
+in 5-degree steps, and captures Chromium screenshots at 0/45/90 degrees.
+These are uploaded as `hinge-swept-views` artifacts.
+
+This proves fixture articulation, not reference-image reconstruction fidelity
+or collision-free motion for arbitrary subjects. Bone-bound components in
+character/hybrid skinning cannot declare hinges because the skinned mesh is
+reparented outside its pivot; unsupported hinge keys fail validation.

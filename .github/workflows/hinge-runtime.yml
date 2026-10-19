@@ -1,0 +1,44 @@
+name: Hinge WebGL Smoke
+
+on:
+  pull_request:
+    paths:
+      - "forge/stage3_build/generate_threejs_factory.py"
+      - "forge/stage2_spec/validate_sculpt_spec.py"
+      - "forge/tests/hinge_runtime*"
+      - "forge/tests/emit_hinge_runtime_fixture.py"
+      - ".github/workflows/hinge-runtime.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  hinge-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install pinned ephemeral test dependencies
+        run: |
+          npm install --no-save --no-package-lock --ignore-scripts \
+            three@0.180.0 @types/three@0.180.0 \
+            typescript@5.9.3 esbuild@0.25.12 playwright@1.56.1
+      - name: Install headless Chromium with system dependencies
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Generate, typecheck, animate and render actual Three.js output
+        env:
+          HINGE_SCREENSHOTS: ${{ runner.temp }}/hinge-screenshots
+        run: node forge/tests/hinge_runtime.mjs
+      - name: Upload visual acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hinge-swept-views
+          path: ${{ runner.temp }}/hinge-screenshots/*.png
+          if-no-files-found: ignore

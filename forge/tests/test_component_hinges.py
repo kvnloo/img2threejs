@@ -41,7 +41,9 @@ class ComponentHingeTests(unittest.TestCase):
         self.assertIn("hinge_anchor_part_1.position.set(-0.45, 0.4, 0.6);", source)
         self.assertIn("hinge_rotation_part_1.rotation.y = " + str(math.pi / 2), source)
         self.assertIn("hinge_counter_part_1.quaternion.copy(hinge_anchor_part_1.quaternion).invert();", source)
-        self.assertIn("node_part_1.position.sub(hinge_anchor_part_1.position);", source)
+        self.assertIn("hinge_offset_part_1.position.copy(hinge_anchor_part_1.position).negate();", source)
+        self.assertIn("hinge_offset_part_1.add(node_part_1);", source)
+        self.assertNotIn("node_part_1.position.sub(", source)
         self.assertIn('(nodes["body"] ?? root).add(hinge_anchor_part_1);', source)
         self.assertIn('hinges["part"] = hinge_rotation_part_1;', source)
         self.assertIn("destructionGroups, hinges } satisfies ProceduralModelRuntime;", source)
@@ -60,7 +62,7 @@ class ComponentHingeTests(unittest.TestCase):
         source = generate(spec, "blockout")
         self.assertIn("setFromUnitVectors(", source)
         self.assertIn(".sub(hinge_anchor_part_1.position).normalize(),", source)
-        self.assertIn("hinge_counter_part_1.add(node_part_1);", source)
+        self.assertIn("hinge_counter_part_1.add(hinge_offset_part_1);", source)
 
     def test_nested_hinges_keep_existing_child_attachment_target(self) -> None:
         spec = _spec()
@@ -83,7 +85,9 @@ class ComponentHingeTests(unittest.TestCase):
         spec["componentTree"][1]["hinge"] = _spec()["componentTree"][1]["hinge"]
         source = generate(spec, "blockout")
         self.assertIn("node_part_1.position.copy(endpoint_part_1.start);", source)
-        self.assertIn("node_part_1.position.sub(hinge_anchor_part_1.position);", source)
+        self.assertIn("hinge_offset_part_1.position.copy(hinge_anchor_part_1.position).negate();", source)
+        self.assertIn("hinge_offset_part_1.add(node_part_1);", source)
+        self.assertNotIn("node_part_1.position.sub(", source)
         self.assertIn("mesh_part_1.quaternion.copy(endpoint_part_1.quaternion);", source)
 
     def test_invalid_hinge_payloads_fail_at_spec_validation(self) -> None:
@@ -98,6 +102,7 @@ class ComponentHingeTests(unittest.TestCase):
             {**valid, "restAngleDeg": "ninety"},
             {**valid, "restAngleDeg": float("nan")},
             {**valid, "restAngleDeg": float("inf")},
+            {**valid, "restAngelDeg": 90},
             {**valid, "axisStart": [float("inf"), 0, 0]},
         ]
         for bad in invalid:
@@ -106,6 +111,15 @@ class ComponentHingeTests(unittest.TestCase):
                 spec["componentTree"][1]["hinge"] = bad
                 errors, _warnings = validate_spec(spec)
                 self.assertTrue(any("hinge" in message for message in errors), errors)
+
+    def test_rejects_hinge_on_bone_bound_component(self) -> None:
+        spec = _spec()
+        spec["preSpecAssessment"] = {"objectClass": {"primaryDomain": "character"}}
+        spec["rig"] = {"bones": [
+            {"id": "part-bone", "component": "part", "jointPos": [0, 0, 0]}
+        ]}
+        errors, _warnings = validate_spec(spec)
+        self.assertTrue(any("hinge" in message and "bone-track" in message for message in errors), errors)
 
     def test_missing_rest_angle_defaults_to_zero(self) -> None:
         spec = _spec()

@@ -3503,6 +3503,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
         hinge_anchor_var = local_var("hinge_anchor", component_id, index)
         hinge_rotation_var = local_var("hinge_rotation", component_id, index)
         hinge_counter_var = local_var("hinge_counter", component_id, index)
+        hinge_offset_var = local_var("hinge_offset", component_id, index)
         primitive = str(component.get("primitive") or "box")
         if primitive not in VALID_PRIMITIVES:
             primitive = "box"
@@ -3668,8 +3669,10 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
                         f"  {hinge_rotation_var}.rotation.y = {math.radians(hinge.get('restAngleDeg', 0))};",
                         f"  const {hinge_counter_var} = new THREE.Group();",
                         f"  {hinge_counter_var}.quaternion.copy({hinge_anchor_var}.quaternion).invert();",
-                        f"  {node_var}.position.sub({hinge_anchor_var}.position);",
-                        f"  {hinge_counter_var}.add({node_var});",
+                        f"  const {hinge_offset_var} = new THREE.Group();",
+                        f"  {hinge_offset_var}.position.copy({hinge_anchor_var}.position).negate();",
+                        f"  {hinge_offset_var}.add({node_var});",
+                        f"  {hinge_counter_var}.add({hinge_offset_var});"
                         f"  {hinge_rotation_var}.add({hinge_counter_var});",
                         f"  {hinge_anchor_var}.add({hinge_rotation_var});",
                         f"  (nodes[{json.dumps(str(parent))}] ?? root).add({hinge_anchor_var});",
