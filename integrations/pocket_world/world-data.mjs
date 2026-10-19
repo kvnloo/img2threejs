@@ -38,9 +38,13 @@ export function voxelize(rgba, size = GRID_SIZE) {
   const heights = new Array(size * size);
   const visible = new Array(size * size);
   for (let i = 0; i < size * size; i++) {
-    const r = byte(rgba[4 * i]), g = byte(rgba[4 * i + 1]), b = byte(rgba[4 * i + 2]);
-    colors[i] = (r << 16) | (g << 8) | b;
     visible[i] = rgba[4 * i + 3] >= 32 ? 1 : 0;
+    // Fully transparent source pixels may contain arbitrary RGB bytes. They
+    // must not influence the relief or survive into a downloaded passport.
+    const r = visible[i] ? byte(rgba[4 * i]) : 0;
+    const g = visible[i] ? byte(rgba[4 * i + 1]) : 0;
+    const b = visible[i] ? byte(rgba[4 * i + 2]) : 0;
+    colors[i] = (r << 16) | (g << 8) | b;
     luminance[i] = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   }
   for (let y = 0; y < size; y++) {
@@ -59,7 +63,7 @@ export function voxelize(rgba, size = GRID_SIZE) {
         }
       }
       const blend = weight ? .77 * (sum / weight) + .23 * luminance[i] : 0;
-      heights[i] = byte(blend * 255);
+      heights[i] = visible[i] ? byte(blend * 255) : 0;
     }
   }
   return { size, colors, heights, visible };
@@ -73,6 +77,16 @@ export function validateWorld(data) {
     if (!Array.isArray(arr) || arr.length !== n || arr.some(v => !Number.isInteger(v) || v < 0 || v > max)) throw new RangeError(`Invalid ${key}`);
   }
   return data;
+}
+
+/** Normalize hidden terrain without changing the source or legacy receipt schema. */
+function withoutHiddenPixels(data) {
+  return {
+    size: data.size,
+    colors: data.colors.map((color, i) => data.visible[i] ? color : 0),
+    heights: data.heights.map((height, i) => data.visible[i] ? height : 0),
+    visible: data.visible.slice(),
+  };
 }
 
 /** Pick a visible start tile, preferring tiles close to the requested location. */
@@ -311,7 +325,7 @@ export function serializeWorld(data, relief = 1, adventure = null) {
     kind: 'img2threejs-pocket-world',
     version: adventure === null ? 1 : 2,
     relief,
-    world: { size: data.size, colors: data.colors, heights: data.heights, visible: data.visible },
+    world: withoutHiddenPixels(data),
   };
   if (adventure !== null) receipt.adventure = validateAdventure(data, adventure);
   return JSON.stringify(receipt);
@@ -326,7 +340,7 @@ export function deserializeWorld(text) {
   if (typeof receipt.relief !== 'number' || !Number.isFinite(receipt.relief) || receipt.relief < 0 || receipt.relief > 3) {
     throw new RangeError('Invalid saved world relief');
   }
-  const data = validateWorld(receipt.world);
+  const data = withoutHiddenPixels(validateWorld(receipt.world));
   if (data.size !== GRID_SIZE) throw new RangeError('Saved worlds must use the 28x28 grid');
   tileHeight(0, receipt.relief);
   const adventure = receipt.version === 2 ? validateAdventure(data, receipt.adventure) : null;
@@ -339,9 +353,10 @@ export function previewWorldPixels(data) {
   if (data.size !== GRID_SIZE) throw new RangeError('Preview must be 28x28');
   const rgba = new Uint8ClampedArray(data.colors.length * 4);
   for (let i = 0; i < data.colors.length; i++) {
-    rgba[4 * i] = (data.colors[i] >>> 16) & 255;
-    rgba[4 * i + 1] = (data.colors[i] >>> 8) & 255;
-    rgba[4 * i + 2] = data.colors[i] & 255;
+    const color = data.visible[i] ? data.colors[i] : 0;
+    rgba[4 * i] = (color >>> 16) & 255;
+    rgba[4 * i + 1] = (color >>> 8) & 255;
+    rgba[4 * i + 2] = color & 255;
     rgba[4 * i + 3] = data.visible[i] ? 255 : 0;
   }
   return rgba;
