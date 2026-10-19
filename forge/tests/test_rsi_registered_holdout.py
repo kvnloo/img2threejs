@@ -124,7 +124,7 @@ class HoldoutEvidenceTest(unittest.TestCase):
         measured = aggregate(self.collect, self.policy_file, destination)
         self.assertTrue(measured["holdoutGateSatisfied"])  # synthetic scenario only
         self.assertEqual(measured["worldCount"], 6)
-        self.assertEqual(measured["medianIoUDelta"], 0.03)
+        self.assertAlmostEqual(measured["medianIoUDelta"], 0.03)
         self.assertEqual(measured["frozenPolicyDigest"], self.lock["policyDigest"])
         self.assertTrue(destination.exists())
         with self.assertRaises(FileExistsError):
