@@ -69,6 +69,60 @@ class RealBrowserCohortIntegrityTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "unknown or altered candidate neighborhood"):
                     self.score(data)
 
+    def test_valid_webgl2_receipt_is_admitted_without_browser(self) -> None:
+        folder = self.root / "root"
+        folder.mkdir()
+        (folder / "browser.json").write_text(json.dumps({
+            "ready": True, "coverage": 0.25,
+            "webgl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+            "renderer": "WebKit WebGL", "chromium": "155.0.0",
+            "errors": [],
+        }), encoding="utf-8")
+        rsi.verify_browser_receipt(folder, "root")
+
+    def test_missing_bad_and_failed_capture_receipts_are_refused(self) -> None:
+        folder = self.root / "root"
+        folder.mkdir()
+        receipt_file = folder / "browser.json"
+        with self.assertRaisesRegex(RuntimeError, "missing or malformed"):
+            rsi.verify_browser_receipt(folder, "root")
+        receipt_file.write_text("{bad", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "missing or malformed"):
+            rsi.verify_browser_receipt(folder, "root")
+
+        valid = {
+            "ready": True, "coverage": 0.25,
+            "webgl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+            "renderer": "WebKit WebGL", "chromium": "155.0.0",
+            "errors": [],
+        }
+        variants = [
+            ("ready", "true"), ("ready", 1), ("ready", False),
+            ("errors", ["SECRET_SESSION_URL"]), ("errors", None),
+            ("coverage", 0), ("coverage", 1), ("coverage", True),
+            ("coverage", float("nan")), ("webgl", "WebGL 1.0"),
+            ("renderer", ""), ("chromium", ""),
+        ]
+        for key, changed in variants:
+            with self.subTest(field=key, value=changed):
+                candidate = dict(valid)
+                candidate[key] = changed
+                receipt_file.write_text(json.dumps(candidate), encoding="utf-8")
+                with self.assertRaisesRegex(RuntimeError, "unverified WebGL2") as error:
+                    rsi.verify_browser_receipt(folder, "root")
+                self.assertNotIn("SECRET_SESSION_URL", str(error.exception))
+
+    def test_saved_spec_hash_must_match_prepared_manifest(self) -> None:
+        manifest = self.manifest("original")
+        for variant in manifest["variants"]:
+            variant["specSha256"] = "f" * 64
+            variant["generatedTypeScriptSha256"] = "e" * 64
+        (self.root / "target").mkdir()
+        (self.root / "target" / "spec.json").write_text("modified spec", encoding="utf-8")
+        (self.root / "target" / "render.png").write_bytes(b"present")
+        with self.assertRaisesRegex(RuntimeError, "frozen source spec changed"):
+            self.score(manifest)
+
     def test_unknown_neighborhood_is_refused(self) -> None:
         data = self.manifest("original")
         data["neighborhood"] = "unregistered"
