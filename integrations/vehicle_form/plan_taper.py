@@ -20,6 +20,11 @@ class PlanTaperInputError(ValueError):
     """The inputs cannot support a geometric verdict."""
 
 
+# A width supported only by disconnected edge rails is not a body silhouette.
+# This intentionally does not certify mesh volume or watertightness.
+MIN_LATERAL_SPAN_COVERAGE = 0.90
+
+
 def _number(value: Any, label: str, *, positive: bool = False) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise PlanTaperInputError(f"{label} must be finite and numeric")
@@ -144,36 +149,71 @@ def _validate_sections(payload: Any) -> tuple[list[dict[str, Any]], float, float
     return stations, width_tolerance, taper_tolerance
 
 
-def _section_width(vertices: list[tuple[float, float, float]], triangles: list[tuple[int, int, int]], x: float, epsilon: float) -> tuple[float, int]:
-    """Intersect every mesh triangle with x=station; measure lateral (z) width."""
+def _section_width(
+    vertices: list[tuple[float, float, float]],
+    triangles: list[tuple[int, int, int]],
+    x: float,
+    epsilon: float,
+) -> tuple[float, int, float]:
+    """Measure section width AND the fraction backed by intersected surface.
+
+    A pair of thin, disconnected side rails can have the correct min/max Z at
+    every station and still be missing the entire body between them. Require
+    actual triangle-plane segments to cover the width, not just two extrema.
+    """
     z_hits: list[float] = []
+    intervals: list[tuple[float, float]] = []
     for a, b, c in triangles:
         tri = (vertices[a], vertices[b], vertices[c])
         if x < min(p[0] for p in tri) - epsilon or x > max(p[0] for p in tri) + epsilon:
             continue
+        hits: list[float] = []
         for first, second in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
             dx = second[0] - first[0]
             if abs(dx) <= epsilon:
                 if abs(x - first[0]) <= epsilon:
-                    z_hits.extend((first[2], second[2]))
+                    hits.extend((first[2], second[2]))
             else:
                 fraction = (x - first[0]) / dx
                 if -1e-12 <= fraction <= 1 + 1e-12:
                     fraction = max(0.0, min(1.0, fraction))
-                    z_hits.append(first[2] + fraction * (second[2] - first[2]))
+                    hits.append(first[2] + fraction * (second[2] - first[2]))
+        if hits:
+            if not all(math.isfinite(hit) for hit in hits):
+                raise PlanTaperInputError(f"non-finite lateral section intersection at x={x:g}")
+            z_hits.extend(hits)
+            if len(hits) >= 2:
+                intervals.append((min(hits), max(hits)))
     if len(z_hits) < 2:
         raise PlanTaperInputError(f"no measurable cross-body section at x={x:g}")
-    # Finite source coordinates are not enough: subtraction/interpolation can
-    # overflow or become NaN. Without this gate, inf/inf normalization yields
-    # NaN errors, and 'NaN > tolerance' is false: a broken mesh can pass.
-    if not all(math.isfinite(hit) for hit in z_hits):
-        raise PlanTaperInputError(f"non-finite lateral section intersection at x={x:g}")
     width = max(z_hits) - min(z_hits)
     if not math.isfinite(width):
         raise PlanTaperInputError(f"non-finite lateral section width at x={x:g}")
     if width <= epsilon:
         raise PlanTaperInputError(f"no measurable cross-body section at x={x:g}")
-    return width, len(z_hits)
+
+    if not intervals:
+        raise PlanTaperInputError(f"no surface-backed lateral span at x={x:g}")
+    intervals.sort()
+    begin, end = intervals[0]
+    covered_parts = []
+    for left, right in intervals[1:]:
+        if left > end + epsilon:
+            covered_parts.append(end - begin)
+            begin, end = left, right
+        else:
+            end = max(end, right)
+    covered_parts.append(end - begin)
+    coverage = math.fsum(covered_parts) / width
+    if not math.isfinite(coverage):
+        raise PlanTaperInputError(f"non-finite lateral coverage at x={x:g}")
+    coverage = max(0.0, min(1.0, coverage))
+    if coverage + 1e-12 < MIN_LATERAL_SPAN_COVERAGE:
+        raise PlanTaperInputError(
+            f"insufficient surface-backed lateral coverage at x={x:g}: "
+            f"{coverage:.3f} < {MIN_LATERAL_SPAN_COVERAGE:.3f}"
+        )
+    return width, len(z_hits), coverage
 
 
 def evaluate(geometry: Any, table: Any, *, mesh_name: str) -> dict[str, Any]:
@@ -191,8 +231,9 @@ def evaluate(geometry: Any, table: Any, *, mesh_name: str) -> dict[str, Any]:
     epsilon = max(1e-12, scale * 1e-9)
     measured = []
     for station in stations:
-        width, intersections = _section_width(vertices, triangles, station["x"], epsilon)
-        measured.append({**station, "measuredWidth": width, "intersectionCount": intersections})
+        width, intersections, coverage = _section_width(vertices, triangles, station["x"], epsilon)
+        measured.append({**station, "measuredWidth": width, "intersectionCount": intersections,
+                         "lateralCoverageFraction": coverage})
     reference_max = max(s["referenceWidth"] for s in measured)
     measured_max = max(s["measuredWidth"] for s in measured)
     errors: list[str] = []
