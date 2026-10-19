@@ -43,6 +43,30 @@ class MeshReceiptGateTest(unittest.TestCase):
                         "coordinateSpace": coordinate_space, "meshes": [MESH],
                     })
 
+    def test_reported_active_skips_override_a_false_complete_claim(self):
+        for field in ("skippedMeshes", "skipped"):
+            for reason in ("skinned-mesh", "vertex-budget", None):
+                with self.subTest(field=field, reason=reason):
+                    data = {"meshes": [MESH], "coordinateSpace": "world",
+                            "incomplete": False,
+                            field: [{"name": "unexported-part", "reason": reason}]}
+                    with self.assertRaisesRegex(print_export.PrintExportError, "omits active"):
+                        print_export.load_meshes(data)
+
+    def test_intentional_hidden_and_filtered_skips_do_not_block(self):
+        data = {"meshes": [MESH], "coordinateSpace": "world", "incomplete": False,
+                "skippedMeshes": [
+                    {"name": "hidden-helper", "reason": "hidden"},
+                    {"name": "filtered-part", "reason": "filtered"}]}
+        self.assertEqual(print_export.load_meshes(data), [MESH])
+
+    def test_malformed_skip_lists_fail_closed(self):
+        for bad in (None, "hidden", {"reason": "hidden"}, ["hidden"], [{}]):
+            with self.subTest(bad=bad):
+                with self.assertRaises(print_export.PrintExportError):
+                    print_export.load_meshes({
+                        "meshes": [MESH], "incomplete": False, "skippedMeshes": bad})
+
     def test_legacy_mesh_input_is_still_supported(self):
         self.assertEqual(print_export.load_meshes(MESH), [MESH])
         self.assertEqual(print_export.load_meshes([MESH]), [MESH])

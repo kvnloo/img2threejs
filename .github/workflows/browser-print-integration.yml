@@ -1,0 +1,60 @@
+name: Browser to printable-mesh integration
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/browser-print-integration.yml'
+      - 'experiments/browser_print_pipeline/**'
+      - 'forge/stage3_build/print_export.py'
+      - 'forge/tests/test_print_export_receipts.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  webgl-to-stl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kvnloo/img2threejs
+          ref: bd22acf73c451d3029cf223914a5a618cc0fb86d
+          path: browser-exporter
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated optional Three.js browser dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/img2-browser-print-deps"
+          cd "$RUNNER_TEMP/img2-browser-print-deps"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --no-save playwright@1.56.0 three@0.169.0
+          npx playwright install --with-deps chromium
+      - name: Capture actual WebGL meshes from an explicitly scoped subject root
+        shell: bash
+        run: |
+          export IMG2THREEJS_SHOWCASE_ROOT="$RUNNER_TEMP/img2-browser-print-deps"
+          export IMG2THREEJS_EXPORTER_PATH="$GITHUB_WORKSPACE/browser-exporter/runtime/scripts/export_mesh_geometry.mjs"
+          export IMG2THREEJS_PRINT_EVIDENCE_DIR="$RUNNER_TEMP/img2-browser-print-evidence"
+          node experiments/browser_print_pipeline/capture.mjs
+      - name: Verify geometry integrity and STL/OBJ printable receipts
+        shell: bash
+        run: |
+          python3 experiments/browser_print_pipeline/verify_print.py \
+            --evidence-dir "$RUNNER_TEMP/img2-browser-print-evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-to-print-evidence
+          path: ${{ runner.temp }}/img2-browser-print-evidence/
+          if-no-files-found: warn
+          retention-days: 7

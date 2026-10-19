@@ -63,6 +63,20 @@ def load_meshes(payload: Any) -> list[dict[str, Any]]:
                 raise PrintExportError(
                     "mesh export must contain world-space vertices; local coordinates are unsafe"
                 )
+            # Defend against a faulty exporter that declares incomplete:false
+            # while admitting skipped active or unknown meshes in its receipt.
+            for field in ("skippedMeshes", "skipped"):
+                if field not in payload:
+                    continue
+                skips = payload[field]
+                if not isinstance(skips, list):
+                    raise PrintExportError(f"mesh export {field} must be a list")
+                for entry in skips:
+                    if not isinstance(entry, dict) or entry.get("reason") not in {"hidden", "filtered"}:
+                        raise PrintExportError(
+                            f"mesh export receipt omits active or unknown geometry in {field}; "
+                            "cannot certify completeness"
+                        )
         if isinstance(payload.get("meshes"), list):
             return payload["meshes"]
         if isinstance(payload.get("vertices"), list):

@@ -42,7 +42,10 @@ with `--force`.
 `"incomplete": true` or a coordinate space other than `"world"`, the
 print exporter refuses the receipt. `--allow-open` only permits intentionally
 open **captured** geometry; it never overrides missing/skipped live meshes.
-Legacy inputs without receipt metadata remain supported.
+Legacy inputs without receipt metadata remain supported. A producer's
+`skippedMeshes` or `skipped` list is independently checked; only intentional
+`hidden` and `filtered` entries are accepted. Active or malformed skips
+fail closed even if the producer claims `incomplete: false`.
 
 ## CLI reference (exactly as in `build_parser`)
 
