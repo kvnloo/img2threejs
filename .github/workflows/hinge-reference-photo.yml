@@ -56,6 +56,12 @@ jobs:
           HINGE_REFERENCE_PHOTO: ${{ runner.temp }}/box.agr.jpg
           HINGE_LAB_OUTPUT: ${{ runner.temp }}/hinge-lab-offline
         run: node integrations/hinge_lab/build_and_test.mjs
+      - name: Package and test single-file offline Hinge Lab
+        env:
+          HINGE_LAB_OUTPUT: ${{ runner.temp }}/hinge-lab-offline
+        run: |
+          node integrations/hinge_lab/package_single_file.mjs
+          node integrations/hinge_lab/test_single_file.mjs
       - name: Upload credited comparison and measured raw results
         if: always()
         uses: actions/upload-artifact@v4
