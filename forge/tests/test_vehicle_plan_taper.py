@@ -138,6 +138,29 @@ class PlanTaperContract(unittest.TestCase):
             module.evaluate(receipt, table(), mesh_name="body")
         self.assertTrue(module.evaluate(car_mesh(), table(), mesh_name="body")["passed"])
 
+    def test_active_skips_cannot_hide_omitted_vehicle_body_geometry(self):
+        for field in ("skipped", "skippedMeshes"):
+            for reason in ("vertex-budget", "skinned", "unsupported", None):
+                with self.subTest(field=field, reason=reason):
+                    receipt = car_mesh()
+                    receipt[field] = [{"name": "unmeasured-panel", "reason": reason}]
+                    with self.assertRaisesRegex(module.PlanTaperInputError, "omits active"):
+                        module.evaluate(receipt, table(), mesh_name="body")
+
+    def test_hidden_skips_are_allowed_but_malformed_skip_lists_fail(self):
+        receipt = car_mesh()
+        receipt["skippedMeshes"] = [
+            {"name": "studio-ground", "reason": "hidden"},
+            {"name": "debug-overlay", "reason": "filtered"},
+        ]
+        self.assertTrue(module.evaluate(receipt, table(), mesh_name="body")["passed"])
+        for bad in (None, {}, "hidden", [{"reason": "unknown"}], ["hidden"]):
+            with self.subTest(bad=bad):
+                receipt = car_mesh()
+                receipt["skipped"] = bad
+                with self.assertRaises(module.PlanTaperInputError):
+                    module.evaluate(receipt, table(), mesh_name="body")
+
     def test_missing_top_view_reference_is_refused(self):
         spec = table()
         spec["reference"]["source"] = ""
