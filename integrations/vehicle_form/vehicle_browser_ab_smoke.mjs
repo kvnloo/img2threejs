@@ -31,6 +31,7 @@ await mkdir(output, {recursive: true});
 function preview(mode) {
   const profile = mode === 'stadium' ? STADIUM_PROFILE : REFERENCE_PROFILE;
   const partial = mode === 'partial';
+  const railsOnly = mode === 'rails';
   return `<!doctype html><html><head><meta charset="utf-8"><title>Vehicle plan-taper test</title>
   <style>html,body{background:#122031;margin:0;width:100%;height:100%;overflow:hidden}</style></head><body>
   <script type="module">
@@ -45,13 +46,18 @@ function preview(mode) {
   for (let i = 0; i < stations.length-1; i++) {
     const a = i*4, b = (i+1)*4;
     for (let k = 0; k < 4; k++) {
+      // No transverse roof/floor surface in the adversarial rail variant:
+      // its outer width matches reference, but its interior is absent.
+      if (${JSON.stringify(railsOnly)} && k !== 1 && k !== 3) continue;
       const next = (k+1)%4;
       idx.push(a+k,b+k,b+next, a+k,b+next,a+next);
     }
   }
-  idx.push(0,1,2,0,2,3);
-  const last = (stations.length-1)*4;
-  idx.push(last,last+2,last+1,last,last+3,last+2);
+  if (!${JSON.stringify(railsOnly)}) {
+    idx.push(0,1,2,0,2,3);
+    const last = (stations.length-1)*4;
+    idx.push(last,last+2,last+1,last,last+3,last+2);
+  }
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.Float32BufferAttribute(verts,3));
   geom.setIndex(idx);
@@ -108,7 +114,7 @@ function preview(mode) {
 const server = createServer(async(req,res) => {
   const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
   try {
-    if (['/reference','/matching','/stadium','/partial'].includes(pathname)) {
+    if (['/reference','/matching','/stadium','/rails','/partial'].includes(pathname)) {
       res.writeHead(200, {'content-type':'text/html; charset=utf-8'});
       res.end(preview(pathname.slice(1)));
     } else if(pathname === '/three/three.module.js') {
@@ -171,11 +177,15 @@ try {
 
   const matchingImage=await capture(page,'matching','matching-top.png');
   const stadiumImage=await capture(page,'stadium','stadium-top.png');
+  const railsImage=await capture(page,'rails','rails-top.png');
   const matchingGeometry=join(output,'matching-meshes.json');
   const stadiumGeometry=join(output,'stadium-meshes.json');
+  const railsGeometry=join(output,'rails-meshes.json');
   assert.equal(await runCli(['--url',origin+'/matching','--out',matchingGeometry,
     '--ready-flag','__IMG2THREEJS_READY__']),0);
   assert.equal(await runCli(['--url',origin+'/stadium','--out',stadiumGeometry,
+    '--ready-flag','__IMG2THREEJS_READY__']),0);
+  assert.equal(await runCli(['--url',origin+'/rails','--out',railsGeometry,
     '--ready-flag','__IMG2THREEJS_READY__']),0);
   const evidence=JSON.parse(await readFile(matchingGeometry,'utf8'));
   assert.equal(evidence.incomplete,false);
@@ -186,10 +196,17 @@ try {
   assert.ok(evidence.meshes.length>=2,'expected body plus wheels/greenhouse');
   const match=gate(matchingGeometry,sectionPath);
   const flat=gate(stadiumGeometry,sectionPath);
+  const rails=gate(railsGeometry,sectionPath);
   await writeFile(join(output,'matching-gate.json'),match.stdout||'{}');
   await writeFile(join(output,'stadium-gate.json'),flat.stdout||'{}');
+  await writeFile(join(output,'rails-gate.json'),JSON.stringify({
+    verdict:'unmeasurable',exitCode:rails.status,errorCategory:'insufficient-lateral-coverage',
+  },null,2)+'\n');
   assert.equal(match.status,0,`matching shape should pass: ${match.stderr} ${match.stdout}`);
   assert.equal(flat.status,1,`stadium shape must fail: ${flat.stderr} ${flat.stdout}`);
+  assert.equal(rails.status,2,`side-only rails must be refused: ${rails.stderr} ${rails.stdout}`);
+  assert.match(rails.stderr,/surface-backed lateral coverage/);
+  assert.doesNotMatch(rails.stdout,/"passed"\s*:\s*true/);
   const matchedReport=JSON.parse(match.stdout),flatReport=JSON.parse(flat.stdout);
   assert.equal(matchedReport.passed,true);
   assert.equal(flatReport.passed,false);
@@ -207,9 +224,10 @@ try {
   assert.equal(partialReport.incomplete,true);
   assert.equal(gate(incomplete,sectionPath).status,2);
 
-  const images=await Promise.all([sourceImage,matchingImage,stadiumImage].map(p=>readFile(p)));
-  const cards=['Synthetic reference pixels','Matched reconstruction · PASS','Constant-width body · FAIL'];
-  const collage=await browser.newPage({viewport:{width:1230,height:565},deviceScaleFactor:1});
+  const images=await Promise.all([sourceImage,matchingImage,stadiumImage,railsImage].map(p=>readFile(p)));
+  const cards=['Synthetic reference pixels','Matched reconstruction · PASS',
+    'Constant-width body · FAIL','Side-only rails · UNMEASURABLE'];
+  const collage=await browser.newPage({viewport:{width:1630,height:565},deviceScaleFactor:1});
   await collage.setContent(`<!doctype html><html><head><style>
     body{background:#09131d;color:#eaf5ef;font:16px system-ui;margin:0;padding:25px}
     h1{font-size:24px;margin:0 0 8px}p{font-size:13px;color:#9cb2c4;margin:0 0 20px}
@@ -223,6 +241,7 @@ try {
   await collage.screenshot({path:join(output,'vehicle-ab-comparison.png')});
   await collage.close();
   console.log(JSON.stringify({result:'pass',matching:matchedReport.passed,stadiumRejected:!flatReport.passed,
+    railsRejectedAsIncompleteShape:rails.status===2,
     measuredPixels:table.stations.map(s=>({id:s.id,pixels:s.referenceBodyPixelCount,width:s.referenceWidth})),
     maxMatchingWidthError:Math.max(...matchedReport.stations.map(s=>s.normalizedWidthError)),
     rejectedFailures:flatReport.failures,output,referenceImageHash:sourceHash},null,2));
