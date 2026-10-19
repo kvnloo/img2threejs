@@ -27,6 +27,8 @@
     .preview span { font-size: 10px; margin-top: 4px; color: #92a7b8; }
     button, .upload { font: inherit; cursor: pointer; border-radius: 10px; background: #172838; border: 1px solid #ffffff26; color: #e7f3f6; min-height: 39px; padding: 10px 12px; transition: background .2s, transform .2s; }
     button:hover, .upload:hover { background: #274156; }
+    button[aria-pressed="true"] { border-color: #a4e9ce; background: #24554a; }
+    button:disabled { opacity: .42; cursor: not-allowed; }
     button:active { transform: scale(.98); }
     button:focus-visible, .upload:focus-within, input:focus-visible { outline: 2px solid #97e8cc; outline-offset: 3px; }
     .primary { display: block; text-align: center; width: 100%; background: #a4e9ce; border-color: #a4e9ce; color: #0a2523; font-weight: 800; margin-bottom: 8px; }
@@ -76,10 +78,11 @@
     <div class="preview"><canvas id="reference" width="28" height="28" aria-label="Source image preview"></canvas><div><strong id="source-label">Sunset coast</strong><span>Stylized relief, not depth estimation</span></div></div>
     <label class="upload">Choose your own image<input id="upload" type="file" accept="image/*"></label>
     <div class="controls"><button id="remix" type="button">Remix world</button><button id="night" type="button" aria-pressed="false">Night mode</button><button id="orbit" type="button" aria-pressed="false">Auto orbit</button><button id="reset" type="button">Reset view</button></div>
+    <div class="control-group"><div class="control-label"><span>Adventure tools</span><span>Join islands together</span></div><div class="controls"><button id="bridge" type="button" aria-pressed="false">Build a bridge</button><button id="undo-bridge" type="button" disabled>Undo bridge</button></div></div>
     <div class="control-group"><label class="control-label" for="relief"><span>Terrain relief</span><output id="relief-value">1.0×</output></label><input id="relief" type="range" min="0" max="2.4" step="0.1" value="1"></div>
     <div class="controls action"><button id="save" type="button">Save world JSON</button><label class="upload">Load world JSON<input id="load" type="file" accept=".json,application/json"></label></div>
     <button class="primary action" id="export" type="button">Export THREE.Group factory</button>
-    <p class="hint">Drag to orbit · scroll/pinch to zoom · tap tiles to guide the scout, or beacons to collect them. Processing stays in your browser.</p>
+    <p class="hint">Drag to orbit · scroll/pinch to zoom · tap tiles to guide the scout. In bridge mode, tap two solid tiles to span transparent water, then save your edited island. Processing stays in your browser.</p>
   </aside>
   <div class="bottom" id="scout-status">Tap a tile to guide your glowing scout · find five beacons</div>
   <div id="notice" role="status" aria-live="polite"></div>

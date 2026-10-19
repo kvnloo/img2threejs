@@ -1,6 +1,6 @@
 # Pocket World (experimental)
 
-A small, playful image-to-Three.js experiment: bring a picture, explore a colorful 28 × 28 voxel relief, send a glowing scout along deterministic A* paths, collect five beacons, change the lighting, then save/reload a small portable JSON world or **export a standalone code-only `THREE.Group` factory**. Three hand-coded procedural color postcards work without uploading a reference.
+A small, playful image-to-Three.js experiment: bring a picture, explore a colorful 28 × 28 voxel relief, send a glowing scout along deterministic A* paths, **build reversible 4-connected bridges across transparent islands**, collect five beacons, change the lighting, then save/reload a small portable JSON world or **export a standalone code-only `THREE.Group` factory**. Three hand-coded procedural color postcards work without uploading a reference.
 
 This is an **artistic pixel-relief toy**, **not** photogrammetry, depth estimation, measured 3D reconstruction, or a replacement for img2threejs's quality-gated pipeline. It is isolated from the core. No image, reference file, mesh, or texture is sent to a server. The browser loads Three.js r169 from jsDelivr; generated factory modules only import a local `three` package and embed numeric colors/heights.
 
@@ -33,6 +33,8 @@ It covers real browser image decoding, async upload race handling, pointer contr
 Node 18+ works for the pure-data tests. Browser interaction requires modern WebGL and import-map support; mobile tap/drag/pinch are supported. Images are center-cropped and downsampled to 28 × 28 RGBA cells. This limits detail and intentionally avoids claims of true 3D reconstruction.
 
 Versioned world receipts contain only validated 28 × 28 numeric color/height/visibility arrays and a relief setting; no original photo. They are capped at 128 KB and reject incompatible versions, invalid dimensions, nonfinite relief or malformed values. A newly selected world or photo supersedes older in-flight imports.
+
+Build a bridge by selecting two visible tiles, even across disconnected islands. The app fills only transparent cells along an orthogonal corridor, interpolating their visual height between anchors, and leaves all original color/height evidence unchanged. Bridges can be undone (up to 12 snapshots), saved as portable JSON, or embedded in an exported Three.js factory. Editing preserves discovered beacons and the scout's reachable position; undo returns a scout stranded on vanished terrain to a surviving tile. Switching presets invalidates in-flight image decodes to avoid stale selections.
 
 The scout only follows connected nontransparent cells. Its slope-aware A* planner uses pixel brightness, not measured terrain elevation. Transparent gaps may be unreachable; directly tapping a beacon still collects it. Animated hopping stops under reduced-motion preferences. Image files over 12 MB or decoded images over 36 megapixels are refused.
 

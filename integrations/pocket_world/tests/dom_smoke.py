@@ -11,15 +11,15 @@ html=re.sub(r'<script type="module" src="./app.mjs"></script>', '', html)
 world=re.sub(r'(?m)^export ', '', (root/'world-data.mjs').read_text())
 app='\n'.join(line for line in (root/'app.mjs').read_text().splitlines() if not line.startswith('import '))
 source="""
-const { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } = (() => {
+const { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, buildBridge, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } = (() => {
 """+world+"""
-return {GRID_SIZE,demoPixels,voxelize,nearestVisibleTile,findTilePath,tileHeight,exportThreeFactory,serializeWorld,deserializeWorld,previewWorldPixels};
+return {GRID_SIZE,demoPixels,voxelize,nearestVisibleTile,findTilePath,buildBridge,tileHeight,exportThreeFactory,serializeWorld,deserializeWorld,previewWorldPixels};
 })();
 const THREE=window.__THREE;
 const OrbitControls=window.__OrbitControls;
 """+app+"""
 window.__pocketTest={state:()=>({cells:cells.length,beacons:beacons.length,collected,scoutCell,scoutDestination,scoutVisible:scout.visible,scoutY:scout.position.y, dataSize:data.size}),
-    send: cell=>routeScout(cell),step:(dt)=>animateScout(dt,false),path:(a,b)=>findTilePath(data,a,b),beaconCells:()=>beacons.map(b=>b.userData.cell),preview:()=>$('reference').getContext('2d').getImageData(0,0,28,28).data.length
+    send: cell=>routeScout(cell),step:(dt)=>animateScout(dt,false),path:(a,b)=>findTilePath(data,a,b),beaconCells:()=>beacons.map(b=>b.userData.cell),indexOf:cell=>cells.indexOf(cell),preview:()=>$('reference').getContext('2d').getImageData(0,0,28,28).data.length
 };
 """
 
@@ -125,6 +125,64 @@ with sync_playwright() as p:
     page.wait_for_timeout(80)
     check('saved JSON restores relief and preview',page.locator('#relief-value').inner_text()=='2.0×' and page.locator('#source-label').inner_text()=='Restored world')
     check('saved JSON restores scout and beacons',page.evaluate('window.__pocketTest.state().beacons')==5 and page.evaluate('window.__pocketTest.state().scoutVisible'))
+    # An uploaded transparent channel splits the island. A player can build and
+    # undo a 4-connected bridge, preserving existing beacon collection.
+    gap=root/'channel-test.png'
+    island=Image.new('RGBA',(28,28),(0,0,0,0))
+    for yy in range(28):
+        for xx in list(range(11))+list(range(17,28)):
+            island.putpixel((xx,yy),(80,150,95,255))
+    island.save(gap)
+    try:
+        page.locator('#upload').set_input_files(str(gap))
+        page.wait_for_timeout(160)
+        check('channel image isolates two solid islands',page.evaluate('window.__pocketTest.state().cells')==616)
+        anchor_a,anchor_b=7*28+10,7*28+17
+        check('islands are disconnected before bridge',page.evaluate('([a,b])=>window.__pocketTest.path(a,b).length',[anchor_a,anchor_b])==0)
+        page.evaluate('window.__pickBeacon=0')
+        page.mouse.click(500,320)
+        page.evaluate('delete window.__pickBeacon')
+        check('existing beacon found before edit',page.evaluate('window.__pocketTest.state().collected')==1)
+        page.locator('#bridge').click()
+        check('bridge tool enabled with pressed state',page.locator('#bridge').get_attribute('aria-pressed')=='true')
+        def click_cell(cell):
+            page.evaluate('(cell)=>window.__pickTile=window.__pocketTest.indexOf(cell)',cell)
+            page.mouse.click(500,320)
+            page.evaluate('delete window.__pickTile')
+        click_cell(anchor_a)
+        check('first bridge anchor waits for second', 'First anchor set' in page.locator('#scout-status').inner_text())
+        click_cell(anchor_b)
+        check('new bridge adds six traversable tiles',page.evaluate('window.__pocketTest.state().cells')==622)
+        check('scout can pathfind across bridge',page.evaluate('([a,b])=>window.__pocketTest.path(a,b).length',[anchor_a,anchor_b])>0)
+        check('bridge keeps previously collected beacon',page.evaluate('window.__pocketTest.state().collected')==1)
+        check('undo becomes available after edit',page.locator('#undo-bridge').is_enabled())
+        with page.expect_download(timeout=5000) as download:
+            page.locator('#save').click()
+        saved_bridge=root/'bridge-world.json'
+        download.value.save_as(str(saved_bridge))
+        bridge_receipt=json.loads(saved_bridge.read_text())
+        check('saved world includes six bridge tiles',sum(bridge_receipt['world']['visible'])==622)
+        page.locator('#undo-bridge').click()
+        check('undo restores island channel and previous beacon',page.evaluate('window.__pocketTest.state().cells')==616 and page.evaluate('window.__pocketTest.state().collected')==1)
+        check('undo restores disconnected topology',page.evaluate('([a,b])=>window.__pocketTest.path(a,b).length',[anchor_a,anchor_b])==0)
+        page.locator('#load').set_input_files(str(saved_bridge))
+        page.wait_for_timeout(100)
+        check('JSON restores built bridge offline',page.evaluate('window.__pocketTest.state().cells')==622)
+        saved_bridge.unlink(missing_ok=True)
+        page.locator('#bridge').click()
+    finally:
+        gap.unlink(missing_ok=True)
+    # In-flight image decode must not overwrite a newly selected preset.
+    slow_again=root/'slow-upload.png'
+    Image.new('RGBA',(16,16),(230,45,25,255)).save(slow_again)
+    try:
+        page.locator('#upload').set_input_files(str(slow_again))
+        page.locator('#remix').click()
+        new_label=page.locator('#source-label').inner_text()
+        page.wait_for_timeout(420)
+        check('remix supersedes delayed image decode',page.locator('#source-label').inner_text()==new_label and new_label!='slow-upload.png')
+    finally:
+        slow_again.unlink(missing_ok=True)
     invalid=root/'dom-world-bad.json'
     invalid.write_text('not JSON')
     previous=page.locator('#source-label').inner_text()

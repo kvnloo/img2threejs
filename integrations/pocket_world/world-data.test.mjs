@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { demoPixels, voxelize, validateWorld, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } from './world-data.mjs';
+import { demoPixels, voxelize, validateWorld, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels, buildBridge, findTilePath } from './world-data.mjs';
 
 test('deterministic presets produce RGBA without random or hidden image data', () => {
   for (const theme of ['sunset', 'forest', 'cosmic']) {
@@ -176,4 +176,77 @@ test('world receipts fail closed on malformed schema, relief, dimensions and siz
   assert.throws(() => serializeWorld(voxelize(demoPixels('forest', 8))), RangeError);
   assert.throws(() => serializeWorld(data, Infinity), RangeError);
   assert.throws(() => previewWorldPixels(voxelize(demoPixels('forest', 8))), RangeError);
+});
+
+
+test('bridge crosses a transparent channel without modifying the underlying image cells', () => {
+  const side = 8;
+  const world = voxelize(demoPixels('forest', side), side);
+  // Two detached coastlines separated by a two-column channel.
+  for (let y = 0; y < side; y++) for (let x = 3; x <= 4; x++) world.visible[y * side + x] = 0;
+  const before = structuredClone(world), from = 3 * side + 2, to = 3 * side + 5;
+  assert.deepEqual(findTilePath(world, from, to), []);
+  const result = buildBridge(world, from, to);
+  assert.deepEqual(result.path, [from, from + 1, from + 2, to]);
+  assert.deepEqual(result.added, [from + 1, from + 2]);
+  assert.deepEqual(world, before, 'original terrain must remain immutable for undo');
+  assert.equal(result.data.visible[from + 1], 1);
+  assert.equal(result.data.visible[from + 2], 1);
+  assert.equal(result.data.colors[from], before.colors[from]);
+  assert.equal(result.data.colors[to], before.colors[to]);
+  assert.ok(result.data.heights[from + 1] >= Math.min(world.heights[from], world.heights[to]));
+  assert.ok(result.data.heights[from + 1] <= Math.max(world.heights[from], world.heights[to]));
+  assert.ok(findTilePath(result.data, from, to).length > 0);
+  assert.deepEqual(deserializeWorld(serializeWorld({ ...voxelize(demoPixels('cosmic')), visible: Array(784).fill(1) })).data.visible, Array(784).fill(1));
+});
+
+test('bridge paths are orthogonally connected, bounded, and deterministic for random anchors', () => {
+  let seed = 19173;
+  const next = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) % 64);
+  const side = 8, src = voxelize(demoPixels('forest', side), side);
+  for (let trial = 0; trial < 100; trial++) {
+    const from = next(), to = next();
+    const world = { ...src, visible: src.visible.map((v,i) => Number(i === from || i === to)) };
+    const a = buildBridge(world, from, to), b = buildBridge(world, from, to);
+    assert.deepEqual(a, b);
+    const distance = Math.abs(from % side - to % side) + Math.abs(Math.floor(from / side) - Math.floor(to / side));
+    assert.equal(a.path.length, distance + 1);
+    assert.equal(a.path[0], from);
+    assert.equal(a.path.at(-1), to);
+    for (let i = 1; i < a.path.length; i++) {
+      const x = a.path[i - 1], y = a.path[i];
+      assert.equal(Math.abs(x % side - y % side) + Math.abs(Math.floor(x / side) - Math.floor(y / side)), 1);
+      assert.equal(a.data.visible[y], 1);
+    }
+    assert.ok(findTilePath(a.data, from, to).length > 0);
+    assert.deepEqual(world.visible, src.visible.map((v,i) => Number(i === from || i === to)));
+  }
+});
+
+test('bridge rejects invisible, malformed and out-of-range anchors', () => {
+  const data = voxelize(demoPixels('sunset', 6), 6);
+  data.visible[3] = 0;
+  for (const [a,b] of [[-1,4],[0,36],[0,3],[3,4],[1.5,4],[NaN,4]]) {
+    assert.throws(() => buildBridge(data,a,b), RangeError);
+  }
+  const same = buildBridge(data,4,4);
+  assert.deepEqual(same.path,[4]);
+  assert.deepEqual(same.added,[]);
+  assert.notStrictEqual(same.data, data);
+  assert.deepEqual(same.data, data);
+});
+
+test('bridges survive saved JSON and exported factory without downloading image assets', () => {
+  const data = voxelize(demoPixels('sunset'));
+  for (let y = 0; y < 28; y++) for (let x = 11; x <= 16; x++) data.visible[y * 28 + x] = 0;
+  const from = 7 * 28 + 10, to = 7 * 28 + 17;
+  assert.deepEqual(findTilePath(data, from, to), []);
+  const joined = buildBridge(data,from,to);
+  assert.equal(joined.added.length,6);
+  const restored = deserializeWorld(serializeWorld(joined.data,1.7));
+  assert.deepEqual(restored.data, joined.data);
+  assert.ok(findTilePath(restored.data, from, to).length);
+  const factory = exportThreeFactory(restored.data,restored.relief);
+  assert.ok(factory.includes('new THREE.InstancedMesh'));
+  assert.doesNotMatch(factory,/fetch\(|https?:|\.glb|\.png/i);
 });

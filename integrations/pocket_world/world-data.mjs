@@ -132,6 +132,41 @@ export function findTilePath(data, start, goal) {
   return [];
 }
 
+/** Add a 4-connected, slope-interpolated causeway between two visible tile anchors.
+ * The terrain arrays are never mutated. Existing visible cells preserve their colors/heights;
+ * only transparent cells along the deterministic orthogonal corridor become walkable.
+ */
+export function buildBridge(data, start, goal) {
+  validateWorld(data);
+  const n = data.size, total = n * n;
+  if (![start, goal].every(i => Number.isInteger(i) && i >= 0 && i < total)) throw new RangeError('Invalid bridge endpoint');
+  if (!data.visible[start] || !data.visible[goal]) throw new RangeError('Bridge anchors must be visible tiles');
+  let x = start % n, y = Math.floor(start / n);
+  const tx = goal % n, ty = Math.floor(goal / n);
+  const dx = Math.abs(tx - x), dy = Math.abs(ty - y);
+  const sx = Math.sign(tx - x), sy = Math.sign(ty - y);
+  let nx = 0, ny = 0;
+  const path = [start];
+  // Choosing by normalized half-step distance keeps the corridor near the straight
+  // chord without diagonal-only contacts that the four-neighbor scout cannot cross.
+  while (x !== tx || y !== ty) {
+    if (nx < dx && (ny === dy || (2 * nx + 1) * dy <= (2 * ny + 1) * dx)) { x += sx; nx++; }
+    else { y += sy; ny++; }
+    path.push(y * n + x);
+  }
+  const colors = data.colors.slice(), heights = data.heights.slice(), visible = data.visible.slice();
+  const added = [];
+  for (let step = 1; step < path.length - 1; step++) {
+    const cell = path[step];
+    if (visible[cell]) continue;
+    visible[cell] = 1;
+    colors[cell] = 0xc9a981; // code-authored timber; no texture or external asset
+    heights[cell] = Math.round(data.heights[start] + (data.heights[goal] - data.heights[start]) * step / (path.length - 1));
+    added.push(cell);
+  }
+  return { data: { size: n, colors, heights, visible }, path, added };
+}
+
 export function tileHeight(heightByte, relief = 1) {
   if (!Number.isFinite(relief) || relief < 0 || relief > 3) throw new RangeError('Relief must be 0..3');
   return .32 + Math.pow(heightByte / 255, 1.45) * 3.8 * relief;

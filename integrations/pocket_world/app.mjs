@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } from './world-data.mjs';
+import { GRID_SIZE, demoPixels, voxelize, nearestVisibleTile, findTilePath, buildBridge, tileHeight, exportThreeFactory, serializeWorld, deserializeWorld, previewWorldPixels } from './world-data.mjs';
 
 const $ = id => document.getElementById(id);
 const canvas = $('viewport');
@@ -74,6 +74,9 @@ const beaconGeometry = new THREE.IcosahedronGeometry(.43, 1);
 const beaconMaterial = new THREE.MeshStandardMaterial({ color: 0xffdba0, emissive: 0xffae35, emissiveIntensity: 2.6, metalness: .2, roughness: .2 });
 const colorHelper = new THREE.Color();
 let messageTimer;
+let bridgeMode = false;
+let bridgeStart = -1;
+let undoWorlds = [];
 // Independent scout group; geometry remains code-only and is reused across worlds.
 const scout = new THREE.Group();
 const scoutBody = new THREE.Mesh(
@@ -141,9 +144,9 @@ function scoutTilePosition(cell, target = new THREE.Vector3()) {
   return target.set(x, h + .46, z);
 }
 
-function resetScout() {
+function resetScout(preferredCell = -1) {
   const approximateSpawn = (data.size - 1) * data.size + Math.floor(data.size / 2);
-  scoutCell = nearestVisibleTile(data, approximateSpawn);
+  scoutCell = preferredCell >= 0 && data.visible[preferredCell] ? preferredCell : nearestVisibleTile(data, approximateSpawn);
   scout.visible = scoutCell !== -1;
   scoutDestination = -1;
   scoutQueue = [];
@@ -220,22 +223,44 @@ function chooseBeaconIndices() {
   }).filter(i => i !== -1);
 }
 
-function resetBeacons() {
+function resetBeacons(previous = null) {
   for (const beacon of beacons) scene.remove(beacon);
   beacons = [];
+  const oldCells = previous?.beaconCells;
+  const cellsToUse = oldCells?.length && oldCells.every(i => data.visible[i]) ? oldCells : chooseBeaconIndices();
+  const discovered = new Set(previous?.collectedCells || []);
   collected = 0;
-  for (const [index, cell] of chooseBeaconIndices().entries()) {
+  for (const [index, cell] of cellsToUse.entries()) {
     const mesh = new THREE.Mesh(beaconGeometry, beaconMaterial);
     const [x, , z] = positionOf(cell, 0);
     mesh.position.set(x, tileHeight(data.heights[cell], relief) + .75, z);
     mesh.userData = { cell, phase: index * 1.8, baseY: mesh.position.y };
+    if (discovered.has(cell)) { mesh.visible = false; collected++; }
     scene.add(mesh);
     beacons.push(mesh);
   }
-  $('count').textContent = `0 / ${beacons.length}`;
+  $('count').textContent = `${collected} / ${beacons.length}`;
 }
 
-function rebuildWorld(nextData) {
+function saveAdventure() {
+  return {
+    scoutCell,
+    beaconCells: beacons.map(b => b.userData.cell),
+    collectedCells: beacons.filter(b => !b.visible).map(b => b.userData.cell),
+  };
+}
+
+function updateUndoState() {
+  $('undo-bridge').disabled = undoWorlds.length === 0;
+}
+
+function rebuildWorld(nextData, preserveAdventure = false) {
+  const old = preserveAdventure ? saveAdventure() : null;
+  if (!preserveAdventure) {
+    undoWorlds = [];
+    bridgeStart = -1;
+    updateUndoState();
+  }
   data = nextData;
   if (world) {
     scene.remove(world);
@@ -256,9 +281,59 @@ function rebuildWorld(nextData) {
   scene.add(world);
   activeRipples.length = 0;
   redrawTiles();
-  resetBeacons();
-  resetScout();
+  resetBeacons(old);
+  resetScout(old?.scoutCell);
 }
+
+function setBridgeMode(active) {
+  bridgeMode = active;
+  bridgeStart = -1;
+  $('bridge').setAttribute('aria-pressed', String(active));
+  $('bridge').textContent = active ? 'Bridge tool on' : 'Build a bridge';
+  $('scout-status').textContent = active
+    ? 'Bridge tool: tap two solid tiles, even on separate islands'
+    : 'Tap terrain to send your scout on a hike';
+}
+
+function bridgeClick(tile) {
+  if (!data.visible[tile]) return;
+  if (bridgeStart === -1) {
+    bridgeStart = tile;
+    $('scout-status').textContent = 'First anchor set · tap another solid tile to build a bridge';
+    return;
+  }
+  const from = bridgeStart;
+  bridgeStart = -1;
+  const next = buildBridge(data, from, tile);
+  if (!next.added.length) {
+    announce('This route already has solid ground. Try a wider gap.');
+    return;
+  }
+  ++lastImport; // Any pending photo/JSON import must not overwrite edited terrain.
+  undoWorlds.push(data);
+  if (undoWorlds.length > 12) undoWorlds.shift();
+  rebuildWorld(next.data, true);
+  updateUndoState();
+  showPreview(previewWorldPixels(data));
+  $('source-label').textContent = 'Edited island';
+  announce(`Built ${next.added.length} new bridge tile${next.added.length === 1 ? '' : 's'}.`);
+  $('scout-status').textContent = 'Bridge complete · connect more islands, or switch to exploring';
+}
+
+function undoBridge() {
+  if (!undoWorlds.length) return;
+  ++lastImport;
+  bridgeStart = -1;
+  const previous = undoWorlds.pop();
+  rebuildWorld(previous, true);
+  updateUndoState();
+  showPreview(previewWorldPixels(data));
+  $('source-label').textContent = 'Edited island';
+  announce('Last bridge undone.');
+}
+
+$('bridge').addEventListener('click', () => setBridgeMode(!bridgeMode));
+$('undo-bridge').addEventListener('click', undoBridge);
 
 function showPreview(rgba) {
   const ctx = $('reference').getContext('2d', { willReadFrequently: false });
@@ -275,6 +350,7 @@ function loadPreset() {
 }
 
 $('remix').addEventListener('click', () => {
+  ++lastImport; // Remix is a new world selection; invalidate stale image/JSON decodes.
   themeIndex = (themeIndex + 1) % themes.length;
   loadPreset();
   announce('New world generated. Find the glowing beacons.');
@@ -416,13 +492,20 @@ canvas.addEventListener('pointerup', event => {
   const rect = canvas.getBoundingClientRect();
   pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
+  if (bridgeMode) {
+    const tileHit = world && raycaster.intersectObject(world, false)[0];
+    if (tileHit?.instanceId !== undefined && cells[tileHit.instanceId] !== undefined) {
+      bridgeClick(cells[tileHit.instanceId]);
+    }
+    return;
+  }
   const hit = raycaster.intersectObjects(beacons, false)[0];
   if (hit?.object?.visible) {
     collectBeacon(hit.object);
     return;
   }
   const tile = world && raycaster.intersectObject(world, false)[0];
-  if (tile?.instanceId !== undefined) {
+  if (tile?.instanceId !== undefined && cells[tile.instanceId] !== undefined) {
     const cell = cells[tile.instanceId];
     const [x, , z] = positionOf(cell, 0);
     addRipple(x, z);
