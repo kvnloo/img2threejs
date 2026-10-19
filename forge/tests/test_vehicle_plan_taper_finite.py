@@ -83,15 +83,18 @@ class FiniteMeasurementTest(unittest.TestCase):
             self.assertNotIn("NaN", result.stdout)
 
     def test_normal_finite_triangles_keep_finite_widths(self):
+        # A single continuous X/Z sheet backs the full lateral width; the
+        # previous two isolated side walls were an invalid positive control.
         vertices = [
-            [0, 0, -1], [2, 0, -1], [0, 1, -1],
-            [0, 0, 1], [2, 0, 1], [0, 1, 1],
+            [0, 0, -1], [2, 0, -1], [2, 0, 1], [0, 0, 1],
         ]
         result = taper.evaluate(
-            receipt(vertices, [0, 1, 2, 3, 4, 5]), sections(), mesh_name="body"
+            receipt(vertices, [0, 1, 2, 0, 2, 3]), sections(), mesh_name="body"
         )
         self.assertTrue(result["passed"], result["failures"])
         self.assertTrue(all(math.isfinite(item["normalizedWidthError"])
+                            for item in result["stations"]))
+        self.assertTrue(all(math.isclose(item["lateralCoverageFraction"], 1.0)
                             for item in result["stations"]))
 
 
