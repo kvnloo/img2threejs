@@ -117,6 +117,40 @@ class ReconstructionEvidenceTests(unittest.TestCase):
         self.assertTrue(all("path" not in artifact for artifact in receipt["artifacts"]))
         self.assertEqual(receipt["artifacts"][0]["relativePath"], "reference.png")
 
+    def test_accepts_comfyui_base_exporter_with_optional_material_mask(self):
+        """Contract fixture: ComfyUI output shape, not an actual DA3 inference run."""
+        manifest_path = _valid_bundle(self.tmp_path)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["producer"]["modelLabel"] = "depth_anything_3_base.safetensors"
+        material_png = _png(2, 2, 8, 0)
+        manifest["artifacts"].append({
+            "role": "material-mask",
+            "state": "inferred",
+            "relativePath": "material-mask-00.png",
+            "sha256": _write_artifact(self.tmp_path, "material-mask-00.png", material_png),
+            "dimensions": {"width": 2, "height": 2},
+            "encoding": "mask-u8-png-white-is-1",
+            "provenance": {"sourceType": "MASK"},
+            "index": 0,
+        })
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        bundle = load_bundle(manifest_path)
+        self.assertEqual(bundle.producer["modelLabel"], "depth_anything_3_base.safetensors")
+        self.assertEqual(len(bundle.artifacts), 4)
+        self.assertEqual(len(bundle.by_role("material-mask")), 1)
+        self.assertEqual(bundle.by_role("material-mask")[0].metadata["index"], 0)
+        self.assertEqual(bundle.receipt()["artifacts"][3]["relativePath"], "material-mask-00.png")
+
+    def test_rejects_model_label_that_leaks_a_checkpoint_path(self):
+        manifest_path = _valid_bundle(self.tmp_path)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["producer"]["modelLabel"] = "/home/user/models/base.safetensors"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with self.assertRaisesRegex(EvidenceBundleError, "filename-only"):
+            load_bundle(manifest_path)
+
     def test_rejects_artifact_path_traversal(self):
         manifest_path = _valid_bundle(self.tmp_path)
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
