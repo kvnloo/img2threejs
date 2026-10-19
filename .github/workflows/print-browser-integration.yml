@@ -1,0 +1,70 @@
+name: Print export real-browser integration
+
+on:
+  pull_request:
+    paths:
+      - 'forge/stage3_build/print_export.py'
+      - 'scripts/verify_print_export_browser_pipeline.py'
+      - '.github/workflows/print-browser-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-threejs-to-print:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Checkout reviewed mesh exporter at fixed commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Fork #35 is the canonical CLI-compatible carrier; use an immutable SHA.
+          git fetch --no-tags origin bd22acf73c451d3029cf223914a5a618cc0fb86d
+          git worktree add --detach "$RUNNER_TEMP/img2-browser-exporter" bd22acf73c451d3029cf223914a5a618cc0fb86d
+          test "$(git -C "$RUNNER_TEMP/img2-browser-exporter" rev-parse HEAD)" = bd22acf73c451d3029cf223914a5a618cc0fb86d
+      - name: Install isolated browser and independent print parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/img2-browser-deps"
+          cd "$RUNNER_TEMP/img2-browser-deps"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --ignore-scripts --no-save \
+            playwright@1.56.0 three@0.169.0 esbuild@0.25.12
+          npx playwright install --with-deps chromium
+          python3 -m pip install --disable-pip-version-check 'trimesh==4.8.2'
+      - name: Capture WebGL model and world-space geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/img2-browser-exporter"
+          export IMG2THREEJS_SHOWCASE_ROOT="$RUNNER_TEMP/img2-browser-deps"
+          node runtime/scripts/export_mesh_geometry.browser-smoke.mjs
+      - name: Reimport generated STL and OBJ with independent mesh parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_print_export_browser_pipeline.py \
+            --browser-artifacts "$RUNNER_TEMP/img2-export-smoke" \
+            --out-dir "$RUNNER_TEMP/img2-print-export-integration"
+      - name: Upload diagnostic and print artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: print-export-browser-integration
+          path: |
+            ${{ runner.temp }}/img2-export-smoke/
+            ${{ runner.temp }}/img2-print-export-integration/
+          if-no-files-found: ignore
+          retention-days: 7
