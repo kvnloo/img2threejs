@@ -1,8 +1,9 @@
 # Scripts Cheatsheet
 
-All scripts are pure Python 3.10+ **standard library** — no pip install, no PIL/numpy, no
-Playwright/Chromium. PNG read/write is done via `struct`/`zlib`. Run from the skill root so
-paths resolve as `forge/<name>.py`. Non-zero exit = a gate failed; read the printed reasons.
+Forge scripts are pure Python 3.10+ **standard library** — no pip install or PIL/numpy.
+PNG read/write is done via `struct`/`zlib`. Run from the skill root so paths resolve as
+`forge/<name>.py`. The live mesh exporter in `runtime/scripts/` is a separate Node/Playwright
+bridge; it needs a browser available in the companion showcase checkout. Non-zero exit = a gate failed; read the printed reasons.
 
 Division of labor: **scripts enforce structure and package evidence; they never score visuals.**
 The acceptance score always comes from the agent's own vision inspecting the comparison sheet.
@@ -337,6 +338,17 @@ Dumps a running model's meshes as the JSON `self_intersection.py` reads. Vertice
 local geometry is fine, and local space would hide exactly that. Normals go through the
 inverse-transpose. Every mesh it declines to emit — instanced, over the triangle cap, filtered out —
 is listed with its reason, so a short mesh list cannot be mistaken for a clean one.
+
+The exporter is tracked in the skill checkout, **not** in the npm installer-only tarball.
+It loads Playwright from the skill checkout or from `IMG2THREEJS_SHOWCASE_ROOT` when set.
+The viewer must expose `window.__IMG2THREEJS_VIEWER__.scene` (or set `--viewer-handle` to another
+window property containing `.scene`); `--ready-flag F` waits for `window[F] === true` before
+capturing. Its world-space JSON is directly consumable by `self_intersection.py` and
+`pairwise_penetration.py`. Instanced, skinned, active-morph, partial-draw and over-budget
+geometry are **not** silently claimed as inspected: they produce exit code `2` and a
+`meshes.json.incomplete.json` diagnostic. A new capture first removes stale `--out` evidence;
+only a complete nonempty capture writes the requested `--out` file. Filtered/hidden meshes
+are reported separately. This is structural evidence, not proof of visual fidelity.
 
 ### stage4_review/vertex_region_gate.py
 `stage4_review/vertex_region_gate.py --geometry meshes.json --palette palette.json [--expect expect.json] [--azimuth 0] [--color-tolerance T] [--max-unclassified N] [--out report.json] [--json]`
