@@ -35,3 +35,27 @@ python3 -m unittest forge.tests.test_vehicle_plan_taper
 World X coordinates must already correspond across the model and reference table; all geometry comes from actual triangle/plane intersections, not the nearest vertex. Finite input coordinates do not guarantee finite *derived* widths or longitudinal spans (subtractions can overflow binary64). The gate rejects non-finite derived measurements rather than normalizing `inf/inf` into NaN and accidentally passing a tolerance comparison. Zero-area/collinear triangles are ignored (reported as `degenerateTrianglesIgnored`) because lines can produce arbitrary widths without contributing a real surface; if the selected body has no nondegenerate triangles, the gate refuses the evidence. Widths are normalized to their respective maximum, so this is a **shape** gate, not a real-world dimension or wheelbase accuracy check. It does not measure silhouette height/tumblehome, reflectance, clearance, volume, or unseen body panels.
 
 **Exit codes:** `0` accepted shape, `1` measured shape mismatch, `2` unusable or unmeasurable evidence. A partial/empty export never counts as a clean model. Do not wire this into the generic core pipeline without a domain integration and reference-image measurement policy.
+
+## Reproducible browser pixel-to-mesh A/B (synthetic)
+
+A separate, opt-in CI job exercises **actual Three.js/WebGL pixels**, rather than only
+feeding hand-constructed triangle arrays to the gate:
+
+1. Render a procedurally assembled vehicle reference from a locked orthographic top camera.
+2. Measure nose, front-fender, door, rear-hip and tail widths **from the PNG framebuffer**, recording the screenshot SHA-256 and each sampled pixel column.
+3. Render two candidate bodies: the original varying-width profile and an intentionally wrong constant-width/stadium profile.
+4. Export each candidate through the *pinned downstream* real-browser mesh exporter from [fork PR #35](https://github.com/kvnloo/img2threejs/pull/35), excluding studio geometry via an explicit model root.
+5. Require the measured pixel profile to accept the matching exported triangles and reject the stadium geometry. Fail closed on a partial exporter retry and record its diagnostic separately.
+
+The GitHub Actions workflow is `.github/workflows/vehicle-plan-ab-smoke.yml`.
+It uses `node --test integrations/vehicle_form/vehicle_reference_pixels.test.mjs` plus
+`node integrations/vehicle_form/vehicle_browser_ab_smoke.mjs`, with optional Playwright
+and Three.js installed into a temporary directory, not the generic core. The workflow
+pins an exact exporter commit and retains rendered reference/candidate screenshots,
+`vehicle-ab-comparison.png`, input sections, mesh receipts and both gate reports.
+
+**Scope:** This is synthetic-browser integration and geometry/pixel consistency evidence,
+not a photograph of the 1960s Ferrari from the original issue, not recovered 3D depth,
+and not a real-world automotive reconstruction accuracy result. An independently measured
+reference photograph and reproducible before/after Ferrari rebuild are still required
+before claiming that real-world form fidelity improved.
