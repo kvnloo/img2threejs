@@ -39,6 +39,27 @@ Use:
 
 The render callback must use the actual img2threejs -> Three.js path, not a fake numeric objective.
 
+## Current native-fitter preflight (not an accepted holdout A/B)
+
+The `real_render_smoke.py score` step now calls the actual downstream
+`fit_against_divine_eye` for **both coordinate orders** on the same captured
+Chromium candidate set. Each order receives three native Divine Eye calls:
+root + both signed probes on its first coordinate. It refuses unrendered
+candidates and checks that every re-evaluated score/hard-gate receipt agrees
+with the original native image evaluation.
+
+It writes `worlds/paired-real-fitter.json` containing visited PNG hashes,
+candidate order, fit history, clean IoU for actually visited candidates,
+and explicit `liveRenderBudgetClaim: false` / `holdoutClaim: false` markers.
+This is stronger than replaying numbers through the policy simulator: the
+production fitter and hard-gate adapter are genuinely exercised on real
+WebGL screenshots. **However**, screenshots are all captured *ahead of time*,
+so only evaluator invocations, not on-demand browser renders, are budgeted.
+The same procedural root is used for both orders, without policy learning.
+
+This does not satisfy the acceptance bar below. Fresh, independent
+multi-family holdouts and truly bounded live-render calls remain required.
+
 ## Split
 
 Minimum initial run:
