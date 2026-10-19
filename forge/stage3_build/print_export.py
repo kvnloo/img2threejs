@@ -269,19 +269,26 @@ def analyze_manifold(vertices: list[Vec], triangles: list[tuple[int, int, int]])
     bad_edges = set(boundary) | set(non_manifold) | set(misoriented)
     shell_reports = []
     for faces in sorted(shells.values(), key=lambda group: (-len(group), group[0])):
-        volume = 0.0
+        # Tetrahedra measured from the global origin lose precision for a small
+        # object placed far away (e.g. unit cube at x=1e9 reports volume ~1e9).
+        # A fixed shell-local anchor makes signed volume translation-invariant.
+        anchor = vertices[triangles[faces[0]][0]]
+        volume_terms: list[float] = []
         closed = True
         for face in faces:
-            a, b, c = (vertices[i] for i in triangles[face])
-            volume += (a[0] * (b[1] * c[2] - b[2] * c[1])
-                       - a[1] * (b[0] * c[2] - b[2] * c[0])
-                       + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6.0
+            a, b, c = (_sub(vertices[i], anchor) for i in triangles[face])
+            volume_terms.append(
+                (a[0] * (b[1] * c[2] - b[2] * c[1])
+                 - a[1] * (b[0] * c[2] - b[2] * c[0])
+                 + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6.0
+            )
             if closed:
                 x, y, z = triangles[face]
                 for u, v in ((x, y), (y, z), (z, x)):
                     if ((u, v) if u < v else (v, u)) in bad_edges:
                         closed = False
                         break
+        volume = math.fsum(volume_terms)
         shell_reports.append({
             "triangleCount": len(faces),
             "closed": closed,
