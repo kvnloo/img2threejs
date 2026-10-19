@@ -15,18 +15,52 @@ const { PNG } = require('pngjs');
 const output = join(process.env.RUNNER_TEMP || tmpdir(), 'img2-curve-sweep-ab');
 const threeBuild = join(deps, 'node_modules', 'three', 'build');
 
-function html(variant) {
-  return `<!doctype html><html><head><meta charset="utf-8"></head>
-<body style="margin:0;background:#101418"><script type="module">
-import * as THREE from '/three/three.module.js';
-import * as factory from '/bundle/${variant}.js';
-try {
+function geometryScript(variant) {
+  if (variant === 'reference') {
+    // This third render is an independently authored Three.js realization
+    // of the exact *fixture spec*. It is not a user-supplied reference photo.
+    return `
+  const spec = await (await fetch('/fixture.json')).json();
+  const part = spec.componentTree.find(entry => entry.id === 'part');
+  const parent = spec.componentTree.find(entry => entry.id === part.parent);
+  const sweep = part.geometryDescriptor.curveSweep;
+  const cs = sweep.crossSection.points;
+  const shape = new THREE.Shape();
+  shape.moveTo(cs[0][0], cs[0][1]);
+  for (let i = 1; i < cs.length; i++) shape.lineTo(cs[i][0], cs[i][1]);
+  shape.closePath();
+  const spine = sweep.spine.map(v => new THREE.Vector3(...v));
+  const path = new THREE.CatmullRomCurve3(spine, sweep.closed === true);
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    extrudePath: path, steps: Math.max(24, spine.length * 8), bevelEnabled: false,
+  });
+  geometry.scale(part.dimensions.width, part.dimensions.height, part.dimensions.depth);
+  geometry.translate(
+    parent.transform.position[0] + part.transform.position[0],
+    parent.transform.position[1] + part.transform.position[1],
+    parent.transform.position[2] + part.transform.position[2],
+  );
+  const type = geometry.type;
+`;
+  }
+  return `
   const model = factory.createAttachmentPrimitiveModel({textureSize: 32});
   const part = model.userData.sculptRuntime.meshes.part;
   if (!part) throw new Error('generated factory lacks the expected part');
   model.updateMatrixWorld(true);
   const geometry = part.geometry.clone();
   geometry.applyMatrix4(part.matrixWorld);
+  const type = part.geometry.type;
+`;
+}
+
+function html(variant) {
+  return `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;background:#101418"><script type="module">
+import * as THREE from '/three/three.module.js';
+${variant === 'reference' ? '' : `import * as factory from '/bundle/${variant}.js';`}
+try {
+${geometryScript(variant)}
   geometry.computeBoundingBox();
   const size = new THREE.Vector3();
   geometry.boundingBox.getSize(size);
@@ -42,7 +76,7 @@ try {
   renderer.render(scene, camera);
   document.body.appendChild(renderer.domElement);
   window.__GEOMETRY_AB__ = {
-    ready: true, type: part.geometry.type, xExtent: size.x, yExtent: size.y,
+    ready: true, type, xExtent: size.x, yExtent: size.y,
     triangles: geometry.index
       ? geometry.index.count / 3
       : geometry.attributes.position.count / 3,
@@ -57,12 +91,15 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url, 'http://127.0.0.1');
   const path = url.pathname;
   try {
-    if (path === '/before' || path === '/after') {
+    if (path === '/before' || path === '/after' || path === '/reference') {
       response.writeHead(200, {'content-type': 'text/html; charset=utf-8'});
       response.end(html(path.substring(1)));
     } else if (path === '/three/three.module.js') {
       response.writeHead(200, {'content-type': 'text/javascript'});
       response.end(await readFile(join(threeBuild, 'three.module.js')));
+    } else if (path === '/fixture.json') {
+      response.writeHead(200, {'content-type': 'application/json'});
+      response.end(await readFile(join(deps, 'fixture.json')));
     } else if (path === '/bundle/before.js' || path === '/bundle/after.js') {
       response.writeHead(200, {'content-type': 'text/javascript'});
       response.end(await readFile(join(deps, basename(path))));
@@ -86,7 +123,7 @@ try {
   const reports = {};
   const screenshots = {};
   try {
-    for (const name of ['before', 'after']) {
+    for (const name of ['before', 'after', 'reference']) {
       const page = await browser.newPage({viewport: {width: 512, height: 512}, deviceScaleFactor: 1});
       const errors = [];
       page.on('pageerror', error => errors.push(String(error)));
@@ -111,7 +148,12 @@ try {
     `the authored hook must have a wider geometric extent: ${JSON.stringify(reports)}`);
   const before = PNG.sync.read(screenshots.before);
   const after = PNG.sync.read(screenshots.after);
+  const reference = PNG.sync.read(screenshots.reference);
+  assert.equal(reports.reference.type, 'ExtrudeGeometry', 'independent controlled target');
+  assert.ok(Math.abs(reports.reference.xExtent - reports.after.xExtent) < 1e-4,
+    'generated width must match the authored procedural target');
   assert.equal(before.width, after.width);
+  assert.equal(after.width, reference.width);
   assert.equal(before.height, after.height);
   let changed = 0, beforeVisible = 0, afterVisible = 0;
   // Compare the exact same fixed-camera WebGL pixels, not independent auto-framings.
@@ -126,6 +168,25 @@ try {
   assert.ok(changed > 500, `rendered A/B too similar (${changed} changed pixels)`);
   assert.ok(beforeVisible > 400 && afterVisible > 400,
     `invisible geometry in one render: before=${beforeVisible} after=${afterVisible}`);
+  const visible = (png, i) => png.data[i] + png.data[i+1] + png.data[i+2] > 100;
+  const silhouetteIoU = (observed, target) => {
+    let intersection = 0, union = 0, seen = 0;
+    for (let i = 0; i < observed.data.length; i += 4) {
+      const actual = visible(observed, i);
+      const intended = visible(target, i);
+      if (actual && intended) intersection++;
+      if (actual || intended) union++;
+      if (intended) seen++;
+    }
+    assert.ok(seen > 400 && union > 400, 'synthetic target has no usable silhouette');
+    return {iou: intersection / union, intersectionPixels: intersection, unionPixels: union};
+  };
+  const silhouetteBefore = silhouetteIoU(before, reference);
+  const silhouetteAfter = silhouetteIoU(after, reference);
+  assert.ok(silhouetteAfter.iou >= 0.97,
+    `the patch must reproduce the controlled curved target: ${JSON.stringify(silhouetteAfter)}`);
+  assert.ok(silhouetteAfter.iou >= silhouetteBefore.iou + 0.3,
+    `the patch must improve the controlled target by >=0.3 IoU: ${JSON.stringify({silhouetteBefore, silhouetteAfter})}`);
   const report = {
     kind: 'generated-factory-real-webgl-ab',
     issue: 'img2threejs/img2threejs#111',
@@ -135,11 +196,17 @@ try {
     patch: reports.after,
     changedPixels: changed,
     beforeVisible, afterVisible,
+    controlledProceduralReference: {
+      geometry: reports.reference,
+      provenance: 'independently built from fixture.json using Three.js Shape + CatmullRom + ExtrudeGeometry',
+      silhouetteBefore, silhouetteAfter,
+      referenceScreenshotSha256: createHash('sha256').update(screenshots.reference).digest('hex'),
+    },
     beforeSha256: createHash('sha256').update(screenshots.before).digest('hex'),
     afterSha256: createHash('sha256').update(screenshots.after).digest('hex'),
     comparisonToUserReference: false,
     qualityScore: null,
-    note: 'Actual WebGL geometry/path A/B. No reference-image IoU, likeness, or real-subject fidelity claim.',
+    note: 'Real WebGL geometry A/B; silhouette IoU is against a separate controlled procedural fixture, NOT against a user/reference photograph or actual subject.',
   };
   await writeFile(join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n', 'utf8');
   console.log('PASS: generated-factory real-browser A/B ' + JSON.stringify(report));
