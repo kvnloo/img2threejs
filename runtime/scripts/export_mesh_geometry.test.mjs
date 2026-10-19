@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, afterEach } from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -84,15 +84,27 @@ test('filters and hidden meshes remain explicitly accounted for', () => {
   assert.equal(collectMeshGeometry({ ...opts, include: '^nothing$' }).incomplete, true);
 });
 
-test('non-indexed geometry and draw range select only live triangles', () => {
+test('full non-indexed geometry passes; partial draw ranges are not clean evidence', () => {
   const mesh = makeMesh('nonindexed');
   mesh.geometry.index = null;
   mesh.geometry.getAttribute = kind => kind === 'position'
     ? attr([[0,0,0],[1,0,0],[0,1,0],[0,0,0],[0,1,0],[-1,0,0]]) : null;
+  const opts = install(mesh);
+  const whole = collectMeshGeometry(opts);
+  assert.equal(whole.incomplete, false);
+  assert.deepEqual(whole.meshes[0].indices, [0, 1, 2, 3, 4, 5]);
   mesh.geometry.drawRange = { start: 3, count: 3 };
-  const result = collectMeshGeometry(install(mesh));
-  assert.deepEqual(result.meshes[0].indices, [3, 4, 5]);
-  assert.equal(result.meshes[0].triangleCount, 1);
+  const partial = collectMeshGeometry(opts);
+  assert.equal(partial.incomplete, true);
+  assert.deepEqual(partial.skippedMeshes.map(m => m.reason), ['partial-draw-range']);
+  assert.equal(partial.meshes.length, 0);
+});
+
+test('modelRoot is used before falling back to full studio scene', () => {
+  const ground = makeMesh('ground'), subject = makeMesh('subject');
+  const opts = install(ground, subject);
+  globalThis.__TEST_MESH_VIEWER__.modelRoot = { traverse(fn) { fn(subject); } };
+  assert.deepEqual(collectMeshGeometry(opts).meshes.map(m => m.name), ['subject']);
 });
 
 test('rejects truncated triangles, oversized meshes, invalid indices and singular matrices', () => {
@@ -149,11 +161,15 @@ test('CLI emits consumer-ready JSON and fails closed on partial export (mocked b
     const script = fileURLToPath(new URL('./export_mesh_geometry.mjs', import.meta.url));
     for (const partial of [false, true]) {
       const out = join(dir, partial ? 'partial.json' : 'complete.json');
+      writeFileSync(out, 'stale successful evidence', 'utf8');
       const res = spawnSync(process.execPath, [script, '--url', 'http://localhost:5173/#/demo/example', '--out', out], {
         cwd: dir, encoding: 'utf8', env: { ...process.env, SIMULATE_INCOMPLETE: partial ? '1' : '' },
       });
       assert.equal(res.status, partial ? 2 : 0, res.stderr);
-      const report = JSON.parse(readFileSync(out, 'utf8'));
+      const diagnostics = `${out}.incomplete.json`;
+      assert.equal(existsSync(out), !partial, 'partial capture must not leave successful evidence');
+      assert.equal(existsSync(diagnostics), partial);
+      const report = JSON.parse(readFileSync(partial ? diagnostics : out, 'utf8'));
       assert.equal(report.meshes[0].triangleCount, 1);
       assert.deepEqual(report.meshes[0].indices, [0, 1, 2]);
       assert.equal(report.incomplete, partial);
