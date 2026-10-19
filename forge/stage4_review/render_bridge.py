@@ -204,7 +204,7 @@ def record_capture(
     manifest: dict[str, Any],
     capture_id: str,
     screenshot: Path,
-    ready_signal: Any = True,
+    ready_signal: Any = None,
     console_errors: list[str] | None = None,
     browser_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -233,7 +233,7 @@ def record_reference_capture(
     manifest: dict[str, Any],
     capture_id: str,
     screenshot: Path,
-    ready_signal: Any = True,
+    ready_signal: Any = None,
     console_errors: list[str] | None = None,
 ) -> dict[str, Any]:
     """Record a browser screenshot of the GLB reference baseline.
