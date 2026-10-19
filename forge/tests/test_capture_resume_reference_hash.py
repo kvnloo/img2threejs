@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "forge" / "stage4_review"))
 from make_comparison_sheet import write_png_rgb  # noqa: E402
 from plan_capture_resume import resume_plan  # noqa: E402
-from render_bridge import init_manifest, write_manifest  # noqa: E402
+from render_bridge import init_manifest, write_manifest, sha256  # noqa: E402
 
 
 class CaptureResumeReferenceHashTest(unittest.TestCase):
@@ -40,6 +40,50 @@ class CaptureResumeReferenceHashTest(unittest.TestCase):
         write_manifest(self.manifest, self.data)
         with self.assertRaisesRegex(ValueError, "SHA-256 are required"):
             resume_plan(self.manifest)
+
+    def declare_v2_profile(self):
+        profile_file = self.folder / "render-profile.json"
+        profile_file.write_text('{"camera":"fixed","lighting":"neutral"}', encoding="utf-8")
+        self.data["fidelityTrack"] = "glb-mediated-v2"
+        self.data["renderProfile"] = {
+            "path": "render-profile.json",
+            "sha256": sha256(profile_file),
+            "schemaVersion": "render-profile.v2",
+        }
+        write_manifest(self.manifest, self.data)
+        return profile_file
+
+    def test_intact_render_profile_can_resume(self):
+        self.declare_v2_profile()
+        self.assertEqual(resume_plan(self.manifest)["requiredShots"], 7)
+
+    def test_mutated_render_profile_invalidates_existing_capture_plan(self):
+        profile = self.declare_v2_profile()
+        profile.write_text('{"camera":"shifted","lighting":"neutral"}', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "render profile hash changed"):
+            resume_plan(self.manifest)
+
+    def test_missing_render_profile_file_fails_closed(self):
+        profile = self.declare_v2_profile()
+        profile.unlink()
+        with self.assertRaisesRegex(ValueError, "render profile hash changed or file is missing"):
+            resume_plan(self.manifest)
+
+    def test_missing_profile_declaration_fails_closed(self):
+        self.declare_v2_profile()
+        self.data.pop("renderProfile")
+        write_manifest(self.manifest, self.data)
+        with self.assertRaisesRegex(ValueError, "requires renderProfile"):
+            resume_plan(self.manifest)
+
+    def test_missing_or_malformed_profile_hash_fails_closed(self):
+        self.declare_v2_profile()
+        for bad in (None, "not-a-sha256", "A" * 64):
+            with self.subTest(hash=bad):
+                self.data["renderProfile"]["sha256"] = bad
+                write_manifest(self.manifest, self.data)
+                with self.assertRaisesRegex(ValueError, "lowercase renderProfile.sha256"):
+                    resume_plan(self.manifest)
 
 
 if __name__ == "__main__":
