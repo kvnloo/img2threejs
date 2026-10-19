@@ -120,6 +120,25 @@ test('adaptive bound certifies a distant box without a dense sweep', () => {
   assert.ok(check.evaluatedAngles <= 20, 'far-field certificates should avoid dense sampling');
 });
 
+test('very long geometry along the hinge axis does not inflate angular radius', () => {
+  const { joint, panel, obstacle } = model();
+  panel.geometry.dispose();
+  panel.geometry = new THREE.BoxGeometry(1, 0.04, 2000);
+  obstacle.position.set(5, 0, 0);
+  const verified = certifyFoldSweep(joint, panel, obstacle, 0, 180);
+  assert.equal(verified.status, 'certified-clear', JSON.stringify(verified));
+  assert.ok(verified.evaluatedAngles <= 3,
+    'axis-aligned extent cannot require thousands of useless samples');
+});
+
+test('uniformly scaled parents keep the conservative separation guarantee', () => {
+  const { root, joint, panel, obstacle } = model();
+  root.scale.setScalar(2.5);
+  obstacle.position.set(10, 2, 0);
+  const verified = certifyFoldSweep(joint, panel, obstacle, -90, 180);
+  assert.equal(verified.status, 'certified-clear', JSON.stringify(verified));
+});
+
 test('positive sweep detects obstacle; negative sweep is bounded-clear', () => {
   const { joint, panel, obstacle } = model();
   const positive = certifyFoldSweep(joint, panel, obstacle, 0, 180);
