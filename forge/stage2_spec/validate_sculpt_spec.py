@@ -1623,6 +1623,24 @@ def validate_components(
                     errors.append(f"component {component_id!r} transform.{field} must be [number, number, number]")
         if "hinge" in component:
             validate_hinge(component_id, component["hinge"], errors)
+            # The bone track bakes vertex positions into model space and
+            # reparents bound meshes to the root. A hinge on those components
+            # would animate an empty node rather than the visible geometry.
+            assessment = spec.get("preSpecAssessment")
+            object_class = assessment.get("objectClass") if isinstance(assessment, dict) else None
+            domain = object_class.get("primaryDomain") if isinstance(object_class, dict) else None
+            rig = spec.get("rig")
+            bones = rig.get("bones") if isinstance(rig, dict) else None
+            if domain in {"character", "hybrid"} and isinstance(bones, list):
+                if any(
+                    isinstance(bone, dict)
+                    and str(bone.get("component") or bone.get("id")) == component_id
+                    for bone in bones
+                ):
+                    errors.append(
+                        f"component {component_id!r} hinge is incompatible with bone-track skinning; "
+                        "use a rigid non-skinned component or bone animation instead"
+                    )
         validate_action_profile(component_id, component.get("actionProfile"), errors, warnings)
         validate_attachment(
             component_id,
