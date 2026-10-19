@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Hinge Lab | img2threejs</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b111b; --surface:#151e2c; --line:#2c3949; --text:#edf3fc; --muted:#a9b7c6; --accent:#bde76e; --warning:#f3b76a; --failure:#ed8b86; }
+    * { box-sizing:border-box; }
+    body { margin:0; font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; background:var(--bg); color:var(--text); }
+    button,input,select { font:inherit; }
+    button { color:var(--text); background:#233145; border:1px solid var(--line); border-radius:8px; padding:8px 11px; cursor:pointer; transition:background .16s ease; }
+    button:hover,button:focus-visible { background:#33435a; }
+    button:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    button.primary { color:#162018; background:var(--accent); border-color:var(--accent); font-weight:650; }
+    button.primary:hover { background:#d6f2a0; }
+    a { color:var(--accent); }
+    header { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:15px 20px; border-bottom:1px solid var(--line); }
+    .brand { display:flex; align-items:baseline; gap:14px; }
+    .brand strong { font-size:18px; letter-spacing:-.5px; }
+    .muted { color:var(--muted); }
+    header p { margin:0; font-size:12px; }
+    main { display:grid; grid-template-columns:minmax(250px,290px) minmax(0,1fr) minmax(230px,280px); min-height:calc(100vh - 67px); }
+    aside { background:var(--surface); min-width:0; padding:20px 18px; }
+    aside:first-of-type { border-right:1px solid var(--line); }
+    aside:last-of-type { border-left:1px solid var(--line); }
+    h1,h2,h3,p { margin-top:0; }
+    h2 { font-size:13px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin-bottom:12px; }
+    h3 { font-size:14px; }
+    .panel { margin-bottom:24px; }
+    .panel p { font-size:13px; color:var(--muted); }
+    .action-row { display:flex; gap:8px; flex-wrap:wrap; }
+    .slider-field { display:block; margin-bottom:18px; }
+    .field-head { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:3px; }
+    .field-head output { min-width:4.2em; text-align:right; font-variant-numeric:tabular-nums; color:var(--accent); }
+    .slider-field input { accent-color:var(--accent); width:100%; cursor:pointer; }
+    .control-label { display:block; margin:0 0 7px; font-size:12px; color:var(--muted); }
+    select { width:100%; border:1px solid var(--line); border-radius:8px; padding:9px; background:#233145; color:var(--text); margin-bottom:12px; }
+    .check { display:flex; gap:10px; align-items:center; margin-bottom:12px; }
+    .check input { width:16px; height:16px; accent-color:var(--accent); }
+    .viewer { position:relative; min-height:620px; overflow:hidden; background:radial-gradient(circle at 45% 40%,#263248,#0b111b 70%); }
+    #stage { display:block; width:100%; height:100%; position:absolute; inset:0; touch-action:none; }
+    .hint { position:absolute; bottom:16px; left:16px; background:#0b111bcf; border:1px solid var(--line); padding:8px 11px; border-radius:9px; color:var(--muted); font-size:12px; pointer-events:none; }
+    .status { border:1px solid var(--line); padding:13px; border-radius:10px; margin:12px 0; }
+    .status strong { display:block; font-size:16px; }
+    .status[data-state="collision"] strong { color:var(--failure); }
+    .status[data-state="certified-clear"] strong { color:var(--accent); }
+    .status[data-state="unresolved"] strong { color:var(--warning); }
+    #reference { display:block; width:100%; aspect-ratio:1.3; object-fit:contain; border:1px solid var(--line); border-radius:10px; background:#56616b; }
+    small { font-size:11px; color:var(--muted); }
+    .data { display:grid; grid-template-columns:1fr auto; row-gap:7px; font-variant-numeric:tabular-nums; font-size:12px; }
+    .data span:nth-child(2n) { color:var(--text); text-align:right; }
+    .mono { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+    footer { margin-top:16px; font-size:11px; color:var(--muted); }
+    @media(max-width:1050px) { main { grid-template-columns:245px minmax(0,1fr); } aside:last-of-type { grid-column:1 / -1; border-left:0; border-top:1px solid var(--line); display:grid; grid-template-columns:1fr 1fr; gap:16px; } }
+    @media(max-width:680px) { header { padding:12px 14px; } header p { display:none; } main { display:flex; flex-direction:column; } .viewer { min-height:56vh; order:0; } aside:first-of-type { order:1; border-right:0; border-top:1px solid var(--line); } aside:last-of-type { order:2; display:block; } }
+    @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; } }
+  </style>
+</head>
+<body>
+<header>
+  <div class="brand"><strong>Hinge Lab</strong><span class="muted">img2threejs / experimental</span></div>
+  <p class="muted">Generated procedural geometry · Three.js r180 · all local</p>
+</header>
+<main>
+  <aside aria-label="Fold controls">
+    <section class="panel">
+      <h2>Articulate</h2>
+      <p>Each fold rotates about its authored crease, not the center of the cardboard panel.</p>
+      <div id="sliders"></div>
+      <div class="action-row">
+        <button id="rest">Flatten all</button>
+        <button id="pose" class="primary">Photo pose</button>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Collision experiment</h2>
+      <p>Inject a red obstacle at the 90° position of a selected flap, then check its path from flat to the current angle.</p>
+      <label class="control-label" for="collision-part">Panel to inspect</label>
+      <select id="collision-part">
+        <option value="back-flap">Back flap</option>
+        <option value="front-flap">Front flap</option>
+        <option value="left-flap">Left flap</option>
+        <option value="right-flap">Right flap</option>
+      </select>
+      <label class="check"><input id="obstacle-enabled" type="checkbox">Show test obstacle</label>
+      <button id="check" class="primary">Evaluate sweep</button>
+      <div class="status" id="status" role="status" aria-live="polite" data-state="inactive">
+        <strong id="status-title">Not evaluated</strong>
+        <div id="status-detail" class="muted">Enable the obstacle to inspect a sweep.</div>
+      </div>
+      <small>Only rigid boxes, one moving hinge, a fixed obstacle, and supported transforms can be certified. “Unresolved” is not safe.</small>
+    </section>
+  </aside>
+  <section class="viewer" aria-label="Interactive procedural model">
+    <canvas id="stage" aria-label="Three-dimensional folding carton preview"></canvas>
+    <div class="hint">Drag to orbit · Wheel/pinch to zoom · Fold sliders at left</div>
+  </section>
+  <aside aria-label="Reference and provenance">
+    <section class="panel">
+      <h2>Photo reference</h2>
+      <img id="reference" src="reference.jpg" alt="Open corrugated cardboard box used as an approximate visual reference">
+      <small>Photo: Arnold Reinhold / <a href="https://commons.wikimedia.org/wiki/File:Box.agr.jpg" target="_blank" rel="noreferrer">Wikimedia Commons</a>, CC BY-SA 3.0.</small>
+    </section>
+    <section class="panel">
+      <h2>Live model</h2>
+      <div class="data">
+        <span>Source</span><span>Procedural TS factory</span>
+        <span>Hinged panels</span><span id="panel-count">—</span>
+        <span>Visible triangles</span><span id="triangle-count">—</span>
+        <span>Selected joint</span><span id="joint-angle">—</span>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Evidence limits</h2>
+      <p>This is a manually authored carton proxy. Fold continuity is testable; photorealistic reconstruction, universal collision freedom, and automatic dimension recovery are not claimed.</p>
+      <button id="export">Export pose JSON</button>
+    </section>
+    <footer>Isolated research demo. No mesh downloads, account access, tracking, or backend calls. The generated geometry and collision checker are bundled locally.</footer>
+  </aside>
+</main>
+<script src="bundle.js" defer></script>
+</body>
+</html>
