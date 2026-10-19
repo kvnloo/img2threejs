@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -1070,6 +1071,48 @@ def validate_dimensions(component_id: str, dimensions: Any, errors: list[str]) -
         validate_unit_interval(confidence, f"component {component_id!r} dimensions.confidence", errors)
 
 
+
+def validate_hinge(component_id: str, hinge: Any, errors: list[str]) -> None:
+    """Validate a fold axis in the parent node's local frame.
+
+    A bad axis must fail before codegen: Three.js normalizes it to NaNs and the
+    result is a missing mesh, not an actionable authoring error.
+    """
+    label = f"component {component_id!r} hinge"
+    if not isinstance(hinge, dict):
+        errors.append(f"{label} must be an object")
+        return
+    allowed = {"axisStart", "axisEnd", "restAngleDeg"}
+    unexpected = sorted(str(key) for key in hinge if key not in allowed)
+    if unexpected:
+        errors.append(f"{label} has unsupported fields: {', '.join(unexpected)}")
+
+    def finite_number(value: Any) -> bool:
+        if not is_number(value):
+            return False
+        try:
+            return math.isfinite(value)
+        except (OverflowError, ValueError):
+            return False
+
+    def finite_point(value: Any) -> bool:
+        return isinstance(value, list) and len(value) == 3 and all(finite_number(v) for v in value)
+
+    start = hinge.get("axisStart")
+    end = hinge.get("axisEnd")
+    for key, point in (("axisStart", start), ("axisEnd", end)):
+        if not finite_point(point):
+            errors.append(f"{label}.{key} must be [finite number, finite number, finite number]")
+
+    if finite_point(start) and finite_point(end):
+        delta = [float(a) - float(b) for a, b in zip(start, end)]
+        if not all(math.isfinite(value) for value in delta) or max(abs(v) for v in delta) <= 1e-6:
+            errors.append(f"{label} axisStart and axisEnd must define a nonzero finite axis")
+
+    if not finite_number(hinge.get("restAngleDeg")):
+        errors.append(f"{label}.restAngleDeg must be a finite number in degrees")
+
+
 def validate_geometry_descriptor(component_id: str, descriptor: Any, errors: list[str]) -> None:
     if descriptor is None:
         return
@@ -1578,6 +1621,8 @@ def validate_components(
             for field in ("position", "rotation", "scale"):
                 if field in transform and not as_number_list(transform[field], 3):
                     errors.append(f"component {component_id!r} transform.{field} must be [number, number, number]")
+        if "hinge" in component:
+            validate_hinge(component_id, component["hinge"], errors)
         validate_action_profile(component_id, component.get("actionProfile"), errors, warnings)
         validate_attachment(
             component_id,
