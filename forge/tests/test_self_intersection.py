@@ -448,6 +448,37 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(code, 0, output)
         self.assertEqual(json.loads(output)["meshCount"], 1)
 
+    def test_explicit_local_space_and_omitted_active_meshes_fail_closed(self) -> None:
+        clean = {"name": "clean", "vertices": self.vertices, "indices": self.indices}
+        rejected_receipts = (
+            {"coordinateSpace": "local"},
+            {"coordinateSpace": None},
+            {"incomplete": "false"},
+            {"incomplete": None},
+            {"incomplete": False, "skippedMeshes": [{"name": "rig", "reason": "animated-or-instanced-mesh"}]},
+            {"incomplete": False, "skipped": [{"name": "morph", "reason": "active-morph-target"}]},
+            {"incomplete": False, "skipped": "not-a-list"},
+        )
+        for index, extras in enumerate(rejected_receipts):
+            with self.subTest(index=index, extras=extras):
+                payload = {"meshes": [clean], **extras}
+                path = self._write(f"invalid-receipt-{index}.json", payload)
+                code, _ = self._run([str(path)])
+                self.assertEqual(code, 2)
+
+    def test_world_space_receipt_with_intentionally_hidden_geometry_passes(self) -> None:
+        clean = {"name": "clean", "vertices": self.vertices, "indices": self.indices}
+        path = self._write("verified-world.json", {
+            "meshes": [clean],
+            "coordinateSpace": "world",
+            "incomplete": False,
+            "skippedMeshes": [{"name": "studio-floor", "reason": "hidden"}],
+            "skipped": [{"name": "excluded-overlay", "reason": "filtered"}],
+        })
+        code, output = self._run([str(path), "--json"])
+        self.assertEqual(code, 0, output)
+        self.assertEqual(json.loads(output)["meshCount"], 1)
+
     def test_empty_exporter_payload_reports_actionable_text(self) -> None:
         path = self._write("empty-cli.json", {"meshes": []})
         code, output = self._run([str(path)])

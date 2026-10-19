@@ -529,8 +529,19 @@ def _load_meshes(path: Path) -> list[dict[str, Any]]:
     if isinstance(payload, dict):
         # A browser exporter may have captured only a subset of the scene.
         # Passing that partial list would certify uninspected geometry as clean.
-        if payload.get("incomplete") is True:
+        if "incomplete" in payload and payload["incomplete"] is not False:
             raise ValueError("incomplete mesh export: not all requested geometry was captured")
+        if "coordinateSpace" in payload and payload["coordinateSpace"] != "world":
+            raise ValueError("mesh export coordinates must be in world space")
+        # An exporter that omitted active meshes must not report a clean
+        # result even if its completeness flag was missing or incorrectly false.
+        for key in ("skipped", "skippedMeshes"):
+            skipped = payload.get(key, [])
+            if not isinstance(skipped, list):
+                raise ValueError(f"invalid {key} coverage receipt")
+            if any(not isinstance(item, dict) or item.get("reason") not in {"hidden", "filtered"}
+                   for item in skipped):
+                raise ValueError(f"incomplete mesh export: {key} includes uninspected active geometry")
         meshes = payload.get("meshes")
         if meshes is None:
             meshes = payload.get("components")
