@@ -468,12 +468,12 @@ and a third-party endpoint, so it is never on a required path: its output is an 
 evidence that a gate passed.
 
 ## stage4_review/make_feature_crop.py
-\`stage4_review/make_feature_crop.py --reference ref.png --render render.png --out feature.png --roi 0.3,0.2,0.6,0.5 --panel-width 720 --panel-height 720 --json\`
-packages a zoom crop from the **same center-cropped \`resize_cover\` panels** as
-\`make_comparison_sheet.py\`. ROI coordinates are normalized **panel coordinates**, not
+`stage4_review/make_feature_crop.py --reference ref.png --render render.png --out feature.png --roi 0.3,0.2,0.6,0.5 --panel-width 720 --panel-height 720 --json`
+packages a zoom crop from the **same center-cropped `resize_cover` panels** as
+`make_comparison_sheet.py`. ROI coordinates are normalized **panel coordinates**, not
 raw source pixels. For an optional limited alignment check, supply both
-\`--reference-landmark x,y\` and \`--render-landmark x,y\` (also panel coordinates)
-and \`--tolerance-px 3\`. Missing landmarks are reported as unverified;
+`--reference-landmark x,y` and `--render-landmark x,y` (also panel coordinates)
+and `--tolerance-px 3`. Missing landmarks are reported as unverified;
 mismatched landmarks fail without writing output. Source-pixel coverage is
 reported; zooming never creates missing detail. This tool does not score fidelity,
 validate full camera registration, or auto-approve a visual gate.
