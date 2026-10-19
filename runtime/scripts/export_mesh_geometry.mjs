@@ -206,7 +206,7 @@ export function captureReady({ handle = '__IMG2THREEJS_VIEWER__', flag, allowSce
   // does not prove initialization or a completed animation frame.
   if (!viewer && !flag && globalThis.__IMG2THREEJS_READY__ !== true) return false;
   // Viewer.start() can lag behind build(): a geometry handle alone is not readiness.
-  if (viewer.started === false) return false;
+  if (viewer?.started === false) return false;
   let found = false;
   root.traverse(node => { if (node?.isMesh) found = true; });
   if (!found) return false;
