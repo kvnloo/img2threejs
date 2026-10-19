@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Ship the previously missing `runtime/scripts/export_mesh_geometry.mjs` used by the
+  off-axis geometry gates, with Node-only tests, world-space transforms, explicit skips,
+  and fail-closed partial-capture handling. Browser/visual verification is still separate.
+
 **The Character Split — targets v2.1.** The base `character` domain joins
 `plugin-character`, so the base names no domain and the v2.0 plugin split closes.
 
