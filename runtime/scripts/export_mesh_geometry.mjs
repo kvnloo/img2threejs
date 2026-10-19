@@ -7,11 +7,16 @@ import { fileURLToPath } from 'node:url';
 
 // Deliberately self-contained: Playwright serializes this function into the page.
 // Do not reference imported modules or module-scoped helpers from here.
-export function extractMeshGeometry({ maxVertices = 300_000, maxInstances = 1_000 } = {}) {
+export function extractMeshGeometry({
+  maxVertices = 300_000, maxInstances = 1_000, maxTriangles = 50_000,
+  include, exclude, viewerHandle,
+} = {}) {
   const scope = typeof window === 'undefined' ? globalThis : window;
   const capture = scope.__IMG2THREEJS_CAPTURE__;
+  const viewer = viewerHandle ? scope[viewerHandle] : null;
   const root = scope.__IMG2THREEJS_MESH_ROOT__
-    ?? (typeof capture?.getModelRoot === 'function' ? capture.getModelRoot() : capture?.modelRoot);
+    ?? (typeof capture?.getModelRoot === 'function' ? capture.getModelRoot() : capture?.modelRoot)
+    ?? viewer?.explodeRoot ?? viewer?.modelRoot;
   if (!root || typeof root !== 'object' || !Array.isArray(root.children)) {
     throw new Error('Preview must expose window.__IMG2THREEJS_MESH_ROOT__ (a Three.js Object3D)');
   }
@@ -33,12 +38,18 @@ export function extractMeshGeometry({ maxVertices = 300_000, maxInstances = 1_00
     if (!values.every(Number.isFinite)) throw new Error(`${description}: non-finite geometry or transform`);
     return values;
   };
+  for (const [name, cap] of Object.entries({ maxVertices, maxInstances, maxTriangles })) {
+    if (!Number.isSafeInteger(cap) || cap < 1) throw new Error(`${name} must be a positive integer`);
+  }
+  const includePattern = include ? new RegExp(include) : null;
+  const excludePattern = exclude ? new RegExp(exclude) : null;
   const meshes = [];
   let vertexBudgetUsed = 0;
   const walk = (node) => {
     if (node.visible === false) return;
-    if (node.isMesh) {
-      const name = String(node.name || node.userData?.componentId || `mesh-${meshes.length}`);
+    const name = String(node.name || node.userData?.componentId || `mesh-${meshes.length}`);
+    if (node.isMesh && (!includePattern || includePattern.test(name))
+      && (!excludePattern || !excludePattern.test(name))) {
       const geometry = node.geometry;
       const position = geometry?.attributes?.position;
       const normal = geometry?.attributes?.normal;
@@ -48,6 +59,10 @@ export function extractMeshGeometry({ maxVertices = 300_000, maxInstances = 1_00
       if (!normal || normal.count !== position.count) {
         throw new Error(`${name}: BufferGeometry needs one vertex normal per position`);
       }
+      const color = geometry?.attributes?.color;
+      if (color && color.count !== position.count) {
+        throw new Error(`${name}: vertex color count does not match positions`);
+      }
       if (node.isSkinnedMesh || node.morphTargetInfluences?.some((value) => Math.abs(value) > 1e-8)) {
         throw new Error(`${name}: bake skinned/morphed pose before mesh-gate export`);
       }
@@ -55,6 +70,9 @@ export function extractMeshGeometry({ maxVertices = 300_000, maxInstances = 1_00
       const count = indexed ? indexed.count : position.count;
       if (!Number.isInteger(count) || count < 3 || count % 3 !== 0) {
         throw new Error(`${name}: triangle index count must be a positive multiple of 3`);
+      }
+      if (count / 3 > maxTriangles) {
+        throw new Error(`${name}: triangle count exceeds maxTriangles=${maxTriangles}`);
       }
       const range = geometry.drawRange;
       if (range && (range.start !== 0 || (Number.isFinite(range.count) && range.count < count))) {
@@ -91,12 +109,18 @@ export function extractMeshGeometry({ maxVertices = 300_000, maxInstances = 1_00
         }
         const vertices = [];
         const normals = [];
+        const colors = color ? [] : null;
         for (let index = 0; index < position.count; index += 1) {
           const x = position.getX(index), y = position.getY(index), z = position.getZ(index);
           const px = matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12];
           const py = matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13];
           const pz = matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14];
           vertices.push(requireFinite([px, py, pz], name));
+          if (colors) {
+            colors.push(requireFinite(
+              [color.getX(index), color.getY(index), color.getZ(index)], name,
+            ));
+          }
           const nx = normal.getX(index), ny = normal.getY(index), nz = normal.getZ(index);
           // Inverse-transpose (cofactor / determinant), necessary for non-uniform scale.
           const tx = (cof[0] * nx + cof[1] * ny + cof[2] * nz) / determinant;
@@ -114,10 +138,16 @@ export function extractMeshGeometry({ maxVertices = 300_000, maxInstances = 1_00
             [indices[index + 1], indices[index + 2]] = [indices[index + 2], indices[index + 1]];
           }
         }
-        meshes.push({
+        const exported = {
           name: node.isInstancedMesh ? `${name}[${instance}]` : name,
           vertices, normals, indices,
-        });
+        };
+        if (colors) {
+          // The region/arc gates consume flat world positions and optional colors.
+          exported.positions = vertices.flat();
+          exported.colors = colors.flat();
+        }
+        meshes.push(exported);
       }
     }
     for (const child of node.children || []) walk(child);
@@ -133,29 +163,42 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === '--headed') { options.headed = true; continue; }
     const key = { '--url': 'url', '--out': 'out', '--timeout-ms': 'timeoutMs',
-      '--max-vertices': 'maxVertices', '--max-instances': 'maxInstances' }[arg];
-    if (!key || !argv[i + 1]) throw new Error(`unknown/missing argument: ${arg}`);
+      '--max-vertices': 'maxVertices', '--max-instances': 'maxInstances',
+      '--max-triangles': 'maxTriangles', '--include': 'include', '--exclude': 'exclude',
+      '--ready-flag': 'readyFlag', '--viewer-handle': 'viewerHandle' }[arg];
+    if (!key || !argv[i + 1] || argv[i + 1].startsWith('--')) {
+      throw new Error(`unknown/missing argument: ${arg}`);
+    }
     options[key] = argv[++i];
   }
   if (!options.url || !options.out) throw new Error('usage: node runtime/scripts/export_mesh_geometry.mjs --url <preview> --out meshes.json');
   const protocol = new URL(options.url).protocol;
   if (!['http:', 'https:', 'file:'].includes(protocol)) throw new Error('preview URL must be http(s) or file');
-  for (const key of ['timeoutMs', 'maxVertices', 'maxInstances']) {
+  for (const key of ['timeoutMs', 'maxVertices', 'maxInstances', 'maxTriangles']) {
     options[key] = Number(options[key]);
     if (!Number.isSafeInteger(options[key]) || options[key] < 1) throw new Error(`${key} must be a positive integer`);
+  }
+  for (const expression of [options.include, options.exclude]) {
+    if (expression) new RegExp(expression);
   }
   return options;
 }
 
-export async function main(argv) {
+export async function main(argv, { chromium: injectedChromium } = {}) {
   let browser;
   try {
     const options = parseArgs(argv);
-    let chromium;
-    try {
-      ({ chromium } = await import('playwright'));
-    } catch {
-      throw new Error('Playwright not installed: install it in an isolated Node environment and run npx playwright install chromium');
+    const target = resolve(options.out);
+    // A failed new capture must never leave a previous run's meshes.json available
+    // for downstream gates to mistakenly certify.
+    await rm(target, { force: true });
+    let chromium = injectedChromium;
+    if (!chromium) {
+      try {
+        ({ chromium } = await import('playwright'));
+      } catch {
+        throw new Error('Playwright not installed: install it in an isolated Node environment and run npx playwright install chromium');
+      }
     }
     browser = await chromium.launch({ headless: !options.headed });
     const page = await browser.newPage();
@@ -163,11 +206,16 @@ export async function main(argv) {
     page.on('pageerror', (error) => pageErrors.push(String(error)));
     await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: options.timeoutMs });
     await page.waitForFunction('() => Boolean(window.__IMG2THREEJS_READY__)', null, { timeout: options.timeoutMs });
+    if (options.readyFlag) {
+      await page.waitForFunction('(flag) => window[flag] === true', options.readyFlag,
+        { timeout: options.timeoutMs });
+    }
     const result = await page.evaluate(extractMeshGeometry, {
       maxVertices: options.maxVertices, maxInstances: options.maxInstances,
+      maxTriangles: options.maxTriangles, include: options.include, exclude: options.exclude,
+      viewerHandle: options.viewerHandle,
     });
     if (pageErrors.length) throw new Error(`preview JavaScript errors: ${pageErrors.join('; ')}`);
-    const target = resolve(options.out);
     const temporary = `${target}.tmp-${process.pid}`;
     await mkdir(dirname(target), { recursive: true });
     try {

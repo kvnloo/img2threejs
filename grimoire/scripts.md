@@ -332,11 +332,22 @@ passes cleanly, so existing specs are unaffected.
 
 ### runtime/scripts/export_mesh_geometry.mjs
 `node runtime/scripts/export_mesh_geometry.mjs --url URL --out meshes.json [--include RE] [--exclude RE] [--max-triangles N] [--ready-flag F] [--viewer-handle H]`
-Dumps a running model's meshes as the JSON `self_intersection.py` reads. Vertices are emitted in
-**world** space on purpose: a parent's non-uniform scale can fold a mesh through itself even when its
-local geometry is fine, and local space would hide exactly that. Normals go through the
-inverse-transpose. Every mesh it declines to emit — instanced, over the triangle cap, filtered out —
-is listed with its reason, so a short mesh list cannot be mistaken for a clean one.
+Dumps a running model's meshes as the JSON `self_intersection.py` reads. The
+preview must expose the model root as documented in SKILL.md. An explicitly selected
+`--viewer-handle H` may instead provide `window[H].explodeRoot` or `.modelRoot`;
+the studio scene is never used as a silent fallback.
+
+Vertices use **world** coordinates; normals use the inverse-transpose, with
+mirrored winding corrected. Indexed, non-indexed and bounded instanced geometry
+are supported. Vertex-colored meshes also expose flat world `positions` and
+`colors` arrays for `vertex_region_gate.py`. Include/exclude regexes deliberately
+limit the inspected set; an empty set, unsupported animated geometry or a mesh
+over `--max-triangles` is an **error**, not a clean gate.
+
+`--ready-flag F` requires an additional browser-ready signal. A failed new
+capture removes any prior `--out` file before starting; writes use an atomic
+rename only after the full capture succeeds. A green structural gate does not
+substitute for saved screenshots and comparison-sheet review.
 
 ### stage4_review/vertex_region_gate.py
 `stage4_review/vertex_region_gate.py --geometry meshes.json --palette palette.json [--expect expect.json] [--azimuth 0] [--color-tolerance T] [--max-unclassified N] [--out report.json] [--json]`
