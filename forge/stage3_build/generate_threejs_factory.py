@@ -3595,6 +3595,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
             hinge_frame = local_var("hingeFrame", component_id, index)
             hinge_joint = local_var("hingeJoint", component_id, index)
             hinge_restore = local_var("hingeRestore", component_id, index)
+            hinge_offset = local_var("hingeOffset", component_id, index)
             hinge_parenting_lines = [
                 f"  const {hinge_pivot} = new THREE.Group();",
                 f"  {hinge_pivot}.name = {json.dumps(name + '__hingePivot')};",
@@ -3613,8 +3614,10 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
                 f"  {hinge_pivot}.add({hinge_frame});",
                 f"  {hinge_frame}.add({hinge_joint});",
                 f"  {hinge_joint}.add({hinge_restore});",
-                f"  {node_var}.position.sub({hinge_pivot}.position);",
-                f"  {hinge_restore}.add({node_var});",
+                f"  const {hinge_offset} = new THREE.Group();",
+                f"  {hinge_offset}.position.copy({hinge_pivot}.position).negate();",
+                f"  {hinge_restore}.add({hinge_offset});",
+                f"  {hinge_offset}.add({node_var});",
                 f"  (nodes[{json.dumps(str(parent))}] ?? root).add({hinge_pivot});",
                 f"  hinges[{json.dumps(component_id)}] = {hinge_joint};",
             ]
