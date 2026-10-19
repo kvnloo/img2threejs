@@ -18,7 +18,8 @@ sys.path.insert(0, str(ROOT / "stage4_review"))
 
 from materials.compatibility import check_compatibility  # noqa: E402
 from materials.reference import build_assignment, load_reference, resolve_material  # noqa: E402
-from material_region_analysis import _safe_region_token, analyze_manifest  # noqa: E402
+from material_region_analysis import _contained_artifact, _safe_region_token, analyze_manifest  # noqa: E402
+from extract_pbr_evidence import slugify  # noqa: E402
 from apply_material_analysis import apply_material_analysis  # noqa: E402
 from material_comparator import compare_material_crops  # noqa: E402
 from material_feedback import apply_material_feedback  # noqa: E402
@@ -149,6 +150,62 @@ class MaterialPipelineTest(unittest.TestCase):
         self.assertNotEqual(_safe_region_token(left), _safe_region_token(right))
         self.assertLessEqual(len(_safe_region_token(left)), 93)
         self.assertEqual(_safe_region_token(left), _safe_region_token(left))
+
+    def test_long_region_id_does_not_make_oversized_pbr_map_files(self) -> None:
+        region_id = "coating-" + "x" * 500
+        manifest = self.tmp / "regions-long-id.json"
+        manifest.write_text(json.dumps({
+            "referenceId": "long-region-id-fixture",
+            "regions": [{
+                "componentId": "torso-armor",
+                "regionId": region_id,
+                "sourceImage": str(self.reference),
+                "bbox": {"x": 64, "y": 64, "width": 384, "height": 384},
+                "family": "coating",
+                "subtype": "paint-over-metal",
+                "finish": "gloss-or-satin",
+            }],
+        }), encoding="utf-8")
+        out_dir = self.tmp / "long-id-analysis"
+        result = analyze_manifest(manifest, out_dir)
+        region = result["regions"][0]
+        self.assertEqual(region["regionId"], region_id)
+        self.assertEqual(region["materialSpecId"], region_id)
+        self.assertLessEqual(len(slugify(region_id).encode("utf-8")), 80)
+        self.assertNotEqual(slugify(region_id), slugify(region_id + "-different"))
+        for entry in region["referencePbr"]["maps"].values():
+            path = Path(entry["path"])
+            self.assertTrue(path.is_file(), path)
+            self.assertTrue(path.resolve().is_relative_to(out_dir.resolve()))
+            self.assertLessEqual(len(path.name.encode("utf-8")), 255)
+
+    def test_pbr_slug_is_bounded_by_utf8_bytes_not_codepoints(self) -> None:
+        long_multibyte = "界" * 100
+        self.assertLessEqual(len(slugify(long_multibyte).encode("utf-8")), 80)
+        self.assertEqual(slugify("paint-main_02"), "paint-main-02")
+
+    def test_symlinked_crop_and_pbr_artifacts_are_refused(self) -> None:
+        out_dir = self.tmp / "out-with-links"
+        out_dir.mkdir()
+        outside_file = self.tmp / "outside.png"
+        outside_file.write_bytes(b"untouched")
+        outside_dir = self.tmp / "outside-pbr"
+        outside_dir.mkdir()
+        for name, target, directory in (
+            ("00-paint.png", outside_file, False),
+            ("pbr-00-paint", outside_dir, True),
+        ):
+            link = out_dir / name
+            try:
+                link.symlink_to(target, target_is_directory=directory)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"symlink creation unavailable: {error}")
+            try:
+                with self.assertRaisesRegex(ValueError, "artifact path escapes output directory"):
+                    _contained_artifact(out_dir, name)
+            finally:
+                link.unlink()
+        self.assertEqual(outside_file.read_bytes(), b"untouched")
 
     def test_low_confidence_analysis_cannot_enter_without_override(self) -> None:
         analysis = {
