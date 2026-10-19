@@ -30,7 +30,8 @@ you explicitly pass `--allow-open`. A slicer never silently receives a broken mo
 
 What the exporter does: merges every mesh into one triangle soup, welds coincident
 vertices (`--weld`), drops zero-area/duplicate-index triangles, checks every merged
-shell is closed, two-manifold, and consistently wound, optionally rescales so the
+shell is closed and consistently wound, and every welded vertex has one
+connected face fan (no corner-touching/pinched shells). It optionally rescales so the
 longest bounding-box edge equals `--longest-edge-mm`, then writes binary STL (or OBJ)
 plus a JSON report. STL/OBJ bytes are first written to a temporary file in the
 output directory, then atomically published: a write or float32 serialization
@@ -72,8 +73,9 @@ Legacy inputs without receipt metadata remain supported.
 - `vertexCount`, `triangleCount` — after weld and degenerate-triangle removal
 - `weld`, `scaleFactor`, `units` (`"mm"` with `--longest-edge-mm`, else `"source"`)
 - `bounds` — `{min, max, size}` of the output geometry
-- `watertight` — true when boundary, non-manifold, and misoriented edge counts are 0
+- `watertight` — true when boundary, overused/misoriented edges, and pinched vertices are absent
 - `boundaryEdgeCount`, `nonManifoldEdgeCount`, `misorientedEdgeCount`
+- `nonManifoldVertexCount`, `nonManifoldVertexSample` — welded vertices with disconnected incident face fans (up to 8 indices)
 - `boundaryEdgeSample`, `nonManifoldEdgeSample` — up to 8 problem edges each
 - `shellCount`, `insideOutShellCount`, `shells[]` — per shell: `triangleCount`,
   `closed`, `signedVolume`, `insideOut` (negative volume = flipped normals)
@@ -90,7 +92,8 @@ Legacy inputs without receipt metadata remain supported.
   are thick enough to print or hollow outlines; check in your slicer.
 - **Hidden faces are approximated.** With single-image input, reconstructed hidden
   surfaces (the far side of the object) are estimates, not measurements.
-- **Open shells are refused.** Planes, thin sheets, and any non-closed shell have
-  boundary edges and fail the gate — intentionally. Pass `--allow-open` to export
-  them anyway, but such geometry is not watertight and slicers should be trusted
-  accordingly.
+- **Open or pinched shells are refused.** Planes and sheets fail on boundary edges.
+  Two closed solids touching at just one welded vertex fail the vertex-manifold gate,
+  even if every edge appears exactly twice. Disjoint closed solids remain allowed.
+  Pass `--allow-open` to export unprintable topology deliberately, but the CLI still
+  exits `1` and reports `printable: false`.
