@@ -72,7 +72,7 @@ def _record_is_reusable(manifest_path_value: Path, record: dict, signature: str,
     receipt = record.get("captureReceipt", {})
     if (
         record.get("status") != "recorded"
-        or not record.get("readySignal")
+        or record.get("readySignal") is not True
         or record.get("consoleErrors") != []
         or not isinstance(receipt, dict)
         or receipt.get("version") != 1
@@ -230,6 +230,11 @@ def capture(
         evidence["browser"] = browser_info
         evidence["consoleErrors"] = console_errors + page_errors
         evidence["captureSession"] = session
+        if session["status"] == "failed":
+            error = session["error"]
+            evidence["lastCaptureError"] = f"{error['type']}: {error['message']}"
+        elif session["status"] == "complete":
+            evidence.pop("lastCaptureError", None)
         write_manifest(manifest_path_value, manifest)
 
     def receipt(signature: str, complete: bool) -> dict:
@@ -265,7 +270,7 @@ def capture(
                     session["stage"] = "navigation"
                     page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                     session["stage"] = "readiness"
-                    page.wait_for_function("() => Boolean(window.__IMG2THREEJS_READY__)", timeout=timeout_ms)
+                    page.wait_for_function("() => window.__IMG2THREEJS_READY__ === true", timeout=timeout_ms)
                     session["readySignal"] = True
 
                     def evaluate(expression: str, argument=None):
@@ -360,13 +365,13 @@ def capture(
                             ready_value = None
                             try:
                                 session["stage"] = "capture-readiness"
-                                ready_value = evaluate("() => Boolean(window.__IMG2THREEJS_READY__)")
+                                ready_value = evaluate("() => window.__IMG2THREEJS_READY__ === true")
                             finally:
                                 # A saved image is checkpointed even if the
                                 # subsequent readiness query itself fails.
                                 session["readySignal"] = ready_value
                                 errors = console_errors + page_errors
-                                valid = bool(ready_value) and not errors
+                                valid = ready_value is True and not errors
                                 if pass_id == "beauty":
                                     if mode == "reference":
                                         record_reference_capture(
@@ -395,7 +400,7 @@ def capture(
                                     # also invalidate the beauty-level record.
                                     target["consoleErrors"] = errors
                                     checkpoint()
-                            if not ready_value:
+                            if ready_value is not True:
                                 raise RuntimeError("Three.js runtime became unready during capture")
                         if fidelity_v2:
                             target["captureReceipt"] = receipt(signature, not (console_errors + page_errors))
