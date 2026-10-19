@@ -156,6 +156,47 @@ def _invalidate_capture(target: dict) -> None:
                 record.pop(key, None)
 
 
+def _validate_output_destinations(manifest_file: Path, manifest: dict) -> None:
+    """Prevent capture output paths from overwriting inputs or other shots."""
+    protected: dict[Path, str] = {manifest_file.resolve(): "render manifest"}
+    for name in ("reference", "renderProfile"):
+        source = manifest.get(name)
+        if isinstance(source, dict) and isinstance(source.get("path"), str) and source["path"].strip():
+            protected[manifest_path(manifest_file, source["path"]).resolve()] = name
+    destinations: dict[Path, str] = {}
+    glb = isinstance(manifest.get("reference"), dict) and manifest["reference"].get("kind") == "glb"
+    v2 = manifest.get("fidelityTrack") == "glb-mediated-v2"
+    for capture in manifest.get("captures", []):
+        if not isinstance(capture, dict):
+            raise ValueError("capture must be an object")
+        for mode in (("procedural", "reference") if glb else ("procedural",)):
+            target = capture.get("reference") if mode == "reference" else capture
+            if not isinstance(target, dict):
+                raise ValueError(f"missing {mode} capture record")
+            label = f"{mode} capture {capture.get('id', '<unknown>')}"
+            planned = [("screenshot", target.get("path"))]
+            if v2:
+                passes = target.get("passes")
+                if not isinstance(passes, dict):
+                    raise ValueError(f"{label}: diagnostic pass records are missing")
+                # Beauty is saved to the parent screenshot path by this adapter.
+                planned.extend(
+                    (pass_id, passes.get(pass_id, {}).get("path") if isinstance(passes.get(pass_id), dict) else None)
+                    for pass_id in PASS_IDS if pass_id != "beauty"
+                )
+            for part, raw in planned:
+                if not isinstance(raw, str) or not raw.strip():
+                    raise ValueError(f"{label}: {part} has no output path")
+                dest = manifest_path(manifest_file, raw).resolve()
+                if dest in protected:
+                    raise ValueError(f"{label}: {part} output aliases protected {protected[dest]}")
+                if dest in destinations:
+                    raise ValueError(f"{label}: {part} output aliases {destinations[dest]}")
+                if dest.is_dir():
+                    raise ValueError(f"{label}: {part} output is a directory")
+                destinations[dest] = f"{label} {part}"
+
+
 def _evaluate_with_timeout(page, expression: str, argument, timeout_ms: int):
     """Bound async page hooks; Playwright's default timeout does not bound evaluate."""
     return page.evaluate(
@@ -221,6 +262,9 @@ def capture(
                 for pass_id in PASS_IDS
             ):
                 raise ValueError(f"capture {capture_id} has an incomplete diagnostic pass plan")
+    # Reject destructive path aliasing before invalidating any receipt or
+    # launching a browser, including unused modes and unselected camera views.
+    _validate_output_destinations(manifest_path_value, manifest)
     # A subset capture after a shared input change must not leave other views
     # looking current to consumers that only know the original status fields.
     # Only invalidate receipts owned by this adapter; older/manual records do
