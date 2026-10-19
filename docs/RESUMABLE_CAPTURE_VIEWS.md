@@ -14,8 +14,9 @@ manifest order. For a GLB reference, it schedules browser-rendered reference
 baselines **before** procedural shots of each view.
 
 Only shots with a recorded status, explicit browser-ready receipt, no browser
-console errors, a readable saved screenshot, and an unchanged SHA-256 are
-skipped. Missing/unready/changed shots are requeued. The manifest and the PNG
+console errors, a readable saved screenshot, an unchanged SHA-256, and matching
+recorded image type/width/height are skipped. Missing/unready/changed shots
+and receipts with missing or mismatched image metadata are requeued. The manifest and the PNG
 files are never edited by this planner, so a timeout cannot discard previously
 valid captures.
 
