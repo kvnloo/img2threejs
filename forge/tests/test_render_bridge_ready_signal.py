@@ -127,6 +127,24 @@ class RenderReadySignalTest(unittest.TestCase):
         self.assertEqual(validated.returncode, 1, validated.stderr)
         self.assertIn("ready signal", validated.stdout)
 
+    def test_diagnostics_refuse_corrupted_evidence_after_record(self):
+        record_capture(self.manifest_path, self.manifest, "hero", self.screenshot, True)
+        write_manifest(self.manifest_path, self.manifest)
+        self.screenshot.write_bytes(self.screenshot.read_bytes() + b"modified-after-capture")
+        with self.assertRaisesRegex(ValueError, "hash changed"):
+            diagnose(self.manifest_path, self.root / "report.json")
+        self.assertFalse((self.root / "report.json").exists())
+
+    def test_diagnostics_refuse_browser_console_errors(self):
+        record_capture(
+            self.manifest_path, self.manifest, "hero", self.screenshot,
+            True, console_errors=["WebGL context lost"],
+        )
+        write_manifest(self.manifest_path, self.manifest)
+        with self.assertRaisesRegex(ValueError, "browser console errors"):
+            diagnose(self.manifest_path, self.root / "report.json")
+        self.assertFalse((self.root / "report.json").exists())
+
     def test_cli_false_text_does_not_succeed_on_validate(self):
         write_manifest(self.manifest_path, self.manifest)
         script = Path(__file__).resolve().parents[1] / "stage4_review" / "render_bridge.py"
