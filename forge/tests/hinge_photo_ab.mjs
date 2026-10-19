@@ -35,6 +35,8 @@ try {
   ], { cwd: root, stdio: 'inherit' });
   writeFileSync(join(work, 'client.mjs'),
     readFileSync(join(root, 'forge/tests/hinge_photo_client.mjs'), 'utf8'));
+  writeFileSync(join(work, 'hinge_sweep_collision.mjs'),
+    readFileSync(join(root, 'forge/tests/hinge_sweep_collision.mjs'), 'utf8'));
   await build({
     entryPoints: [join(work, 'client.mjs')], outfile: join(work, 'bundle.js'),
     bundle: true, platform: 'browser', format: 'esm', logLevel: 'warning',
@@ -82,7 +84,20 @@ try {
   assert.ok(measurements[0].seams.max < 0.0001, 'Correct hinge must keep all four seams attached');
   assert.ok(measurements[1].seams.max > 0.01, 'Center-pivot counterfactual must show displaced seams');
   assert.deepEqual(errors, [], 'browser errors');
-
+  const generatedSweep = await page.evaluate(() =>
+    window.__referenceStudy.testGeneratedFoldWithObstacle());
+  assert.equal(generatedSweep.generatedGeometryType, 'BoxGeometry');
+  assert.ok(generatedSweep.sampledPositiveCollisions > 0,
+    'actual generated panel must encounter the obstacle');
+  assert.equal(generatedSweep.sampledNegativeCollisions, 0);
+  assert.equal(generatedSweep.positive.status, 'collision');
+  assert.equal(generatedSweep.negative.status, 'certified-clear');
+  assert.equal(generatedSweep.distantObstacle.status, 'certified-clear');
+  assert.ok(generatedSweep.drawCalls > 0 && generatedSweep.triangles > 0);
+  assert.deepEqual(errors, [], 'browser errors from collision validation');
+  await page.locator('canvas').screenshot({
+    path: join(output, 'generated-sweep-collision.png')
+  });
   const comparisonPage = await browser.newPage({ viewport: {width: 1500, height: 600},deviceScaleFactor:1 });
   const columns = [
     ['Reference photo', 'reference.jpg'],
@@ -104,6 +119,7 @@ try {
   const summary = {
     source, creator: 'Arnold Reinhold', license, credit,
     sha256: digest, photoMask, baseline: measurements[1], hinge: measurements[0],
+    generatedSweep,
     normalizedIoUDelta: Number((measurements[0].score - measurements[1].score).toFixed(6)),
     fixedFrameIoUDelta: Number((measurements[0].registeredScore - measurements[1].registeredScore).toFixed(6)),
     methodology: 'manual proxy, fixed camera/lighting/angles, warm-cardboard vs gray mask; record both original fixed-frame 960x760 IoU and independently bbox-normalized 256x256 silhouette IoU',
@@ -113,6 +129,7 @@ try {
       'seam geometry is a designed fixture; no arbitrary collision guarantees'],
   };
   writeFileSync(join(output, 'measurements.json'), JSON.stringify(summary, null, 2) + '\n');
+  console.log('HINGE_GENERATED_SWEEP:', JSON.stringify(generatedSweep));
   console.log('HINGE_PHOTO_AB:', JSON.stringify({
     source, baselineNormalizedIoU: summary.baseline.score,
     hingeNormalizedIoU: summary.hinge.score, delta: summary.normalizedIoUDelta,

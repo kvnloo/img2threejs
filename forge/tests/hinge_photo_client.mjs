@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createOpenFoldingCartonModel } from './factory.ts';
+import { certifyFoldSweep, sampleFold } from './hinge_sweep_collision.mjs';
 
 const root = createOpenFoldingCartonModel();
 const runtime = root.userData.sculptRuntime;
@@ -145,5 +146,48 @@ function render(kind) {
     rendererCalls: renderer.info.render.calls,
   };
 }
-window.__referenceStudy = { loadReference, render };
+
+/** Test the *actual emitted* procedural box, not the handcrafted OBB test. */
+function testGeneratedFoldWithObstacle() {
+  pose('rest');
+  const flap = runtime.meshes['back-flap'];
+  const joint = runtime.hinges['back-flap'];
+  if (flap?.geometry?.type !== 'BoxGeometry' || !joint?.isGroup) {
+    throw new Error('expected generated hinged BoxGeometry; got ' + flap?.geometry?.type);
+  }
+  const obstacle = new THREE.Mesh(
+    new THREE.BoxGeometry(0.18, 0.18, 0.18),
+    new THREE.MeshStandardMaterial({ color: '#db3d32', roughness: 0.9 }),
+  );
+  // Positive +X fold passes through this obstacle; the reverse path avoids it.
+  obstacle.position.set(0, 0.45, -0.75);
+  root.add(obstacle);
+  const forwardAngles = Array.from({ length: 37 }, (_, i) => i * 5);
+  const backwardAngles = Array.from({ length: 37 }, (_, i) => -i * 5);
+  const sampledForward = sampleFold(joint, flap, obstacle, forwardAngles);
+  const sampledBackward = sampleFold(joint, flap, obstacle, backwardAngles);
+  const forward = certifyFoldSweep(joint, flap, obstacle, 0, 180);
+  const backward = certifyFoldSweep(joint, flap, obstacle, 0, -180);
+  const obstacleSaved = obstacle.position.clone();
+  obstacle.position.set(0, 6, -0.75);
+  const remote = certifyFoldSweep(joint, flap, obstacle, 0, 180);
+  obstacle.position.copy(obstacleSaved);
+  // Capture a frame at the colliding pose, after all numerical tests.
+  joint.rotation.y = THREE.MathUtils.degToRad(90);
+  root.updateMatrixWorld(true);
+  renderer.render(scene, camera);
+  const sampleCollision = sampledForward.samples.find(x => x.penetrating) ?? null;
+  return {
+    generatedComponent: 'back-flap',
+    generatedGeometryType: flap.geometry.type,
+    obstacleSource: 'research-only injected BoxGeometry',
+    sampledPositiveCollisions: sampledForward.collisionSamples,
+    sampledNegativeCollisions: sampledBackward.collisionSamples,
+    firstSampledCollision: sampleCollision,
+    positive: forward, negative: backward, distantObstacle: remote,
+    drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
+  };
+}
+
+window.__referenceStudy = { loadReference, render, testGeneratedFoldWithObstacle };
 window.__referenceStudyReady = true;
