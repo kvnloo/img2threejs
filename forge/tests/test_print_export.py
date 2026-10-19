@@ -18,6 +18,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "stage3_build"))
@@ -406,6 +407,45 @@ class Cli(unittest.TestCase):
         code, _, err = run_cli(src, "--out", self.tmp / "x.stl")
         self.assertEqual(code, 2)
         self.assertIn("no vertices", err)
+
+    def test_report_overwrite_failure_keeps_existing_receipt(self):
+        src = self.write([cube()])
+        output = self.tmp / "model.stl"
+        report = self.tmp / "report.json"
+        sentinel = '{"priorVerified":true}\n'
+        report.write_text(sentinel, encoding="utf-8")
+        with patch("print_export.os.replace", side_effect=OSError("simulated disk failure")):
+            code, stdout, stderr = run_cli(src, "--out", output, "--report", report)
+        self.assertEqual(code, 2, stdout + stderr)
+        self.assertIn("report write error", stderr)
+        self.assertEqual(report.read_text(encoding="utf-8"), sentinel)
+        # Successful independently staged binary remains complete; no fake
+        # report success is returned and no temporary JSON is left behind.
+        self.assertTrue(output.is_file())
+        self.assertEqual(len(output.read_bytes()), 84 + 50 * 12)
+        self.assertFalse(list(self.tmp.glob(".report.json.*.tmp")))
+
+    def test_report_directory_refused_before_any_mesh_is_written(self):
+        src = self.write([cube()])
+        output = self.tmp / "model.stl"
+        report = self.tmp / "receipt-directory"
+        report.mkdir()
+        code, _, stderr = run_cli(src, "--out", output, "--report", report)
+        self.assertEqual(code, 2)
+        self.assertIn("must be a file path", stderr)
+        self.assertFalse(output.exists())
+
+    def test_atomic_report_success_is_complete_json(self):
+        src = self.write([cube()])
+        output = self.tmp / "model.stl"
+        report = self.tmp / "reports" / "result.json"
+        code, _, stderr = run_cli(src, "--out", output, "--report", report)
+        self.assertEqual(code, 0, stderr)
+        data = json.loads(report.read_text(encoding="utf-8"))
+        self.assertTrue(data["written"])
+        self.assertTrue(data["printable"])
+        self.assertEqual(data["triangleCount"], 12)
+        self.assertEqual(data["output"], str(output))
 
     def test_existing_output_needs_force(self):
         src = self.write([cube()])

@@ -177,3 +177,12 @@ using a potentially overflowing intermediate `scaleFactor ** 3`. A
 non-finite factor, coordinate or volume is a hard input error; none produces a
 printable artifact. Input-vertex welding is still performed before scaling,
 so set `--weld` in the source coordinate units.
+
+### Atomic report receipts
+
+The optional `--report` JSON is written to a temporary file in its destination
+directory, flushed and atomically replaced only after serialization succeeds.
+A failed report write returns exit status 2 and preserves the previous report,
+never a truncated success-looking receipt. The already-committed STL/OBJ may
+still exist; its validity is separate from success of the report receipt.
+A report destination that is a directory is rejected before publishing geometry.

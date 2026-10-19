@@ -436,6 +436,24 @@ def write_export_atomically(
         staging.unlink(missing_ok=True)
 
 
+def write_report_atomically(destination: Path, report: dict[str, Any]) -> None:
+    """A failed report write must not truncate an existing evidence receipt."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+    )
+    staging = Path(temporary)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            json.dump(report, stream, indent=2, ensure_ascii=False, allow_nan=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(staging, destination)
+    finally:
+        staging.unlink(missing_ok=True)
+
+
 def build_export(meshes: list[dict[str, Any]], *, weld: float = DEFAULT_WELD,
                  longest_edge_mm: float | None = None) -> dict[str, Any]:
     merged = merge_meshes(meshes, weld=weld)
@@ -504,6 +522,9 @@ def main(argv: list[str] | None = None) -> int:
                                        report_path in (source_path, output_path)):
         print("print export error: input, --out and --report must use distinct paths", file=sys.stderr)
         return 2
+    if args.report and args.report.is_dir():
+        print("print export error: --report must be a file path, not a directory", file=sys.stderr)
+        return 2
     if args.out.exists() and not args.force:
         parser.error(f"{args.out} already exists; use --force to overwrite")
     try:
@@ -534,8 +555,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"print export write error: {error}", file=sys.stderr)
             return 2
     if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        try:
+            write_report_atomically(args.report, report)
+        except (OSError, ValueError, TypeError) as error:
+            # The primary STL/OBJ has already been published atomically (if
+            # requested), but a missing/unverifiable report is never success.
+            print(f"print export report write error: {error}", file=sys.stderr)
+            return 2
     if args.json:
         print(json.dumps(report, indent=2))
     else:
