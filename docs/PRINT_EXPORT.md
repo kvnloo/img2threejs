@@ -32,7 +32,16 @@ What the exporter does: merges every mesh into one triangle soup, welds coincide
 vertices (`--weld`), drops zero-area/duplicate-index triangles, checks every merged
 shell is closed, two-manifold, and consistently wound, optionally rescales so the
 longest bounding-box edge equals `--longest-edge-mm`, then writes binary STL (or OBJ)
-plus a JSON report.
+plus a JSON report. STL/OBJ bytes are first written to a temporary file in the
+output directory, then atomically published: a write or float32 serialization
+error leaves no truncated output and does not destroy an existing file, even
+with `--force`.
+
+**Input completeness:** if the browser mesh exporter declares
+`"incomplete": true` or a coordinate space other than `"world"`, the
+print exporter refuses the receipt. `--allow-open` only permits intentionally
+open **captured** geometry; it never overrides missing/skipped live meshes.
+Legacy inputs without receipt metadata remain supported.
 
 ## CLI reference (exactly as in `build_parser`)
 
@@ -53,8 +62,9 @@ plus a JSON report.
 - `0` — printable: watertight, no inside-out shells, file written.
 - `1` — **not watertight**: file refused unless `--allow-open` was passed (with it the
   file is written but the exit code is still `1`, so scripts notice).
-- `2` — input error: missing/unreadable/malformed JSON, invalid mesh data, no
-  recognizable format, or `--out` exists without `--force`.
+- `2` — input/write error: missing/unreadable/malformed JSON, partial or
+  non-world-space mesh receipt, invalid mesh data, serialization failure,
+  unrecognized format, or `--out` exists without `--force`.
 
 ## Report fields (`--report` / `--json`)
 
