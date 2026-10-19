@@ -45,7 +45,12 @@ assets/*
 # Sponsor brand marks are referenced by the README, so they ship too.
 !assets/sponsors/
 openspec/
-runtime/
+# Keep generated browser bundles local, but ship the audited mesh exporter and its tests.
+runtime/*
+!runtime/scripts/
+runtime/scripts/*
+!runtime/scripts/export_mesh_geometry.mjs
+!runtime/scripts/export_mesh_geometry.test.mjs
 
 # Run-time capture output: review renders, focus shots, comparison sheets.
 # These are produced by every capture and gate run, are large, and are never inputs to a build.
