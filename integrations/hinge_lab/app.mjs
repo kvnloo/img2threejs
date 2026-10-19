@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createOpenFoldingCartonModel } from './factory.ts';
-import { certifyFoldSweep } from './hinge_sweep_collision.mjs';
+import { certifyFoldSweep, sampleFold } from './hinge_sweep_collision.mjs';
 
 const ids = ['back-flap', 'front-flap', 'left-flap', 'right-flap'];
 const labels = {
@@ -86,6 +86,9 @@ function setStatus(state, title, detail) {
 }
 function invalidateStatus() {
   lastEvaluation = null;
+  document.getElementById('collision-timeline').replaceChildren();
+  document.getElementById('collision-timeline').setAttribute('aria-label', 'No sampled collision timeline');
+  document.getElementById('timeline-key').textContent = 'No angle samples yet.';
   setStatus('inactive', 'Not evaluated', 'Select a panel and evaluate its path.');
 }
 function fitCanvas() {
@@ -151,9 +154,33 @@ function evaluate() {
     return null;
   }
   const id = collider.value;
+  const segments = Math.max(1, Math.ceil(Math.abs(values[id]) / 5));
+  const angles = Array.from({length:segments + 1}, (_, i) =>
+    values[id] * i / segments);
+  const sampled = sampleFold(runtime.hinges[id], runtime.meshes[id],
+    obstacle, angles);
   const result = certifyFoldSweep(runtime.hinges[id], runtime.meshes[id],
     obstacle, 0, values[id], {maxDepth:16, maxChecks:4096});
-  lastEvaluation = {component:id, targetDegrees:values[id], ...result};
+  const timeline = document.getElementById('collision-timeline');
+  timeline.replaceChildren();
+  for (const entry of sampled.samples) {
+    const cell = document.createElement('span');
+    cell.dataset.hit = String(entry.penetrating);
+    cell.title = entry.degrees.toFixed(2) + '°: ' +
+      (entry.penetrating ? 'penetration' : 'no sampled penetration');
+    timeline.append(cell);
+  }
+  timeline.dataset.samples = String(sampled.samples.length);
+  timeline.setAttribute('aria-label',
+    sampled.collisionSamples + ' penetrating poses in ' +
+    sampled.samples.length + ' sampled angles');
+  document.getElementById('timeline-key').textContent =
+    'Green: sampled separation · Red: sampled intersection (' +
+    sampled.collisionSamples + '/' + sampled.samples.length +
+    '). Unsampled angles are not covered.';
+  lastEvaluation = {component:id, targetDegrees:values[id],
+    ...result, sampledCollisions:sampled.collisionSamples,
+    sampledAngles:sampled.samples.length};
   const heading = result.status === 'collision' ? 'Collision detected'
     : result.status === 'certified-clear' ? 'Certified clear*' : 'Unresolved';
   const detail = result.status === 'collision'
