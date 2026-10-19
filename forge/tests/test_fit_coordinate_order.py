@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Regression tests for deterministic coordinate order in bounded fitting."""
 
+import io
+import json
+import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 
-from forge.stage4_review.fit_params import FitConfig, FitInputError, fit
+from forge.stage4_review.fit_params import FitConfig, FitInputError, fit, fit_against_divine_eye, main
 
 
 def quadratic(target):
@@ -36,6 +41,31 @@ class CoordinateOrderTest(unittest.TestCase):
                     fit((0.0, 0.0), ((-1.0, 1.0),) * 2, lambda x: called.append(x), FitConfig(coordinate_order=order))
                 self.assertEqual(raised.exception.field, "config.coordinate_order")
         self.assertEqual(called, [])
+
+    def test_divine_eye_gate_rejection_with_priority(self):
+        probes = []
+
+        def render(parameters):
+            probes.append(parameters)
+            return Path(f"render-{parameters[0]}-{parameters[1]}.png")
+
+        def evaluator(_reference, render_path):
+            if render_path.name == "render-0.0--0.5.png":
+                return {"fidelity": 0.99, "hardGateFailures": ["scale"]}
+            if render_path.name == "render-0.0-0.0.png":
+                return {"fidelity": 0.85, "hardGateFailures": []}
+            return {"fidelity": 0.70, "hardGateFailures": []}
+
+        result = fit_against_divine_eye(
+            (0.0, 0.0), ((-1.0, 1.0),) * 2, render, "reference.png", evaluator,
+            FitConfig(max_evaluations=3, coordinate_order=(1, 0)),
+        )
+        self.assertEqual(probes[:3], [(0.0, 0.0), (0.0, -0.5), (0.0, 0.5)])
+        self.assertEqual(result.fit_result.parameters, (0.0, 0.0))
+        self.assertEqual(result.fit_result.best_score, 0.85)
+        self.assertEqual(result.best_raw_fidelity, 0.85)
+        self.assertEqual(result.to_json()["fitResult"]["coordinateOrder"], [1, 0])
+        self.assertEqual(result.correction_history[1]["hardGateFailures"], ["scale"])
 
 
 if __name__ == "__main__":
