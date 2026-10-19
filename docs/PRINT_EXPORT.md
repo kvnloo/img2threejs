@@ -123,6 +123,21 @@ tiny source geometry for printing.
   can retain double-precision detail that binary STL cannot.
 
 
+## Independent OpenSCAD STL round-trip
+
+`python3 scripts/print_export_openscad_smoke.py` requires an installed
+`openscad` CLI. It writes an original world-space box through
+`print_export.py --longest-edge-mm 60`, imports the generated **binary STL**
+in a separate OpenSCAD process, exports ASCII STL, and independently
+measures its triangle count, dimensions and oriented volume from the
+OpenSCAD-produced vertices. This catches some serializer/importer
+interoperability errors without relying on the Python exporter report.
+
+[Verified CI run](https://github.com/kvnloo/img2threejs/actions/runs/39272274156)
+used OpenSCAD 2021.01: **12 triangles, 20×40×60 mm, 48,000 mm³**.
+It does **not** independently validate arbitrary self-intersections,
+print supports, slicer G-code, or a reconstructed photograph.
+
 ## Optional end-to-end browser and slicer verification
 
 The downstream PR includes the print-browser-integration GitHub workflow to
