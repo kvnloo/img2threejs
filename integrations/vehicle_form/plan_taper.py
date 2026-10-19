@@ -32,8 +32,10 @@ def _number(value: Any, label: str, *, positive: bool = False) -> float:
 def _mesh_from_export(payload: Any, name: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise PlanTaperInputError("geometry evidence must be an exporter JSON object")
-    if payload.get("incomplete") is True:
-        raise PlanTaperInputError("partial mesh export cannot support a plan-taper verdict")
+    # A missing or non-Boolean completeness flag is not a clean export.
+    # In particular, "false", 0, and null must never masquerade as False.
+    if payload.get("incomplete") is not False:
+        raise PlanTaperInputError("partial or unverified mesh export cannot support a plan-taper verdict")
     if payload.get("coordinateSpace") != "world":
         raise PlanTaperInputError("geometry evidence must declare coordinateSpace: world")
     meshes = payload.get("meshes")
