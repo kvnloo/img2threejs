@@ -39,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pocket-world-webgl-smoke"
-          node integrations/pocket_world/tests/bench_pathfinding.mjs \\
+          node integrations/pocket_world/tests/bench_pathfinding.mjs \
             | tee "$RUNNER_TEMP/pocket-world-webgl-smoke/pathfinding-benchmark.json"
       - name: Publish visual evidence for review
         if: always()
