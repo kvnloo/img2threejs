@@ -184,11 +184,42 @@ def check_frozen_policy(path: Path | None, registration_sha: str) -> None:
         raise ValueError("frozen policy references another registration")
     if lock.get("coordinateOrder") not in ([0, 1], [1, 0]):
         raise ValueError("frozen policy coordinate order invalid")
-    training_ids = {w["id"] for w in registration()[0]["worlds"] if w["split"] == "train"}
-    if set(lock.get("trainingWorldIds", [])) != training_ids or len(lock["trainingWorldIds"]) != 12:
-        raise ValueError("frozen policy did not use exactly preregistered training worlds")
-    if lock.get("holdoutOpened") is not False:
-        raise ValueError("holdout results leaked into policy freeze")
+    registered = registration()[0]["worlds"]
+    training_ids = {w["id"] for w in registered if w["split"] == "train"}
+    validation_ids = {w["id"] for w in registered if w["split"] == "validation"}
+    for field, expected in (
+        ("trainingWorldIds", training_ids),
+        ("validationWorldIds", validation_ids),
+    ):
+        actual = lock.get(field)
+        if not isinstance(actual, list) or len(actual) != len(expected) or set(actual) != expected:
+            raise ValueError(f"policy freeze lacks complete, split-isolated {field}")
+    for field, expected in (
+        ("trainingReceiptSha256", training_ids),
+        ("validationReceiptSha256", validation_ids),
+    ):
+        receipts = lock.get(field)
+        if (
+            not isinstance(receipts, dict) or set(receipts) != expected
+            or any(not isinstance(v, str) or len(v) != 64
+                   or any(c not in "0123456789abcdef" for c in v)
+                   for v in receipts.values())
+        ):
+            raise ValueError(f"policy freeze lacks hashed native evidence in {field}")
+    if (
+        lock.get("holdoutOpened") is not False
+        or lock.get("holdoutObserved") is not False
+        or lock.get("trainingOnlyPolicy") is not True
+        or lock.get("photoFidelityClaim") is not False
+        or lock.get("holdoutPerformanceClaim") is not False
+    ):
+        raise ValueError("holdout results leaked or false policy provenance claimed")
+    if lock.get("validationPassed") is not True:
+        raise ValueError("validation vetoed policy; cannot run learned-order holdout")
+    digest_value = lock.get("policyDigest")
+    canonical_lock = {k: v for k, v in lock.items() if k != "policyDigest"}
+    if digest_value != hashlib.sha256(_canonical(canonical_lock)).hexdigest():
+        raise ValueError("frozen policy digest mismatch or tampering detected")
 
 
 def prepare_world(out: Path, world_id: str, *, policy: Path | None = None) -> None:
