@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "stage4_review"))
 from materials.compatibility import check_compatibility  # noqa: E402
 from materials.reference import build_assignment, load_reference, resolve_material  # noqa: E402
 from material_region_analysis import _contained_artifact, _safe_region_token, analyze_manifest  # noqa: E402
-from extract_pbr_evidence import slugify  # noqa: E402
+from extract_pbr_evidence import slugify, write_png_rgb  # noqa: E402
 from apply_material_analysis import apply_material_analysis  # noqa: E402
 from material_comparator import compare_material_crops  # noqa: E402
 from material_feedback import apply_material_feedback  # noqa: E402
@@ -205,6 +205,18 @@ class MaterialPipelineTest(unittest.TestCase):
                     _contained_artifact(out_dir, name)
             finally:
                 link.unlink()
+        # The downstream PBR writer itself must also reject pre-existing PNG
+        # symlinks, even when its containing output directory is ordinary.
+        map_link = out_dir / "paint_albedo.png"
+        try:
+            map_link.symlink_to(outside_file)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlink creation unavailable: {error}")
+        try:
+            with self.assertRaisesRegex(ValueError, "symlinked PNG artifact"):
+                write_png_rgb(map_link, 1, 1, bytes((3, 2, 1)))
+        finally:
+            map_link.unlink()
         self.assertEqual(outside_file.read_bytes(), b"untouched")
 
     def test_low_confidence_analysis_cannot_enter_without_override(self) -> None:
