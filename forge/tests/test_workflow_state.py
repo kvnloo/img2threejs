@@ -139,6 +139,30 @@ class WorkflowStateTest(unittest.TestCase):
         entry = next(item for item in state["checklist"] if item["id"] == "image-analysis")
         self.assertEqual(entry["evidence"], ["analysis.json"])
 
+    def test_pass_rows_wait_for_first_spec_sync(self):
+        """Pre-created pass rows must not be offered or markable before a pass opens."""
+        state = new_state("reference.png", spec="object-sculpt-spec.json")
+        self.assertNotIn("build-current-pass", status_payload(state)["pending"])
+
+        setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+        payload = status_payload(state)
+        self.assertEqual(payload["currentPass"], "")
+        self.assertEqual(payload["currentStep"], "await-pass-transition")
+        self.assertIn("forge/next.py", payload["nextCommand"])
+        self.assertNotIn("build-current-pass", payload["pending"])
+        with self.assertRaisesRegex(WorkflowStateError, "out-of-order"):
+            mark_steps(state, ["build-current-pass"], status="done", evidence=["premature.ts"])
+        self.assertEqual(state["passHistory"], [])
+
+        sync_from_spec(state, {"reviewHistory": []}, "blockout")
+        payload = status_payload(state)
+        self.assertEqual(payload["currentStep"], "build-current-pass")
+        self.assertIn("build-current-pass", payload["pending"])
+        self.assertIn("--pass-id blockout", payload["nextCommand"])
+        mark_steps(state, ["build-current-pass"], status="done", evidence=["model.ts"])
+        self.assertEqual(status_payload(state)["currentStep"], "render-capture")
+
     def test_new_pass_archives_and_resets_pass_checklist(self):
         state = new_state("reference.png")
         setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
