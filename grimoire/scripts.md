@@ -352,8 +352,11 @@ Unsupported active geometry (skinned, active morph targets including instanced
 `morphTexture`, invalid, or over budget) and active partial draw ranges yield
 `incomplete: true`. Instanced morph weights are not silently treated as static. Hidden and explicitly filtered
 meshes are named in `skippedMeshes` but are not errors. If there is no usable subject mesh,
-the export is also incomplete. A failed/incomplete run removes stale `--out` evidence and
-writes `<out>.incomplete.json` diagnostics (exit 2), not a successful mesh manifest.
+the export is also incomplete. An uncaught preview JavaScript `pageerror` also
+invalidates the receipt even if the viewer reported ready and geometries exist;
+its bounded `browserErrors` messages are retained in diagnostics. A failed/incomplete
+run removes stale `--out` evidence and writes `<out>.incomplete.json`
+diagnostics (exit 2), not a successful mesh manifest.
 Always read `skippedMeshes` before treating a geometry gate as complete.
 
 Playwright is **optional** and resolved from the working directory or
