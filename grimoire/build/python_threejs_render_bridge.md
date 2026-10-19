@@ -200,10 +200,14 @@ python3 forge/stage4_review/browser_evidence_brief.py \
   --manifest work/character/render-manifest.json --since DIGEST
 ```
 
-The output includes camera counts, bounded pending/repair IDs (unsafe URL/path or
-overlong identifiers are redacted to ordinal labels, not executable capture IDs), validation error
-*counts/categories* and a content digest; it never echoes URLs, console messages,
-DOM or file paths. An unchanged receipt is produced only for complete evidence,
+The output includes camera counts, bounded pending/repair IDs (only the
+repository-owned camera names, such as `hero` and `orbit-plus35`, are emitted
+verbatim). **Every custom capture ID** is replaced by its zero-based
+`capture-N` position, even if it looks like a short, harmless ASCII slug:
+a bearer token can be alphanumeric too. Ordinal labels are **not** executable
+capture IDs; consult the local manifest for custom capture actions. The brief
+reports validation error *counts/categories* and a content digest; it never
+echoes untrusted IDs, URLs, console messages, DOM or file paths. An unchanged receipt is produced only for complete evidence,
 and the validator runs again even if the manifest itself has not changed, so a
 modified screenshot cannot be hidden by the digest. Add `--strict` for exit 1
 on missing/invalid evidence. The receipt is **not a visual acceptance score**:
