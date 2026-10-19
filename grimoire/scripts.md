@@ -335,11 +335,16 @@ passes cleanly, so existing specs are unaffected.
 Dumps a running model's meshes as the JSON `self_intersection.py` reads. Vertices are emitted in
 **world** space on purpose: a parent's non-uniform scale can fold a mesh through itself even when its
 local geometry is fine, and local space would hide exactly that. Normals go through the
-inverse-transpose. Every mesh it declines to emit — instanced, over the triangle cap, filtered out —
+inverse-transpose. Every mesh it declines to emit — skinned, over the triangle cap, filtered out —
 is listed with its reason, so a short mesh list cannot be mistaken for a clean one.
-The exporter prefers the showcase model root over studio/ground meshes and preserves mirrored
-triangle winding. It refuses to mark partial results as clean (`incomplete: true`, exit code 2)
-when an active mesh is unsupported (such as skinned or instanced), exceeds the triangle cap,
+`InstancedMesh` parts (the generator's `instanced-cluster`) export one entry per live instance,
+named `name[i]`, at `matrixWorld × instanceMatrix[i]`; a cluster with any unusable instance is
+skipped whole rather than partially emitted. The model root is, in order: the showcase viewer's
+`explodeRoot`, then the render-bridge contract (`window.__IMG2THREEJS_MESH_ROOT__` or
+`window.__IMG2THREEJS_CAPTURE__.getModelRoot()`/`.modelRoot`), then the whole scene, so studio and
+ground meshes stay out whenever the preview names its model. Mirrored transforms keep outward
+winding. It refuses to mark partial results as clean (`incomplete: true`, exit code 2)
+when an active mesh is unsupported (such as skinned), exceeds the triangle cap,
 or has invalid geometry. Hidden/explicitly filtered meshes are reported but are not errors.
 Browser access uses the preview project's own locally installed Playwright (resolved from the
 working directory or `IMG2THREEJS_SHOWCASE_ROOT`); the base skill adds no npm dependency.

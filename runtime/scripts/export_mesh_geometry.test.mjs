@@ -64,7 +64,7 @@ test('negative determinant flips triangle winding and transforms normals', () =>
   assert.deepEqual(result.meshes[0].normals[0], [0, 0, 1]);
 });
 
-test('rejects unsupported skinned and instanced meshes without fake clean evidence', () => {
+test('rejects unsupported skinned meshes and malformed instanced meshes without fake clean evidence', () => {
   const skin = makeMesh('skin'); skin.isSkinnedMesh = true;
   const instance = makeMesh('copies'); instance.isInstancedMesh = true;
   const options = install(makeMesh('safe'), skin, instance);
@@ -72,6 +72,63 @@ test('rejects unsupported skinned and instanced meshes without fake clean eviden
   assert.equal(result.meshes.length, 1);
   assert.equal(result.incomplete, true);
   assert.deepEqual(result.skippedMeshes.map(x => x.name), ['skin', 'copies']);
+  assert.deepEqual(result.skippedMeshes.map(x => x.reason), ['skinned-mesh', 'invalid-instance-matrices']);
+});
+
+const instanced = (matrices, world = IDENTITY) => {
+  const mesh = makeMesh('studs', world);
+  mesh.isInstancedMesh = true;
+  mesh.count = matrices.length;
+  mesh.instanceMatrix = { array: Float32Array.from(matrices.flat()) };
+  return mesh;
+};
+const translate = (x, y, z) => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1];
+
+test('instanced meshes export every instance as matrixWorld * instanceMatrix', () => {
+  const world = [2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, 0, 10, 0, 1];
+  const result = collectMeshGeometry(install(instanced([translate(0, 0, 0), translate(1, 0, 0)], world)));
+  assert.equal(result.incomplete, false);
+  assert.deepEqual(result.meshes.map(m => m.name), ['studs[0]', 'studs[1]']);
+  assert.deepEqual(result.meshes[0].vertices, [[0, 10, 0], [2, 10, 0], [0, 12, 0]]);
+  assert.deepEqual(result.meshes[1].vertices, [[2, 10, 0], [4, 10, 0], [2, 12, 0]]);
+});
+
+test('a mirrored instance flips winding; a singular instance drops the whole cluster', () => {
+  const mirrored = [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const ok = collectMeshGeometry(install(instanced([translate(0, 0, 0), mirrored])));
+  assert.deepEqual(ok.meshes[0].indices, [0, 1, 2]);
+  assert.deepEqual(ok.meshes[1].indices, [0, 2, 1]);
+  const singular = [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const bad = collectMeshGeometry(install(makeMesh('body'), instanced([translate(0, 0, 0), singular])));
+  assert.deepEqual(bad.meshes.map(m => m.name), ['body']);
+  assert.equal(bad.incomplete, true);
+  assert.deepEqual(bad.skippedMeshes, [{ name: 'studs', reason: 'singular-world-matrix' }]);
+});
+
+test('instanced triangle budget counts every instance', () => {
+  const result = collectMeshGeometry({ ...install(instanced([translate(0, 0, 0), translate(1, 0, 0)])), maxTriangles: 1 });
+  assert.equal(result.incomplete, true);
+  assert.deepEqual(result.skippedMeshes.map(m => m.reason), ['triangle-cap']);
+});
+
+test('render-bridge capture contract model root excludes studio meshes', () => {
+  const studio = makeMesh('studio-floor');
+  const subject = makeMesh('subject');
+  const opts = install(studio, subject);
+  const root = { traverse(fn) { fn(subject); } };
+  try {
+    globalThis.__IMG2THREEJS_CAPTURE__ = { getModelRoot: () => root };
+    assert.deepEqual(collectMeshGeometry(opts).meshes.map(m => m.name), ['subject']);
+    delete globalThis.__IMG2THREEJS_CAPTURE__;
+    globalThis.__IMG2THREEJS_MESH_ROOT__ = root;
+    assert.deepEqual(collectMeshGeometry(opts).meshes.map(m => m.name), ['subject']);
+    // explodeRoot (showcase viewer) still wins when both are present.
+    globalThis.__TEST_MESH_VIEWER__.explodeRoot = { traverse(fn) { fn(studio); } };
+    assert.deepEqual(collectMeshGeometry(opts).meshes.map(m => m.name), ['studio-floor']);
+  } finally {
+    delete globalThis.__IMG2THREEJS_CAPTURE__;
+    delete globalThis.__IMG2THREEJS_MESH_ROOT__;
+  }
 });
 
 test('filters and hidden meshes remain explicitly accounted for', () => {
