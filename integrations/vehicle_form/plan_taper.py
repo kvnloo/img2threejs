@@ -161,9 +161,19 @@ def _section_width(vertices: list[tuple[float, float, float]], triangles: list[t
                 if -1e-12 <= fraction <= 1 + 1e-12:
                     fraction = max(0.0, min(1.0, fraction))
                     z_hits.append(first[2] + fraction * (second[2] - first[2]))
-    if len(z_hits) < 2 or max(z_hits) - min(z_hits) <= epsilon:
+    if len(z_hits) < 2:
         raise PlanTaperInputError(f"no measurable cross-body section at x={x:g}")
-    return max(z_hits) - min(z_hits), len(z_hits)
+    # Finite source coordinates are not enough: subtraction/interpolation can
+    # overflow or become NaN. Without this gate, inf/inf normalization yields
+    # NaN errors, and 'NaN > tolerance' is false: a broken mesh can pass.
+    if not all(math.isfinite(hit) for hit in z_hits):
+        raise PlanTaperInputError(f"non-finite lateral section intersection at x={x:g}")
+    width = max(z_hits) - min(z_hits)
+    if not math.isfinite(width):
+        raise PlanTaperInputError(f"non-finite lateral section width at x={x:g}")
+    if width <= epsilon:
+        raise PlanTaperInputError(f"no measurable cross-body section at x={x:g}")
+    return width, len(z_hits)
 
 
 def evaluate(geometry: Any, table: Any, *, mesh_name: str) -> dict[str, Any]:
@@ -174,6 +184,8 @@ def evaluate(geometry: Any, table: Any, *, mesh_name: str) -> dict[str, Any]:
     vertices, triangles, ignored_degenerate = _triangles(_mesh_from_export(geometry, mesh_name))
     xs = [vertex[0] for vertex in vertices]
     scale = max(xs) - min(xs)
+    if not math.isfinite(scale):
+        raise PlanTaperInputError("non-finite longitudinal extent from world-space vertices")
     if scale <= 0:
         raise PlanTaperInputError("selected mesh has no longitudinal extent")
     epsilon = max(1e-12, scale * 1e-9)
