@@ -163,6 +163,26 @@ class WorkflowStateTest(unittest.TestCase):
         mark_steps(state, ["build-current-pass"], status="done", evidence=["model.ts"])
         self.assertEqual(status_payload(state)["currentStep"], "render-capture")
 
+    def test_next_cli_does_not_offer_pass_steps_with_missing_spec(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            spec_path = Path(directory) / "missing.json"
+            state = new_state("reference.png", spec=str(spec_path))
+            setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+            mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "forge" / "next.py"), "--state", str(state_path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("step=await-pass-transition pass=none", result.stdout)
+            self.assertNotIn("generate_threejs_factory.py", result.stdout)
+            self.assertNotIn("- build-current-pass", result.stdout)
+            self.assertIn(str(spec_path), result.stdout)
+
     def test_new_pass_archives_and_resets_pass_checklist(self):
         state = new_state("reference.png")
         setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
