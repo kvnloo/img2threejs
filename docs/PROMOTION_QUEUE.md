@@ -65,3 +65,7 @@ Output: origin-merged commits and verified blockers cleared, not PR or issue vol
 Exact heads rechecked for #9–#16. **All eight current heads have successful Python CI workflows**. PR #11's former failure was from its superseded head `bd5a9e435b37a2fcd2218caf8ac91f97bcf34d1d`; new head `a3c9bbf40387b5ffe70e75c6b423dc0fd1bf9208` passed Python/npm/policy. PR #12's repaired head `09679a4947cd0b6d2d2b93dbba162af836776169` likewise passed full Python/npm/policy. Experimental #15/#16 remain **LIMITED** despite green CI because no genuine render-fidelity measurements have been established.
 
 Best near-term lever: surface existing green candidates #10 then #9 through appropriate human/maintainer triage, resolve material CI-independent fidelity evidence, keep #149 in its existing upstream thread; stop duplicate intent or speculative PR creation.
+
+## Factory registration
+
+Pending [factory registry draft PR #197](https://github.com/kvnloo/oss-factory/pull/197) adds this project to the canonical 38-project registry. This is **not merged** and creates neither a new automation nor origin write authority; until review, this fork document remains the durable project queue.
