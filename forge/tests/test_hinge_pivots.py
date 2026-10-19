@@ -137,6 +137,17 @@ class OffCenterHingeTest(unittest.TestCase):
         output = generate(spec, "blockout")
         self.assertLess(output.find(".position.copy(endpoint_"), output.find(".position.copy(hingePivot_"))
 
+    def test_omitted_rest_angle_defaults_to_zero(self):
+        spec = self.sample()
+        hinge = self.hinge([0.1, 0.2, 0.3], [0.1, 1.2, 0.3], 45)
+        hinge.pop("restAngleDeg")
+        spec["componentTree"][0]["hinge"] = hinge
+        errors, _ = validate_spec(spec)
+        self.assertEqual(errors, [])
+        output = generate(spec, "blockout")
+        self.assertIn("THREE.MathUtils.degToRad(0.0)", output)
+        self.assertIn('hinges["lid"]', output)
+
     def test_rejects_bad_axes_and_angles_before_codegen(self):
         bad = [
             (None, "must be an object"),
