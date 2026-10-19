@@ -13,9 +13,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "forge"), str(ROOT / "forge" / "_shared"),
-                str(ROOT / "forge" / "stage2_spec"), str(ROOT / "forge" / "stage3_build")]
+                str(ROOT / "forge" / "stage2_spec"), str(ROOT / "forge" / "stage3_build"),
+                str(ROOT / "forge" / "tests")]
 import generate_threejs_factory as patched  # noqa: E402
-from forge.tests.test_attachment_does_not_override_primitive import spec_with  # noqa: E402
+from test_attachment_does_not_override_primitive import spec_with  # noqa: E402
 
 
 def main() -> None:
