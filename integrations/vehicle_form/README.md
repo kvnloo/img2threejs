@@ -74,3 +74,11 @@ not a photograph of the 1960s Ferrari from the original issue, not recovered 3D 
 and not a real-world automotive reconstruction accuracy result. An independently measured
 reference photograph and reproducible before/after Ferrari rebuild are still required
 before claiming that real-world form fidelity improved.
+
+## Offline interactive 3D vehicle inspection
+
+After the synthetic pixel-to-mesh A/B run, the optional, standard-library-only `vehicle_mesh_preview.py` produces a **standalone HTML inspector** from complete world-space mesh receipts, the reference PNG and the passing/failing gate JSON. It embeds the original triangles; a lightweight Canvas 2D renderer supports synchronized three-quarter/top/side views, drag-orbit, wireframe, zoom and reset without network access. The page is for **visual inspection**, not a new reconstruction-fidelity gate. All measured errors come from `plan_taper.py`; no reference geometry is inferred.
+
+The script fails closed for partial/active-skipped exports, bad triangles, non-finite coordinates or station errors, corrupt PNG chunks, and mismatched gate verdicts. It encodes untrusted mesh names before embedding them into JavaScript and removes stale output before a failed retry. `forge/tests/test_vehicle_mesh_preview.py` covers these paths.
+
+CI publishes `vehicle-mesh-interactive.html` beside the reference image, mesh receipts and gate reports. Open that downloaded HTML locally to rotate both assemblies. This remains **synthetic** evidence for upstream issue #38 (original reporter `djmmts`); it is not a Ferrari-photo A/B or a claim of real-world fidelity.
