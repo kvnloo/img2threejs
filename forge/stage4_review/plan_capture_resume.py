@@ -47,6 +47,15 @@ def resume_plan(manifest_file: Path) -> dict[str, Any]:
     reference = manifest.get("reference")
     if not isinstance(reference, dict) or reference.get("kind") not in ("image", "glb"):
         raise ValueError("reference.kind must be image or glb")
+    # A changed source image/GLB invalidates every camera comparison, even if
+    # each old screenshot still matches its own saved digest.
+    source = reference.get("path")
+    expected = reference.get("sha256")
+    if not isinstance(source, str) or not source.strip() or not isinstance(expected, str):
+        raise ValueError("source reference path and SHA-256 are required")
+    source_path = manifest_path(manifest_file, source)
+    if not source_path.is_file() or sha256(source_path) != expected.lower():
+        raise ValueError("source reference hash changed or file is missing")
     captures = manifest.get("captures")
     if not isinstance(captures, list) or not captures:
         raise ValueError("captures must be a nonempty list")
