@@ -1109,7 +1109,7 @@ def validate_hinge(component_id: str, hinge: Any, errors: list[str]) -> None:
         if not all(math.isfinite(value) for value in delta) or max(abs(v) for v in delta) <= 1e-6:
             errors.append(f"{label} axisStart and axisEnd must define a nonzero finite axis")
 
-    if not finite_number(hinge.get("restAngleDeg")):
+    if not finite_number(hinge.get("restAngleDeg", 0)):
         errors.append(f"{label}.restAngleDeg must be a finite number in degrees")
 
 
