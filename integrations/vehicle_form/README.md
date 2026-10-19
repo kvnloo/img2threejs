@@ -58,9 +58,9 @@ feeding hand-constructed triangle arrays to the gate:
 
 1. Render a procedurally assembled vehicle reference from a locked orthographic top camera.
 2. Measure nose, front-fender, door, rear-hip and tail widths **from the PNG framebuffer**, recording the screenshot SHA-256 and each sampled pixel column.
-3. Render two candidate bodies: the original varying-width profile and an intentionally wrong constant-width/stadium profile.
+3. Render three candidate bodies: the matching varying-width profile, a wrong constant-width/stadium profile, and a **side-rails-only** body with correct width extrema but no connecting roof or underside.
 4. Export each candidate through the *pinned downstream* real-browser mesh exporter from [fork PR #35](https://github.com/kvnloo/img2threejs/pull/35), excluding studio geometry via an explicit model root.
-5. Require the measured pixel profile to accept the matching exported triangles and reject the stadium geometry. Fail closed on a partial exporter retry and record its diagnostic separately.
+5. Require the pixel-measured reference to accept the connected body, reject the stadium profile as a shape mismatch (exit 1), and reject the rails-only shape as **unmeasurable surface coverage** (exit 2). Fail closed on a partial exporter retry and record its diagnostic separately.
 
 The GitHub Actions workflow is `.github/workflows/vehicle-plan-ab-smoke.yml`.
 It uses `node --test integrations/vehicle_form/vehicle_reference_pixels.test.mjs` plus
