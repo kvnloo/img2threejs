@@ -112,6 +112,8 @@ tiny source geometry for printing.
   to identical coordinates, producing a degenerate print even when the original
   Python mesh is topologically closed. Before writing STL, the exporter checks
   each triangle after float32 conversion and refuses any collapse (exit code 2).
-  Use `--longest-edge-mm` to rescale small meshes; for distant origins, recenter
-  the source geometry before export. OBJ remains available for lossless decimal
-  coordinate output when STL precision is inadequate.
+  For very small meshes, set `--weld` below the smallest meaningful
+  source-space feature **and** use `--longest-edge-mm` to rescale them; the
+  weld occurs before rescaling. For distant world origins, recenter the source
+  geometry before exporting. OBJ writes 17 significant decimal digits, so it
+  can retain double-precision detail that binary STL cannot.
