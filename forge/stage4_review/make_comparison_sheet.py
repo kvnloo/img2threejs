@@ -56,6 +56,9 @@ def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
     idat = bytearray()
     saw_ihdr = saw_idat = saw_iend = False
     idat_closed = False
+    palette_seen = False
+    transparent_key: tuple[int, ...] | None = None
+    transparency_seen = False
     while cursor < len(data):
         if len(data) - cursor < 12:
             raise InvalidPng("truncated PNG chunk header or CRC")
@@ -93,6 +96,22 @@ def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
                 raise InvalidPng("PNG IEND must be empty, final, and follow IDAT")
             saw_iend = True
             break
+        elif chunk_type == b"PLTE":
+            if saw_idat or palette_seen or color_type in (0, 4):
+                raise InvalidPng("PNG PLTE must be unique, precede IDAT, and not be grayscale")
+            palette_seen = True
+        elif chunk_type == b"tRNS":
+            if saw_idat or transparency_seen or color_type in (4, 6):
+                raise InvalidPng("PNG tRNS must be unique, precede IDAT, and not accompany alpha")
+            transparency_seen = True
+            if color_type in (0, 2):
+                expected = 2 if color_type == 0 else 6
+                if length != expected:
+                    raise InvalidPng("PNG tRNS key has invalid length")
+                samples = struct.unpack(">" + ("H" if color_type == 0 else "HHH"), chunk_data)
+                if any(sample > 255 for sample in samples):
+                    raise InvalidPng("PNG 8-bit tRNS key exceeds sample depth")
+                transparent_key = samples
         else:
             if saw_idat:
                 idat_closed = True
@@ -156,9 +175,12 @@ def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
             base = x * channels
             if color_type == 0:
                 gray = row[base]
-                pixels.append((gray, gray, gray, 255))
+                alpha = 0 if transparent_key == (gray,) else 255
+                pixels.append((gray, gray, gray, alpha))
             elif color_type == 2:
-                pixels.append((row[base], row[base + 1], row[base + 2], 255))
+                color = (row[base], row[base + 1], row[base + 2])
+                alpha = 0 if transparent_key == color else 255
+                pixels.append((*color, alpha))
             elif color_type == 4:
                 gray = row[base]
                 pixels.append((gray, gray, gray, row[base + 1]))
