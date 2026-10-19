@@ -68,13 +68,33 @@ python3 -m unittest forge.tests.test_hinge_pivots
 python3 -m unittest discover -s forge/tests -p 'test_*.py'
 ```
 
-The automated tests assert generated hierarchy, validator failures, nested
-parenting, endpoint-derived attachment compatibility, and legacy output.
-The next acceptance gate is to capture a real Three.js browser render of a
-hinged box/lid at 0, 45, and 90 degrees, plus a full swept-motion check for
-interpenetration. These tests do **not** prove collision-free folding, image
-fidelity, or WebGL rendering. Hinge joints are animation transforms, not a
-physics constraint or inverse-kinematics solver. Hinges on bone-bound character
-or hybrid components are rejected because skinning reparents their meshes
-outside the hinge hierarchy. No external mesh, asset,
-or ML download is involved.
+The standard Python tests assert generated hierarchy, validator failures,
+nested parenting, endpoint-derived attachment compatibility, and unchanged
+legacy output.
+
+### Actual browser verification
+
+Run the separate [hinge-runtime workflow](../.github/workflows/hinge-runtime.yml)
+or reproduce its test locally with Node 22, Python 3.10+, and Chromium:
+
+```sh
+npm install --no-save --no-package-lock --ignore-scripts \
+  three@0.180.0 @types/three@0.180.0 \
+  typescript@5.9.3 esbuild@0.25.12 playwright@1.56.1
+npx --no-install playwright install --with-deps chromium
+HINGE_SCREENSHOTS=/tmp/hinge-screenshots node forge/tests/hinge_runtime.mjs
+```
+
+The fixture uses the real Python generator, typechecks its emitted TypeScript,
+bundles it into Chromium, and asserts world-space transforms for an off-center
+hinge, two nested hinges, and a diagonal axis. It verifies both shared crease
+edges remain coincident at 5-degree intervals throughout the 0–90 degree lid
+sweep. Three actual WebGL renders (0, 45, and 90 degrees) are uploaded to
+the workflow's `hinge-swept-views` artifact for human inspection.
+
+This proves browser execution and *fixture* hinge articulation, not
+reference-image reconstruction fidelity or collision-free folding on arbitrary
+subjects. Hinge joints are animation transforms, not physics constraints or
+inverse-kinematics solvers. Hinges on bone-bound character/hybrid components
+are rejected because skinning reparents their meshes outside the hinge
+hierarchy. No external mesh, art asset, or ML model is downloaded.
