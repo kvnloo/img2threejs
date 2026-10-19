@@ -3607,7 +3607,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
                 "  );",
                 f"  const {hinge_joint} = new THREE.Group();",
                 f"  {hinge_joint}.name = {json.dumps(name + '__hingeJoint')};",
-                f"  {hinge_joint}.rotation.y = THREE.MathUtils.degToRad({float(hinge['restAngleDeg'])});",
+                f"  {hinge_joint}.rotation.y = THREE.MathUtils.degToRad({float(hinge.get('restAngleDeg', 0))});",
                 f"  {hinge_joint}.userData.sculptHinge = {json_literal(hinge)};",
                 f"  const {hinge_restore} = new THREE.Group();",
                 f"  {hinge_restore}.quaternion.copy({hinge_frame}.quaternion).invert();",
