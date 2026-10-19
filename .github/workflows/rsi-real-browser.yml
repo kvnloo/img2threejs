@@ -6,6 +6,7 @@ on:
       - "experiments/dream_rsi_mesh_fidelity/**"
       - ".github/workflows/rsi-real-browser.yml"
       - "forge/tests/test_rsi_real_browser_manifest.py"
+      - "forge/tests/test_rsi_live_budget_ab.py"
   workflow_dispatch:
 
 permissions:
@@ -34,7 +35,8 @@ jobs:
           node-version: "22"
 
       - name: Validate cohort and browser receipt invariants without Chrome
-        run: python3 -m unittest forge.tests.test_rsi_real_browser_manifest -v
+        run: |
+          python3 -m unittest forge.tests.test_rsi_real_browser_manifest forge.tests.test_rsi_live_budget_ab -v
 
       - name: Prepare hashed TypeScript variants before installing browser dependencies
         env:
@@ -61,6 +63,14 @@ jobs:
         run: |
           python3 experiments/dream_rsi_mesh_fidelity/real_render_smoke.py \
             score "$RUNNER_TEMP/rsi-real-${{ matrix.neighborhood }}"
+
+      - name: Re-render each fitter-requested candidate in Chromium at a true render budget
+        run: |
+          CHROME_BIN="$(command -v google-chrome || command -v chromium || true)"
+          test -n "$CHROME_BIN"
+          CHROME_BIN="$CHROME_BIN" python3 \
+            experiments/dream_rsi_mesh_fidelity/live_budget_ab.py \
+            --out "$RUNNER_TEMP/rsi-real-${{ matrix.neighborhood }}"
 
       - name: Preserve all receipts and failure artifacts
         if: always()
