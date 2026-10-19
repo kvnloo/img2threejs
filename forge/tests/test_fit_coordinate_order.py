@@ -67,6 +67,30 @@ class CoordinateOrderTest(unittest.TestCase):
         self.assertEqual(result.to_json()["fitResult"]["coordinateOrder"], [1, 0])
         self.assertEqual(result.correction_history[1]["hardGateFailures"], ["scale"])
 
+    def test_cli_priority_and_malformed_order(self):
+        payload = {
+            "initial": [0.0, 0.0, 0.0],
+            "bounds": [[-1.0, 1.0]] * 3,
+            "target": [0.0, 0.0, 0.5],
+            "config": {"maxEvaluations": 3, "coordinateOrder": [2, 0, 1]},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "fit.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(main(["--input", str(path), "--json"]), 0)
+            value = json.loads(stdout.getvalue())
+            self.assertEqual(value["coordinateOrder"], [2, 0, 1])
+            self.assertEqual(value["bestScore"], 1.0)
+            payload["config"]["coordinateOrder"] = [2, 2, 0]
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                self.assertEqual(main(["--input", str(path), "--json"]), 2)
+            self.assertIn("config.coordinate_order", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
