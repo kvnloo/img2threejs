@@ -49,3 +49,57 @@ or synthetic metric ground truth.
 
 The core remains standard-library-only. Renderer adapters are external callers;
 this change does not add a browser dependency or a universal renderer API.
+
+
+## Actual-browser synthetic-control gate
+
+An isolated GitHub Actions job now runs the experimental scoring path on
+**actual Chromium + Three.js WebGL pixels**. It creates an original procedural
+reference and two *fixed-camera* candidate scenes: an identical one and a
+deliberately displaced one. These are tests of the evaluator and integration,
+**not** user-photo reconstruction, photogrammetry, or DA3 inference.
+
+The run:
+
+1. Saves the real 224×224 RGBA WebGL canvases (no mocked screenshots).
+2. Re-encodes the renderer's reference to an RGB8 PNG plus a white-is-one
+   foreground-mask PNG, with content hashes and `state=generated`.
+   The required U16 depth artifact is explicitly a *synthetic gradient*
+   and never contributes a score or claims metric depth.
+3. Validates the full evidence manifest and checks that silhouette IoU is
+   near 1.0 for the identical scene, lower for the deliberately displaced one.
+4. Compares no-evidence and receipt-only fitting via the existing shadow
+   parity gate after JSON serialization, with equal evaluation ceilings.
+5. Executes the positive-weight experimental arm against the same **real**
+   browser images, checking selection changes but raw evaluator fidelity
+   and hard-gate authority remain untouched.
+6. Uploads PNGs, hashes, generated manifest and a machine-readable report.
+
+On 2026-10-19 the first successful controlled run reported **IoU 1.000**
+for the matching scene and **0.479** for the displaced scene, with **three
+evaluations per arm** and exact receipt-only parity:
+[run and artifacts](https://github.com/kvnloo/img2threejs/actions/runs/39270168672).
+The evaluator score in the candidate-ranking fixture is fixed by design;
+these IoU values are measured from actual WebGL pixels, but **not evidence
+of improved photo reconstruction accuracy**.
+
+To reproduce (all browser dependencies remain isolated from the core):
+
+```bash
+mkdir -p /tmp/img2-evidence-browser-deps
+cd /tmp/img2-evidence-browser-deps
+npm init -y
+npm install --no-save playwright@1.56.0 three@0.169.0
+npx playwright install chromium
+cd /path/to/kvnloo/img2threejs
+IMG2THREEJS_BROWSER_DEPS=/tmp/img2-evidence-browser-deps \
+  node integrations/reconstruction_evidence/browser_silhouette_smoke.mjs
+```
+
+**Next gate:** replace the generated reference with a rights-cleared real
+photograph and a verified DA3 evidence bundle from
+[`kvnloo/ComfyUI#5`](https://github.com/kvnloo/ComfyUI/pull/5);
+record exact bundle hashes, reuse the identical model/evaluator/render budget
+for both arms, check hard-gate parity, then repeat on an untouched holdout.
+Do not promote this experimental silhouette objective or claim gains before
+that independent evidence exists.
