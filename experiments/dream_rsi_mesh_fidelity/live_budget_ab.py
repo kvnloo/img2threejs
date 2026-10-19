@@ -21,6 +21,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 CAPTURE = Path(__file__).resolve().parent / "real_browser_capture.mjs"
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from forge.stage4_review.fit_params import FitConfig, FitInputError, fit_against_divine_eye  # noqa: E402
 from forge.stage4_review._fit_divine_eye import is_approved_divine_eye_result  # noqa: E402
 from forge.stage4_review.divine_eye import evaluate  # noqa: E402
