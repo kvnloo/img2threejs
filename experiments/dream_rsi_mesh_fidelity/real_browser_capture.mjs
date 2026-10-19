@@ -9,9 +9,27 @@ import { build } from 'esbuild';
 import { chromium } from 'playwright-core';
 
 const out = path.resolve(process.argv[2] || '');
-if (!process.argv[2]) throw new Error('usage: node real_browser_capture.mjs OUT_DIR');
+if (!process.argv[2]) throw new Error(
+  'usage: node real_browser_capture.mjs OUT_DIR [--variant NAME --tag CAPTURE_TAG]');
+const rest = process.argv.slice(3);
+if (rest.length && (rest.length !== 4 || rest[0] !== '--variant' || rest[2] !== '--tag')) {
+  throw new Error('live capture requires --variant NAME --tag CAPTURE_TAG');
+}
+const selectedVariant = rest.length ? rest[1] : null;
+const captureTag = rest.length ? rest[3] : null;
+if (selectedVariant && !/^(root|c[01]-(minus|plus))$/.test(selectedVariant)) {
+  throw new Error('live-budget capture must target a known candidate, not an arbitrary path');
+}
+if (captureTag && !/^[a-z0-9-]{1,48}$/.test(captureTag)) {
+  throw new Error('capture tag must be a bounded lowercase slug');
+}
 const manifest = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8'));
 if (manifest.status !== 'prepared-not-rendered') throw new Error('manifest must be prepared, not scored');
+const variants = selectedVariant
+  ? manifest.variants.filter(item => item.name === selectedVariant)
+  : manifest.variants;
+if (selectedVariant && variants.length !== 1) throw new Error('candidate absent or ambiguous in manifest');
+
 // Variants live in RUNNER_TEMP; their generated TypeScript must resolve the
 // isolated package install beside this script, not search RUNNER_TEMP.
 const nodeModules = path.join(path.dirname(fileURLToPath(import.meta.url)), 'node_modules');
@@ -25,11 +43,16 @@ const browser = await chromium.launch({
     '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
 });
 try {
-  for (const variant of manifest.variants) {
+  for (const variant of variants) {
     if (!/^(target|root|c[01]-(minus|plus))$/.test(variant.name)) {
       throw new Error('unexpected variant path: ' + variant.name);
     }
     const folder = path.join(out, variant.name);
+    const screenshot = path.join(folder, captureTag ? `${captureTag}.png` : 'render.png');
+    const receipt = path.join(folder, captureTag ? `${captureTag}.json` : 'browser.json');
+    if (captureTag && (fs.existsSync(screenshot) || fs.existsSync(receipt))) {
+      throw new Error('live-budget capture already exists; refuse cached or overwritten evidence');
+    }
     await build({
       entryPoints: [path.join(folder, 'viewer.ts')],
       nodePaths: [nodeModules],
@@ -54,19 +77,21 @@ try {
       const canvas = page.locator('canvas');
       if (await canvas.count() !== 1) throw new Error('expected exactly one canvas');
       await canvas.screenshot({
-        path: path.join(folder, 'render.png'),
+        path: screenshot,
         omitBackground: true,
         animations: 'disabled',
         timeout: 60000,
       });
-      fs.writeFileSync(path.join(folder, 'browser.json'),
-        JSON.stringify({ ...info, chromium: await browser.version(), errors }, null, 2) + '\n');
+      fs.writeFileSync(receipt,
+        JSON.stringify({ ...info, chromium: await browser.version(), errors,
+          variant: variant.name, captureTag: captureTag ?? null }, null, 2) + '\n');
       if (errors.length || !info?.ready || typeof info.coverage !== 'number' ||
           !(info.coverage > 0.02 && info.coverage < 0.95)) {
         throw new Error(variant.name + ' WebGL/canvas failed: ' +
           JSON.stringify({ info, errors: errors.slice(0, 4) }));
       }
-      process.stdout.write(JSON.stringify({ variant: variant.name, ...info }) + '\n');
+      process.stdout.write(JSON.stringify({ variant: variant.name, captureTag,
+        liveCapture: Boolean(captureTag), ...info }) + '\n');
     } finally {
       await page.close();
     }
