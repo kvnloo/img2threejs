@@ -64,3 +64,34 @@ The deterministic report breaks down calls, prompt/completion/total tokens
 and known (possibly partial) billed USD by stage. Comparable A/B benchmarks
 must hold reference set, model, render budgets, and stage routing fixed,
 and should preserve engine/agent revisions separately with the run artifacts.
+
+
+## Paired provider-token comparisons (not fidelity measurements)
+
+For a baseline and a candidate treatment, use the same `run_id` for
+each reference image in both JSONL files. Each provider call in **both**
+files must also carry immutable, run-consistent comparison metadata:
+
+```json
+{"reference_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","render_profile_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","evaluator_revision":"eval-v1","render_budget":8}
+```
+
+These are illustrative digests, **not real evidence**. Real comparisons require
+actual SHA-256 fingerprints of the reference and render configuration, the
+same evaluator revision, and the same render-evaluation budget. Different
+model/provider routing is allowed as the experimental treatment; the model
+identity on each provider receipt remains visible. Missing or mismatched run
+IDs, provenance, or budgets are rejected.
+
+```bash
+python3 scripts/benchmark_token_cost.py work/candidate-usage.jsonl \
+  --baseline work/baseline-usage.jsonl \
+  --minimum-runs 3 --out work/paired-tokens.json
+```
+
+The report includes per-run and aggregate **candidate minus baseline** token
+and request differences. USD differences are `null` unless every receipt in
+both arms has a provider price. This compares token consumption only:
+`qualityCompared=false` by design. Neither fewer tokens nor a lower USD
+amount proves the reconstructed geometry is as accurate; use the separate
+fixed-camera and hard-gate fidelity evaluation for that decision.
