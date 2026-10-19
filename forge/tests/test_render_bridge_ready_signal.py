@@ -35,6 +35,12 @@ class RenderReadySignalTest(unittest.TestCase):
             (620, 1000), 1.0, "captures",
         )
 
+    def test_browser_adapter_waits_for_explicit_boolean_true(self):
+        adapter = Path(__file__).resolve().parents[2] / "scripts" / "capture_threejs_playwright.py"
+        source = adapter.read_text(encoding="utf-8")
+        self.assertIn("window.__IMG2THREEJS_READY__ === true", source)
+        self.assertNotIn("Boolean(window.__IMG2THREEJS_READY__)", source)
+
     def test_only_explicit_true_proves_browser_readiness(self):
         for signal in (True, "true", " TRUE "):
             self.assertTrue(ready_signal_passed(signal))
