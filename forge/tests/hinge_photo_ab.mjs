@@ -98,6 +98,18 @@ try {
   await page.locator('canvas').screenshot({
     path: join(output, 'generated-sweep-collision.png')
   });
+  const generatedFlaps = await page.evaluate(() =>
+    window.__referenceStudy.testGeneratedFlapFamily());
+  assert.equal(generatedFlaps.length, 4);
+  for (const flap of generatedFlaps) {
+    assert.equal(flap.geometry, 'BoxGeometry', flap.id);
+    assert.equal(flap.initialClear, true, flap.id + ' start collision');
+    assert.equal(flap.endingClear, true, flap.id + ' end collision');
+    assert.equal(flap.collisionAtNinety, true, flap.id + ' midpoint missed');
+    assert.equal(flap.opening.status, 'collision', flap.id);
+    assert.equal(flap.closing.status, 'certified-clear', flap.id + ' reverse');
+  }
+  console.log('HINGE_GENERATED_FLAP_FAMILY:', JSON.stringify(generatedFlaps));
   const comparisonPage = await browser.newPage({ viewport: {width: 1500, height: 600},deviceScaleFactor:1 });
   const columns = [
     ['Reference photo', 'reference.jpg'],
@@ -119,7 +131,7 @@ try {
   const summary = {
     source, creator: 'Arnold Reinhold', license, credit,
     sha256: digest, photoMask, baseline: measurements[1], hinge: measurements[0],
-    generatedSweep,
+    generatedSweep, generatedFlaps,
     normalizedIoUDelta: Number((measurements[0].score - measurements[1].score).toFixed(6)),
     fixedFrameIoUDelta: Number((measurements[0].registeredScore - measurements[1].registeredScore).toFixed(6)),
     methodology: 'manual proxy, fixed camera/lighting/angles, warm-cardboard vs gray mask; record both original fixed-frame 960x760 IoU and independently bbox-normalized 256x256 silhouette IoU',

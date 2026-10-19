@@ -189,5 +189,51 @@ function testGeneratedFoldWithObstacle() {
   };
 }
 
-window.__referenceStudy = { loadReference, render, testGeneratedFoldWithObstacle };
+
+/** Adversarial collision check on every actual generated carton flap.
+ * Obstacle is deliberately placed at the +90-degree panel center to
+ * exercise the generated X- and Z-directed hinge frames.
+ */
+function testGeneratedFlapFamily() {
+  const result = [];
+  const ids = ['back-flap', 'front-flap', 'left-flap', 'right-flap'];
+  for (const id of ids) {
+    pose('rest');
+    const mesh = runtime.meshes[id];
+    const hinge = runtime.hinges[id];
+    if (!hinge?.isGroup || mesh?.geometry?.type !== 'BoxGeometry') {
+      throw new Error('missing generated box hinge: ' + id);
+    }
+    hinge.rotation.y = Math.PI / 2;
+    root.updateMatrixWorld(true);
+    const positiveCenter = mesh.getWorldPosition(new THREE.Vector3());
+    hinge.rotation.y = 0;
+    root.updateMatrixWorld(true);
+    const obstacle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08));
+    obstacle.position.copy(positiveCenter);
+    root.add(obstacle);
+    try {
+      const opening = certifyFoldSweep(hinge, mesh, obstacle, 0, 180);
+      const closing = certifyFoldSweep(hinge, mesh, obstacle, 0, -180);
+      const sampled = sampleFold(hinge, mesh, obstacle, [0, 45, 90, 135, 180]);
+      result.push({
+        id, geometry: mesh.geometry.type, hingeName: hinge.name,
+        obstacle: positiveCenter.toArray(), opening, closing,
+        sampledCollisions: sampled.collisionSamples,
+        collisionAtNinety: sampled.samples[2].penetrating,
+        initialClear: !sampled.samples[0].penetrating,
+        endingClear: !sampled.samples[4].penetrating,
+      });
+    } finally {
+      root.remove(obstacle);
+      obstacle.geometry.dispose();
+      obstacle.material.dispose();
+      hinge.rotation.y = 0;
+      root.updateMatrixWorld(true);
+    }
+  }
+  return result;
+}
+
+window.__referenceStudy = { loadReference, render, testGeneratedFoldWithObstacle, testGeneratedFlapFamily };
 window.__referenceStudyReady = true;
