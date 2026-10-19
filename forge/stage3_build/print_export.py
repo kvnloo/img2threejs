@@ -328,7 +328,31 @@ def scale_to_longest_edge(vertices: list[Vec], longest_edge: float) -> tuple[lis
     return [(x * factor, y * factor, z * factor) for x, y, z in vertices], factor
 
 
+def assert_stl_float32_geometry(
+    vertices: list[Vec], triangles: list[tuple[int, int, int]]
+) -> None:
+    """Reject triangles that become degenerate after binary STL float32 rounding."""
+    rounded: list[Vec] = []
+    for vertex in vertices:
+        try:
+            point = tuple(struct.unpack("<f", struct.pack("<f", value))[0] for value in vertex)
+        except (OverflowError, struct.error) as error:
+            raise PrintExportError(
+                "STL coordinate exceeds float32 range; scale model with --longest-edge-mm"
+            ) from error
+        if not all(math.isfinite(value) for value in point):
+            raise PrintExportError("STL coordinates must remain finite after float32 conversion")
+        rounded.append(point)  # type: ignore[arg-type]
+    for number, triangle in enumerate(triangles):
+        if _area2(rounded, triangle) <= 0.0:
+            raise PrintExportError(
+                f"triangle {number} collapses at STL float32 precision; "
+                "scale model with --longest-edge-mm"
+            )
+
+
 def write_stl(path: Path, vertices: list[Vec], triangles: list[tuple[int, int, int]], *, name: str = "img2threejs") -> None:
+    assert_stl_float32_geometry(vertices, triangles)
     header = f"img2threejs print export: {name}".encode("ascii", "replace")[:80].ljust(80, b"\0")
     with path.open("wb") as stream:
         stream.write(header)
