@@ -209,7 +209,7 @@ try {
     'sys.path.insert(0, "forge/tests")',
     'from test_hierarchy_scale import NESTED_SCALE_SPEC, generate',
     'Path(sys.argv[1]).write_text(generate(NESTED_SCALE_SPEC, "blockout"), encoding="utf-8")',
-  ].join('\\n');
+  ].join('\n');
   execFileSync('python3', ['-c', generatePython, generatedTs], {cwd: REPO_ROOT});
   await writeFile(generatedClient, [
     "import * as THREE from 'three';",
@@ -227,7 +227,7 @@ try {
     "renderer.render(scene, camera);",
     "window.__IMG2THREEJS_VIEWER__ = {scene, modelRoot: model, started:true};",
     "window.__IMG2THREEJS_READY__ = true;",
-  ].join('\\n') + '\\n', 'utf8');
+  ].join('\n') + '\n', 'utf8');
   await build({entryPoints: [generatedClient], outfile: generatedBundle,
     bundle:true, format:'esm', platform:'browser', logLevel:'warning'});
   const generatedOut = join(screenshots, 'generated-factory-meshes.json');
