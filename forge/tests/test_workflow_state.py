@@ -31,6 +31,7 @@ class WorkflowStateTest(unittest.TestCase):
         self.assertEqual(payload["loop"]["passCount"], 0)
         self.assertEqual(payload["loop"]["maxPerPass"], 3)
         self.assertIn("part-coverage", payload["pending"])
+        self.assertNotIn("build-current-pass", payload["pending"])
         ids = [entry["id"] for entry in state["checklist"]]
         self.assertLess(ids.index("reference-suitability"), ids.index("reference-admission"))
         self.assertLess(ids.index("detail-inventory"), ids.index("projection-route"))
@@ -122,6 +123,49 @@ class WorkflowStateTest(unittest.TestCase):
         self.assertLess(ids.index("build-current-pass"), ids.index("tier1-diagnostics"))
         self.assertLess(ids.index("tier1-diagnostics"), ids.index("pass-gate-check"))
         self.assertLess(ids.index("pass-gate-check"), ids.index("ai-review-recorded"))
+
+    def test_pass_steps_require_an_open_pass(self):
+        state = new_state("reference.png", spec="spec.json")
+        setup_ids = [item["id"] for item in state["checklist"] if item["scope"] == "setup"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+
+        payload = status_payload(state)
+        self.assertEqual(payload["currentPass"], "")
+        self.assertEqual(payload["currentStep"], "await-pass-open")
+        self.assertNotIn("build-current-pass", payload["pending"])
+        self.assertIn("forge/next.py --state", payload["nextCommand"])
+        self.assertIn("spec.json", payload["nextCommand"])
+        with self.assertRaisesRegex(WorkflowStateError, "out-of-order"):
+            mark_steps(state, ["build-current-pass"], status="done", evidence=["shot.png"])
+        self.assertEqual(
+            next(item for item in state["checklist"] if item["id"] == "build-current-pass")["status"],
+            "pending",
+        )
+
+        set_current_pass(state, "blockout")
+        self.assertEqual(status_payload(state)["currentStep"], "build-current-pass")
+        self.assertIn("build-current-pass", status_payload(state)["pending"])
+        mark_steps(state, ["build-current-pass"], status="done", evidence=["model.ts"])
+        self.assertEqual(status_payload(state)["currentStep"], "render-capture")
+
+    def test_pre_spec_next_cli_never_offers_pass_steps_after_setup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            spec_path = Path(directory) / "not-yet-written.json"
+            state = new_state("reference.png", spec=str(spec_path))
+            setup_ids = [item["id"] for item in state["checklist"] if item["scope"] == "setup"]
+            mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "forge" / "next.py"), "--state", str(state_path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("step=await-pass-open", result.stdout)
+            self.assertNotIn("- build-current-pass", result.stdout)
+            self.assertNotIn("generate_threejs_factory.py", result.stdout)
 
     def test_skipping_a_mandatory_step_requires_reason(self):
         state = new_state("reference.png")
