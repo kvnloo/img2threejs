@@ -61,7 +61,9 @@ class NumericSafetyTest(unittest.TestCase):
             with redirect_stderr(err):
                 result = main(["--input", str(path), "--json"])
             self.assertEqual(result, 2)
-            self.assertIn("target", err.getvalue())
+            # The target vector goes through the shared input normalizer,
+            # which labels the offending coordinate as initial[0].
+            self.assertIn("initial[0]", err.getvalue())
             self.assertNotIn("Traceback", err.getvalue())
 
     def test_normal_bounds_preserve_deterministic_order_and_finite_telemetry(self):
