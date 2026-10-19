@@ -72,6 +72,57 @@ class CaptureResumeTest(unittest.TestCase):
         self.hero.write_bytes(self.hero.read_bytes() + b"x")
         self.assertEqual(resume_plan(self.path)["next"]["reason"], "changed-screenshot")
 
+    def test_recorded_screenshot_requires_matching_image_metadata(self):
+        self.record_hero()
+        record = self.manifest["captures"][0]
+        saved = dict(record["image"])
+        for field, bad in (("width", saved["width"] + 1),
+                           ("height", saved["height"] + 1),
+                           ("type", "jpeg")):
+            with self.subTest(field=field):
+                record["image"] = {**saved, field: bad}
+                write_manifest(self.path, self.manifest)
+                plan = resume_plan(self.path)
+                self.assertEqual(plan["next"]["captureId"], "hero")
+                self.assertEqual(plan["next"]["reason"], "image-receipt-mismatch")
+                self.assertEqual(plan["verifiedShots"], 0)
+        record["image"] = saved
+        write_manifest(self.path, self.manifest)
+        self.assertEqual(resume_plan(self.path)["verifiedShots"], 1)
+
+    def test_missing_or_invalid_image_receipt_requeues_hashed_screenshot(self):
+        self.record_hero()
+        record = self.manifest["captures"][0]
+        saved = record.pop("image")
+        for invalid in (None, {}, {"width": 4, "height": 4}, "not-a-record"):
+            with self.subTest(invalid=invalid):
+                if invalid is None:
+                    record.pop("image", None)
+                else:
+                    record["image"] = invalid
+                write_manifest(self.path, self.manifest)
+                plan = resume_plan(self.path)
+                self.assertEqual(plan["next"]["reason"], "image-receipt-mismatch")
+        record["image"] = saved
+        write_manifest(self.path, self.manifest)
+        self.assertEqual(resume_plan(self.path)["verifiedShots"], 1)
+
+    def test_glb_baseline_image_metadata_is_verified_independently(self):
+        self.manifest["reference"]["kind"] = "glb"
+        for capture in self.manifest["captures"]:
+            capture["reference"] = {"status": "pending", "path": f"reference/{capture['id']}.png"}
+        self.record_hero()
+        record_reference_capture(self.path, self.manifest, "hero", self.ref, True, [])
+        baseline = self.manifest["captures"][0]["reference"]
+        baseline["image"]["width"] += 1
+        write_manifest(self.path, self.manifest)
+        plan = resume_plan(self.path)
+        self.assertEqual(plan["next"]["captureId"], "hero")
+        self.assertEqual(plan["next"]["mode"], "reference")
+        self.assertEqual(plan["next"]["reason"], "image-receipt-mismatch")
+        self.assertEqual(plan["verifiedShots"], 1)
+        self.assertFalse(plan["captureShotsComplete"])
+
     def test_glb_queues_reference_baseline_first_but_preserves_good_shots(self):
         self.manifest["reference"]["kind"] = "glb"
         for capture in self.manifest["captures"]:
