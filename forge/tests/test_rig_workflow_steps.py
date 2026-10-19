@@ -125,6 +125,11 @@ class TheDispatcherActuallyReachesThem(unittest.TestCase):
             entry = next_entry(state)
             if entry is None:
                 break
+            if entry["id"] == "await-pass-start":
+                # A pass is no longer implicit merely because setup finished; emulate
+                # next.py loading the first authored pass before driving its checklist.
+                state["currentPass"] = "blockout"
+                continue
             if entry["id"] == "await-pass-transition":
                 state["currentPass"] = "complete"
                 continue
