@@ -205,8 +205,8 @@ function evaluate() {
   } else if (status === 'unresolved') {
     detail = 'At least one target has unresolved intervals; cannot certify safe motion.';
   } else {
-    detail = 'Both supported boxes' + (checkbox.checked ? ' and obstacle' : '') +
-      ' are clear for this bounded sweep under the rigid static-target assumptions.';
+    detail = 'All ' + results.length + ' checked rigid-box target(s) are clear ' +
+      'under this limited static-target interval model.';
   }
   setStatus(status,
     status === 'collision' ? 'Collision detected' :
