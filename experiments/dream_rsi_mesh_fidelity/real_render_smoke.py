@@ -98,13 +98,17 @@ def prepare(out: Path) -> None:
         generated.append({"name": variant, "parameters": [sx, sz],
                           "specSha256": sha256(spec_path),
                           "generatedTypeScriptSha256": sha256(model_path)})
+    actual_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    expected_head = os.environ.get("SOURCE_HEAD_SHA")
+    if expected_head and actual_head != expected_head:
+        raise RuntimeError("wrong checked-out source HEAD: " + actual_head + " != " + expected_head)
     receipt = {"schemaVersion": 1, "status": "prepared-not-rendered",
                "fixture": str(FIXTURE.relative_to(ROOT)),
                "fixtureSha256": sha256(FIXTURE),
                "source": "actual generate_threejs_factory.py --pass-id blockout",
                "render": "headless Chromium + three.js (not a numeric stand-in)",
                "camera": CAMERA, "size": IMAGE_SIZE,
-               "gitSha": os.environ.get("GITHUB_SHA"),
+               "gitSha": actual_head,
                "variants": generated, "measuredFidelity": None}
     (out / "manifest.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
 
