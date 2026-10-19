@@ -94,7 +94,7 @@ export function collectMeshGeometry(options = {}) {
         if (tint && !tint.every(Number.isFinite)) return skip('invalid-instance-colors');
         const original = mesh.geometry;
         const geometry = tint ? {
-          index: original.index, drawRange: original.drawRange,
+          index: original.index, drawRange: original.drawRange, groups: original.groups,
           getAttribute(kind) {
             const base = original.getAttribute(kind);
             if (kind !== 'color') return base;
@@ -107,7 +107,7 @@ export function collectMeshGeometry(options = {}) {
           }
         } : original;
         collect({ isMesh: true, name: `${name}[${i}]`, visible: true, parent: mesh.parent,
-          matrixWorld: { elements: matrix }, geometry });
+          matrixWorld: { elements: matrix }, geometry, material: mesh.material });
       }
       return;
     }
@@ -127,6 +127,31 @@ export function collectMeshGeometry(options = {}) {
     if ((end - start) / 3 > cap) return skip('triangle-cap');
     if (exportedTriangles + (end - start) / 3 > (options.maxTotalTriangles ?? 100000)) return skip('total-triangle-budget');
     if (exportedVertices + position.count > (options.maxVertices ?? 300000)) return skip('vertex-budget');
+    // Three.js renders BufferGeometry groups, not necessarily every triangle,
+    // when a mesh uses a material array. A partial/overlapping group table or
+    // a hidden/undefined material can make our full-index export disagree with
+    // what the reference viewer actually drew. Require exact visible coverage
+    // rather than silently supplying nonexistent off-axis geometry evidence.
+    if (Array.isArray(mesh.material)) {
+      const groups = geometry.groups;
+      if (!Array.isArray(groups) || !groups.length) return skip('missing-material-groups');
+      const covered = new Uint8Array(available / 3);
+      for (const group of groups) {
+        if (!group || !Number.isSafeInteger(group.start) || !Number.isSafeInteger(group.count) ||
+            !Number.isSafeInteger(group.materialIndex) || group.start < 0 || group.count < 1 ||
+            group.start % 3 || group.count % 3 || group.start + group.count > available ||
+            group.materialIndex < 0 || group.materialIndex >= mesh.material.length) {
+          return skip('invalid-material-groups');
+        }
+        const material = mesh.material[group.materialIndex];
+        if (!material || material.visible === false) return skip('hidden-material-group');
+        for (let triangle = group.start / 3; triangle < (group.start + group.count) / 3; triangle++) {
+          if (covered[triangle]) return skip('overlapping-material-groups');
+          covered[triangle] = 1;
+        }
+      }
+      if (covered.some(flag => flag !== 1)) return skip('partial-material-groups');
+    }
     const e = mesh.matrixWorld?.elements;
     if (!e || e.length !== 16 || !Array.from(e).every(Number.isFinite)) return skip('invalid-world-matrix');
     const a = [e[0], e[1], e[2]], b = [e[4], e[5], e[6]], c = [e[8], e[9], e[10]];
