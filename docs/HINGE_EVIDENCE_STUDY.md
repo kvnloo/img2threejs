@@ -113,6 +113,40 @@ and ray/mesh physics beyond the supported box case are outside the
 certificate. Full arbitrary-mesh continuous collision detection remains
 unsolved, and the study's existing photographic IoU result is unchanged.
 
+## Generated factory + deterministic stress evidence
+
+An additional [browser run](https://github.com/kvnloo/img2threejs/actions/runs/39277454315)
+uses the **actual emitted TypeScript carton factory**, rather than
+the stand-alone manual collision hierarchy:
+
+- All **four generated box flaps** (`back-flap`, `front-flap`,
+  `left-flap`, `right-flap`) were tested with an independent small
+  obstacle placed at their +90° world-space centers. This covers axes in
+  both X and Z directions.
+- Each had clear rest/end poses, a recorded mid-sweep collision at +90°,
+  `collision` on the positive sweep, and `certified-clear` on the reverse
+  sweep under the rigid static-obstacle assumptions.
+- The same browser run typechecks generated Three.js code, renders the
+  actual generated flap against a temporary red obstacle, and includes
+  `generated-sweep-collision.png` and all per-flap verdicts in
+  `measurements.json`. The obstacle is a *test injection*; it is not
+  inferred from the source photograph.
+
+A [second regression run](https://github.com/kvnloo/img2threejs/actions/runs/39277065926)
+includes **14 passing Node tests**, with a deterministic pseudorandom
+falsification exercise. In **48** seeded rigid-box configurations compared
+against an independent 0.5° sampled reference sweep, **41** had observed
+collisions, **6** were conservatively certified clear, and **1** was
+unresolved. **No certified-clear case contained a collision observed by the
+dense samples.** The seed is `0x5eeda11c`; the tests assert all statuses,
+witnesses, and restoration of authored angles.
+
+This is useful regression coverage, **not a statistical or formal
+completeness guarantee** for arbitrary geometry, animations, moving
+obstacles, or numerical tolerances. Dense sampling can miss very short
+collisions too. A safety-critical consumer must still treat unsupported
+shapes and unresolved intervals as unsupported/unknown.
+
 ## Reproduce and review
 
 ```sh
