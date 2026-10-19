@@ -82,7 +82,9 @@ class BrowserBriefTests(unittest.TestCase):
         write_manifest(self.path, self.manifest)
         brief = build_brief(self.path)
         self.assertIn("missing-readiness", brief["errorCategories"])
-        self.assertGreater(brief["pendingCount"], 0)
+        # A recorded but unready image is a repair, not an absent camera shot.
+        self.assertEqual(brief["pendingCount"], 0)
+        self.assertEqual(brief["repairCount"], 1)
         self.assertEqual(brief["nextStep"], "repair-evidence")
 
     def test_real_manifest_validation_and_verified_reuse(self):
