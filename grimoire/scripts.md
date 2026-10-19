@@ -334,7 +334,10 @@ passes cleanly, so existing specs are unaffected.
 `node runtime/scripts/export_mesh_geometry.mjs --url URL --out meshes.json [--include RE] [--exclude RE] [--max-triangles N] [--max-total-triangles N] [--max-vertices N] [--max-instances N] [--ready-flag F] [--viewer-handle H] [--allow-scene-root]`
 Dumps executed triangle meshes in the JSON format `self_intersection.py` reads. Vertices are
 **world-space**, normals use the inverse-transpose, and negative-determinant transforms reverse
-triangle winding. The subject root is `viewer.explodeRoot` or `viewer.modelRoot` (no implicit fallback to `viewer.scene`), preventing a studio floor from
+triangle winding. The subject root is `window.__IMG2THREEJS_MESH_ROOT__`, the capture API's
+`getModelRoot()/modelRoot`, or `viewer.explodeRoot/viewer.modelRoot`.
+Detached explicit roots refresh their world matrices before evidence capture.
+There is no implicit fallback to `viewer.scene`, preventing a studio floor from
 masquerading as a complete subject export. For explicitly intentional
 whole-scene inspection use `--allow-scene-root`; the receipt records
 `rootSource: "scene-explicit"` and `sceneRootOptIn: true`. A whole-scene
@@ -356,7 +359,9 @@ the export is also incomplete. An uncaught preview JavaScript `pageerror` also
 invalidates the receipt even if the viewer reported ready and geometries exist;
 its bounded `browserErrors` messages are retained in diagnostics. A failed/incomplete
 run removes stale `--out` evidence and writes `<out>.incomplete.json`
-diagnostics (exit 2), not a successful mesh manifest.
+diagnostics (exit 2), not a successful mesh manifest. Receipts are staged in
+the destination directory and atomically renamed only after complete serialization;
+a failed write cannot publish half a JSON success receipt.
 Always read `skippedMeshes` before treating a geometry gate as complete.
 
 Playwright is **optional** and resolved from the working directory or

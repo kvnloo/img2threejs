@@ -3,9 +3,10 @@
  * Browser transport uses an optional, locally installed Playwright; core extraction
  * is dependency-free and exported for deterministic tests.
  */
-import { rm, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { resolve, join } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export function collectMeshGeometry(options = {}) {
@@ -13,15 +14,22 @@ export function collectMeshGeometry(options = {}) {
   const handle = options.viewerHandle || '__IMG2THREEJS_VIEWER__';
   const viewer = globalThis[handle];
   const scene = viewer?.scene;
-  // The showcase also renders studio/ground meshes outside its model root.
-  // A traversable studio scene is not proof of a complete subject. Without
-  // an explicit subject root a floor alone could pass every geometry gate.
-  const rootSource = viewer?.explodeRoot?.traverse ? 'explodeRoot'
-    : viewer?.modelRoot?.traverse ? 'modelRoot'
-      : options.allowSceneRoot === true ? 'scene-explicit' : null;
-  const root = rootSource === 'explodeRoot' ? viewer.explodeRoot
-    : rootSource === 'modelRoot' ? viewer.modelRoot
-      : rootSource === 'scene-explicit' ? scene : null;
+  // Never infer the subject from the studio scene by default. External
+  // preview contracts can explicitly supply their model group, even if the
+  // viewer only holds camera/render state.
+  const explicitRoot = globalThis.__IMG2THREEJS_MESH_ROOT__;
+  const capture = globalThis.__IMG2THREEJS_CAPTURE__;
+  const captureRoot = capture?.getModelRoot?.() ?? capture?.modelRoot;
+  const rootSource = explicitRoot?.traverse ? 'explicit-global'
+    : captureRoot?.traverse ? 'capture-model-root'
+      : viewer?.explodeRoot?.traverse ? 'explodeRoot'
+        : viewer?.modelRoot?.traverse ? 'modelRoot'
+          : options.allowSceneRoot === true ? 'scene-explicit' : null;
+  const root = rootSource === 'explicit-global' ? explicitRoot
+    : rootSource === 'capture-model-root' ? captureRoot
+      : rootSource === 'explodeRoot' ? viewer.explodeRoot
+        : rootSource === 'modelRoot' ? viewer.modelRoot
+          : rootSource === 'scene-explicit' ? scene : null;
   if (!scene || !root || typeof root.traverse !== 'function') {
     throw new Error(`viewer ${handle} has no explicit subject root (explodeRoot/modelRoot); use --allow-scene-root only for intentional whole-scene inspection`);
   }
@@ -35,6 +43,10 @@ export function collectMeshGeometry(options = {}) {
     if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${key} must be a positive integer`);
   }
   scene.updateMatrixWorld?.(true);
+  // An explicit model root may be detached from scene (e.g. a capture adapter).
+  // Update its parent chain as well as its descendants before sampling world
+  // vertices; otherwise the receipt can contain stale transforms.
+  root.updateWorldMatrix?.(true, true);
   const meshes = [];
   const skippedMeshes = [];
   let exportedTriangles = 0;
@@ -180,9 +192,14 @@ export function collectMeshGeometry(options = {}) {
 export function captureReady({ handle = '__IMG2THREEJS_VIEWER__', flag, allowSceneRoot = false } = {}) {
   const viewer = globalThis[handle];
   const scene = viewer?.scene;
-  const root = viewer?.explodeRoot?.traverse ? viewer.explodeRoot
-    : viewer?.modelRoot?.traverse ? viewer.modelRoot
-      : allowSceneRoot === true ? scene : null;
+  const capture = globalThis.__IMG2THREEJS_CAPTURE__;
+  const explicitRoot = globalThis.__IMG2THREEJS_MESH_ROOT__;
+  const captureRoot = capture?.getModelRoot?.() ?? capture?.modelRoot;
+  const root = explicitRoot?.traverse ? explicitRoot
+    : captureRoot?.traverse ? captureRoot
+      : viewer?.explodeRoot?.traverse ? viewer.explodeRoot
+        : viewer?.modelRoot?.traverse ? viewer.modelRoot
+          : allowSceneRoot === true ? scene : null;
   if (!scene || !root || typeof root.traverse !== 'function' || viewer?.disposed === true) return false;
   // Viewer.start() can lag behind build(): a geometry handle alone is not readiness.
   if (viewer.started === false) return false;
@@ -225,6 +242,20 @@ function parseArgs(argv) {
     opts[prop] = n;
   }
   return opts;
+}
+
+async function writeReceiptAtomically(file, payload) {
+  const target = resolve(file);
+  const tmp = `${target}.tmp-${process.pid}-${randomUUID()}`;
+  await mkdir(dirname(target), { recursive: true });
+  try {
+    // A failed JSON serialization, write, or rename must never publish a
+    // partially valid success receipt that later stages can mistake for proof.
+    await writeFile(tmp, `${JSON.stringify(payload, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
+    await rename(tmp, target);
+  } finally {
+    await rm(tmp, { force: true });
+  }
 }
 
 function loadPlaywright() {
@@ -270,11 +301,11 @@ export async function runCli(argv = process.argv.slice(2)) {
     }
     if (report.incomplete) {
       const diagnostics = `${opts.out}.incomplete.json`;
-      await writeFile(diagnostics, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+      await writeReceiptAtomically(diagnostics, report);
       process.stderr.write(`Incomplete mesh export: ${report.skippedMeshes.length} skipped; see ${diagnostics}\n`);
       return 2;
     }
-    await writeFile(opts.out, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    await writeReceiptAtomically(opts.out, report);
     return 0;
   } finally {
     await browser.close();

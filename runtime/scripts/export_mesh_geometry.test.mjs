@@ -31,7 +31,13 @@ const install = (...meshes) => {
   };
   return { viewerHandle: '__TEST_MESH_VIEWER__' };
 };
-afterEach(() => { delete globalThis.__TEST_MESH_VIEWER__; delete globalThis.__IMG2THREEJS_READY__; delete globalThis.__CUSTOM_MESH_READY__; });
+afterEach(() => {
+  delete globalThis.__TEST_MESH_VIEWER__;
+  delete globalThis.__IMG2THREEJS_READY__;
+  delete globalThis.__CUSTOM_MESH_READY__;
+  delete globalThis.__IMG2THREEJS_MESH_ROOT__;
+  delete globalThis.__IMG2THREEJS_CAPTURE__;
+});
 
 test('showcase readiness waits for started viewer, frame-ready signal, and actual mesh', () => {
   const opts = install(makeMesh('part'));
@@ -88,6 +94,37 @@ test('prefers the model root over studio and ground meshes', () => {
   globalThis.__TEST_MESH_VIEWER__.explodeRoot = { traverse(fn) { fn(subject); } };
   const result = collectMeshGeometry(opts);
   assert.deepEqual(result.meshes.map(m => m.name), ['subject']);
+});
+
+test('explicit global subject root takes precedence over viewer scene', () => {
+  const studio = makeMesh('studio-floor');
+  const subject = makeMesh('actual-subject');
+  const opts = install(studio);
+  delete globalThis.__TEST_MESH_VIEWER__.modelRoot;
+  let refreshed = false;
+  globalThis.__IMG2THREEJS_MESH_ROOT__ = {
+    updateWorldMatrix() { refreshed = true; },
+    traverse(fn) { fn(subject); },
+  };
+  const report = collectMeshGeometry(opts);
+  assert.equal(refreshed, true, 'explicit detached root must update matrices');
+  assert.equal(report.rootSource, 'explicit-global');
+  assert.deepEqual(report.meshes.map(m => m.name), ['actual-subject']);
+  assert.equal(captureReady({ handle: opts.viewerHandle }), true);
+});
+
+test('capture-provided subject root is used without falling back to studio', () => {
+  const studio = makeMesh('studio-floor');
+  const subject = makeMesh('capture-subject');
+  const opts = install(studio);
+  delete globalThis.__TEST_MESH_VIEWER__.modelRoot;
+  globalThis.__IMG2THREEJS_CAPTURE__ = {getModelRoot() {
+    return { traverse(fn) { fn(subject); } };
+  }};
+  const result = collectMeshGeometry(opts);
+  assert.equal(result.rootSource, 'capture-model-root');
+  assert.deepEqual(result.meshes.map(m => m.name), ['capture-subject']);
+  assert.equal(captureReady({ handle: opts.viewerHandle }), true);
 });
 
 test('studio-only scenes do not pass the subject-root gate by default', () => {
@@ -281,7 +318,8 @@ test('CLI emits consumer-ready JSON and fails closed on partial export (mocked b
     `);
     const script = fileURLToPath(new URL('./export_mesh_geometry.mjs', import.meta.url));
     for (const [partial, pageError] of [[false, false], [true, false], [false, true]]) {
-      const out = join(dir, pageError ? 'broken-page.json' : partial ? 'partial.json' : 'complete.json');
+      const out = join(dir, 'nested', pageError ? 'broken-page.json' : partial ? 'partial.json' : 'complete.json');
+      mkdirSync(join(dir, 'nested'), {recursive:true});
       writeFileSync(out, 'stale successful evidence', 'utf8');
       const res = spawnSync(process.execPath, [script, '--url', 'http://localhost:5173/#/demo/example', '--out', out], {
         cwd: dir, encoding: 'utf8', env: { ...process.env,
