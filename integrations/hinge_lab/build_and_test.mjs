@@ -103,6 +103,18 @@ try {
   await page.goto(pathToFileURL(join(output,'index.html')).href,{waitUntil:'load'});
   await page.waitForFunction(()=>window.__hingeLabReady===true,null,{timeout:40000});
   await page.waitForFunction(()=>window.__hingeLab.getStatus().drawCalls>0,null,{timeout:30000});
+  await page.waitForTimeout(220);
+  const idleStart = await page.evaluate(()=>window.__hingeLab.getStatus().renderCount);
+  await page.waitForTimeout(260);
+  const idleEnd = await page.evaluate(()=>window.__hingeLab.getStatus().renderCount);
+  assert.ok(idleEnd - idleStart <= 2,
+    'idle renderer should not run continuously on battery: ' + (idleEnd - idleStart));
+  const beforeInteraction = idleEnd;
+  await page.evaluate(()=>window.__hingeLab.setFold('back-flap',8));
+  await page.waitForFunction(before =>
+    window.__hingeLab.getStatus().renderCount > before,
+    beforeInteraction,{timeout:4000});
+  await page.locator('#rest').click();
   assert.equal(await page.locator('input[type=range]').count(),4);
   assert.ok(readFileSync(join(output,'createOpenFoldingCartonModel.ts'),'utf8')
     .includes('export function createOpenFoldingCartonModel('));
