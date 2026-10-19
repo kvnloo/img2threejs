@@ -357,6 +357,15 @@ class DegenerateInput(unittest.TestCase):
         self.assertTrue(result["meshes"][1]["analyzed"])
 
 
+class EmptyGeometryEvidence(unittest.TestCase):
+    def test_empty_batch_is_an_error_not_a_clean_verdict(self) -> None:
+        result = analyze_meshes([])
+        self.assertEqual(result["meshCount"], 0)
+        self.assertEqual(result["meshes"], [])
+        self.assertFalse(result["selfIntersecting"])
+        self.assertEqual(result["errors"], ["no meshes to analyze"])
+
+
 class CommandLine(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -409,6 +418,27 @@ class CommandLine(unittest.TestCase):
         path = self._write("scalar.json", 17)
         code, _ = self._run([str(path)])
         self.assertEqual(code, 2)
+
+    def test_empty_exporter_payloads_fail_closed(self) -> None:
+        for label, payload in (
+            ("empty-list", []),
+            ("empty-meshes", {"meshes": []}),
+            ("empty-components", {"components": {}}),
+        ):
+            with self.subTest(label=label):
+                path = self._write(f"{label}.json", payload)
+                code, output = self._run([str(path), "--json"])
+                self.assertEqual(code, 2)
+                result = json.loads(output)
+                self.assertEqual(result["meshCount"], 0)
+                self.assertEqual(result["errors"], ["no meshes to analyze"])
+
+    def test_empty_exporter_payload_reports_actionable_text(self) -> None:
+        path = self._write("empty-cli.json", {"meshes": []})
+        code, output = self._run([str(path)])
+        self.assertEqual(code, 2)
+        self.assertIn("no meshes to analyze", output)
+        self.assertIn("verdict: ERROR", output)
 
     def test_max_samples_flag_is_honoured(self) -> None:
         path = self._write("budget.json", {"name": "solo", "vertices": self.vertices, "indices": self.indices})

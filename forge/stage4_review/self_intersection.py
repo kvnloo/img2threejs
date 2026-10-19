@@ -499,7 +499,9 @@ def analyze_meshes(
 ) -> dict[str, Any]:
     """Run `analyze_mesh` over a list of meshes and aggregate the verdicts."""
     reports: list[dict[str, Any]] = []
-    errors: list[str] = []
+    # An empty exporter result is missing geometry evidence, not a clean surface.
+    # Preserve meshCount=0, but fail the same closed gate as unreadable meshes.
+    errors: list[str] = ["no meshes to analyze"] if not meshes else []
     for index, mesh in enumerate(meshes):
         if not isinstance(mesh, dict):
             report = _error_result(f"mesh-{index}", "mesh entry is not an object")
@@ -539,6 +541,9 @@ def _load_meshes(path: Path) -> list[dict[str, Any]]:
 
 def _format_summary(result: dict[str, Any]) -> str:
     lines: list[str] = []
+    if result["meshCount"] == 0:
+        for error in result["errors"]:
+            lines.append(f"  [ERROR] {error}")
     for report in result["meshes"]:
         if report["error"]:
             lines.append(f"  [ERROR] {report['name']}: {report['error']}")
