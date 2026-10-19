@@ -337,6 +337,12 @@ Dumps a running model's meshes as the JSON `self_intersection.py` reads. Vertice
 local geometry is fine, and local space would hide exactly that. Normals go through the
 inverse-transpose. Every mesh it declines to emit — instanced, over the triangle cap, filtered out —
 is listed with its reason, so a short mesh list cannot be mistaken for a clean one.
+An active **partial drawRange** is also incomplete evidence: the gate must not certify
+only the triangles currently visible. The CLI removes stale successful evidence before
+capture and writes any incomplete result to `<out>.incomplete.json` (exit 2), not the
+successful `--out` path. An old meshes.json must never survive a failed capture.
+The exporter prefers `viewer.explodeRoot`, then `viewer.modelRoot`, before falling back
+to the whole scene. Real Three.js browser validation remains required for a release.
 The exporter prefers the showcase model root over studio/ground meshes and preserves mirrored
 triangle winding. It refuses to mark partial results as clean (`incomplete: true`, exit code 2)
 when an active mesh is unsupported (such as skinned or instanced), exceeds the triangle cap,
