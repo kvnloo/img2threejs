@@ -13,7 +13,8 @@ For an image reference, it schedules one procedural shot per view in the existin
 manifest order. For a GLB reference, it schedules browser-rendered reference
 baselines **before** procedural shots of each view.
 
-Only shots with a recorded status, explicit browser-ready receipt, no browser
+Only shots with a recorded status, browser-ready signal equal to **Boolean true**
+(not the strings "true"/"false" or number 1), no browser
 console errors, a readable saved screenshot, an unchanged SHA-256, and matching
 recorded image type/width/height are skipped. Missing/unready/changed shots
 and receipts with missing or mismatched image metadata are requeued. The manifest and the PNG

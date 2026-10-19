@@ -14,8 +14,9 @@ from render_bridge import manifest_path, probe, read_manifest, sha256
 def receipt_error(manifest_file: Path, record: Any) -> str | None:
     if not isinstance(record, dict) or record.get("status") != "recorded":
         return "not-recorded"
-    ready = record.get("readySignal")
-    if ready is not True and not (isinstance(ready, str) and ready.strip().lower() == "true"):
+    # Mirror the Playwright capture adapter's strict Boolean contract.
+    # A string such as "true" is not proof that the browser reached readiness.
+    if record.get("readySignal") is not True:
         return "not-ready"
     if record.get("consoleErrors") != []:
         return "console-errors-or-unverified"

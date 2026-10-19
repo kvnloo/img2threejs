@@ -72,6 +72,21 @@ class CaptureResumeTest(unittest.TestCase):
         self.hero.write_bytes(self.hero.read_bytes() + b"x")
         self.assertEqual(resume_plan(self.path)["next"]["reason"], "changed-screenshot")
 
+    def test_ready_signal_requires_actual_boolean_true_for_resume(self):
+        self.record_hero()
+        first = self.manifest["captures"][0]
+        for value in ("true", " TRUE ", 1, None, "false", 0):
+            with self.subTest(value=value):
+                first["readySignal"] = value
+                write_manifest(self.path, self.manifest)
+                plan = resume_plan(self.path)
+                self.assertEqual(plan["verifiedShots"], 0)
+                self.assertEqual(plan["next"]["captureId"], "hero")
+                self.assertEqual(plan["next"]["reason"], "not-ready")
+        first["readySignal"] = True
+        write_manifest(self.path, self.manifest)
+        self.assertEqual(resume_plan(self.path)["verifiedShots"], 1)
+
     def test_recorded_screenshot_requires_matching_image_metadata(self):
         self.record_hero()
         record = self.manifest["captures"][0]
