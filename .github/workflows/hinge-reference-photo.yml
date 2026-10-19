@@ -5,6 +5,10 @@ on:
     branches: [study/hinge-real-photo-ab-20261019]
   workflow_dispatch:
 
+concurrency:
+  group: hinge-reference-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
