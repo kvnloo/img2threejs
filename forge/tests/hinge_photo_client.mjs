@@ -138,8 +138,9 @@ function render(kind) {
   const mask = maskFromImageData(pixels, false);
   const rect = bounding(mask);
   const score = referenceMask ? iou(normalized(mask, rect), normalized(referenceMask, referenceBounds)) : null;
+  const registeredScore = referenceMask ? iou(mask, referenceMask) : null;
   return {
-    kind, score, foregroundPixels: rect.pixels, referenceForegroundPixels: referenceBounds?.pixels ?? null,
+    kind, score, registeredScore, foregroundPixels: rect.pixels, referenceForegroundPixels: referenceBounds?.pixels ?? null,
     silhouetteBounds: rect, seams: seamError(), triangles: renderer.info.render.triangles,
     rendererCalls: renderer.info.render.calls,
   };
