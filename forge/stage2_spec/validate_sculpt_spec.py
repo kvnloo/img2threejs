@@ -1185,7 +1185,11 @@ def validate_subdivision_budget(
             "because generated PlaneGeometry has open boundary edges"
         )
         return
-    uses_attachment_cylinder = attachment_emits_cylinder(attachment)
+    # Explicit tube paths emit buildTubeGeometry, even when the component also
+    # carries an attachment contract. Do not grant the fixed cylinder face budget.
+    uses_attachment_cylinder = attachment_emits_cylinder(attachment) and not (
+        primitive == "tube" and isinstance(descriptor.get("tubePath"), dict)
+    )
     if emitted_primitive == "torus" and not uses_attachment_cylinder:
         errors.append(
             f"component {component_id!r} geometryDescriptor.subdivide.iterations torus subdivision topology is unsupported "
