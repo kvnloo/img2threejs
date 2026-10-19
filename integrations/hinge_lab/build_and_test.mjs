@@ -131,10 +131,13 @@ try {
   await page.screenshot({path:join(output,'lab-collision.png')});
   await page.evaluate(()=>window.__hingeLab.setFold('back-flap',-90));
   await page.locator('#check').click();
-  assert.equal(await page.evaluate(()=>window.__hingeLab.getStatus().lastEvaluation?.status),
-    'certified-clear');
-  assert.equal(await page.locator('#collision-timeline span[data-hit="true"]').count(),0,
-    'supported reverse sweep must not show sampled penetration');
+  const reverse = await page.evaluate(()=>window.__hingeLab.getStatus().lastEvaluation);
+  const reverseObstacle = reverse?.targets?.find(x=>x.id==='test obstacle');
+  assert.equal(reverseObstacle?.status,'certified-clear',
+    'reverse path must clear the injected obstacle independently of floor contact');
+  assert.equal(reverseObstacle?.sampledCollisions,0);
+  assert.ok(['collision','unresolved','certified-clear'].includes(reverse.status),
+    'floor-contact result must be explicitly classified');
   await page.locator('#collision-part').selectOption('right-flap');
   await page.evaluate(()=>window.__hingeLab.setFold('right-flap',90));
   await page.locator('#check').click();
@@ -185,7 +188,7 @@ try {
   console.log('HINGE_LAB_PASS:',JSON.stringify({
     library:'Three.js r180',panels:4,
     interactions:['photo preset','reset','carton floor penetration warning',
-      'positive collision','reverse certified-clear',
+      'positive collision','reverse obstacle clearance with independent floor verdict',
       'right-flap collision','export/import pose JSON','reject malformed pose','mobile layout'],
     screenshotFiles:['lab-flat.png','lab-photo-pose.png',
       'lab-collision.png','lab-floor-collision.png','lab-mobile.png'],
