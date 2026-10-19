@@ -61,13 +61,14 @@ renderer.render(scene, camera);
 window.__IMG2THREEJS_VIEWER__ = ${mode === 'studio-only' ? '{scene}' : '{scene, explodeRoot: modelRoot}'};
 window.__IMG2THREEJS_READY__ = true;
 window.__IMG2THREEJS_WEBGL_RENDERED__ = Boolean(renderer.getContext());
+if (${mode === 'browser-error' ? 'true' : 'false'}) throw new Error('fixture intentional page error');
 </script>`;
 }
 
 const server = createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://127.0.0.1').pathname;
   try {
-    if (pathname === '/' || pathname === '/partial' || pathname === '/instances' || pathname === '/studio-only') {
+    if (pathname === '/' || pathname === '/partial' || pathname === '/instances' || pathname === '/studio-only' || pathname === '/browser-error') {
       res.writeHead(200, {'content-type': 'text/html; charset=utf-8'});
       res.end(fixture(pathname.slice(1) || 'normal'));
     } else if (pathname.startsWith('/three/')) {
@@ -176,7 +177,17 @@ try {
   const diagnostic = JSON.parse(await readFile(out + '.incomplete.json', 'utf8'));
   assert.equal(diagnostic.incomplete, true);
   assert.deepEqual(diagnostic.skippedMeshes.map(m => m.reason), ['partial-draw-range']);
-  console.log('PASS: real Three.js WebGL, static instances, scoped subject root, studio-only rejection, Python geometry gates, incomplete capture rejection');
+  // An actual Chromium uncaught exception must never leave a nominally complete
+  // manifest behind, even if it occurs after a mesh was rendered and signalled ready.
+  const erroredOutput = join(screenshots, 'browser-error.json');
+  await writeFile(erroredOutput, 'stale manifest', 'utf8');
+  assert.equal(await runCli(['--url', url + 'browser-error', '--out', erroredOutput]), 2);
+  assert.equal(existsSync(erroredOutput), false);
+  const exceptionReceipt = JSON.parse(await readFile(erroredOutput + '.incomplete.json', 'utf8'));
+  assert.equal(exceptionReceipt.incomplete, true);
+  assert.deepEqual(exceptionReceipt.browserErrors, ['fixture intentional page error']);
+  assert.deepEqual(exceptionReceipt.meshes.map(m => m.name), ['subject-box']);
+  console.log('PASS: real Three.js WebGL, static instances, scoped subject root, studio-only rejection, Python geometry gates, incomplete capture and script-error rejection');
 } finally {
   await new Promise(resolveClose => server.close(resolveClose));
 }
