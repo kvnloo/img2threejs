@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { collectMeshGeometry } from './export_mesh_geometry.mjs';
+import { collectMeshGeometry, captureReady } from './export_mesh_geometry.mjs';
 
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const attr = (vectors) => ({ count: vectors.length, getX: i => vectors[i][0], getY: i => vectors[i][1], getZ: i => vectors[i][2] });
@@ -29,7 +29,39 @@ const install = (...meshes) => {
   };
   return { viewerHandle: '__TEST_MESH_VIEWER__' };
 };
-afterEach(() => { delete globalThis.__TEST_MESH_VIEWER__; });
+afterEach(() => { delete globalThis.__TEST_MESH_VIEWER__; delete globalThis.__IMG2THREEJS_READY__; delete globalThis.__CUSTOM_MESH_READY__; });
+
+test('showcase readiness waits for started viewer, frame-ready signal, and actual mesh', () => {
+  const opts = install(makeMesh('part'));
+  const viewer = globalThis.__TEST_MESH_VIEWER__;
+  viewer.started = false;
+  assert.equal(captureReady({ handle: opts.viewerHandle }), false);
+  viewer.started = true;
+  globalThis.__IMG2THREEJS_READY__ = false;
+  assert.equal(captureReady({ handle: opts.viewerHandle }), false,
+    'geometry alone is not proof that the screenshot capture is ready');
+  globalThis.__IMG2THREEJS_READY__ = true;
+  assert.equal(captureReady({ handle: opts.viewerHandle }), true);
+  viewer.disposed = true;
+  assert.equal(captureReady({ handle: opts.viewerHandle }), false);
+  viewer.disposed = false;
+  viewer.scene.traverse = () => {};
+  assert.equal(captureReady({ handle: opts.viewerHandle }), false, 'empty subject must not pass');
+});
+
+test('custom preview readiness flag is strict; legacy flagless previews remain compatible', () => {
+  const opts = install(makeMesh('part'));
+  const handle = opts.viewerHandle;
+  assert.equal(captureReady({ handle }), true, 'legacy viewer has no readiness signal');
+  globalThis.__CUSTOM_MESH_READY__ = false;
+  assert.equal(captureReady({ handle, flag: '__CUSTOM_MESH_READY__' }), false);
+  globalThis.__CUSTOM_MESH_READY__ = true;
+  assert.equal(captureReady({ handle, flag: '__CUSTOM_MESH_READY__' }), true);
+  globalThis.__IMG2THREEJS_READY__ = false;
+  assert.equal(captureReady({ handle }), false);
+  assert.equal(captureReady({ handle, flag: '__CUSTOM_MESH_READY__' }), true,
+    'explicit flag overrides automatic showcase flag');
+});
 
 test('exports actual world-space vertices, normal inverse transpose, and vertex colors', () => {
   const matrix = [2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 4, 0, 5, 6, 7, 1];
