@@ -60,7 +60,7 @@ def _mesh_from_export(payload: Any, name: str) -> dict[str, Any]:
     return selected[0]
 
 
-def _triangles(mesh: dict[str, Any]) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
+def _triangles(mesh: dict[str, Any]) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]], int]:
     raw_vertices = mesh.get("vertices")
     if not isinstance(raw_vertices, list) or len(raw_vertices) < 3:
         raise PlanTaperInputError("selected mesh has fewer than 3 vertices")
@@ -84,13 +84,31 @@ def _triangles(mesh: dict[str, Any]) -> tuple[list[tuple[float, float, float]], 
     if len(groups) > 250_000:
         raise PlanTaperInputError("selected mesh exceeds 250000 triangles")
     triangles = []
+    ignored_degenerate = 0
     for i, group in enumerate(groups):
         if not isinstance(group, (tuple, list)) or len(group) != 3:
             raise PlanTaperInputError(f"triangle {i} needs exactly 3 indices")
         if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 or v >= len(vertices) for v in group):
             raise PlanTaperInputError(f"triangle {i} has an invalid vertex index")
+        a, b, c = (vertices[v] for v in group)
+        ab = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+        ac = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+        cross = (
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        )
+        if not all(math.isfinite(value) for value in cross):
+            raise PlanTaperInputError(f"triangle {i} has an unmeasurable area")
+        if not any(cross):
+            # A line or point at a station can have wide min/max Z without
+            # enclosing any vehicle body surface. Do not count it as evidence.
+            ignored_degenerate += 1
+            continue
         triangles.append(tuple(group))
-    return vertices, triangles
+    if not triangles:
+        raise PlanTaperInputError("selected mesh has no nondegenerate surface triangles")
+    return vertices, triangles, ignored_degenerate
 
 
 def _validate_sections(payload: Any) -> tuple[list[dict[str, Any]], float, float]:
@@ -153,7 +171,7 @@ def evaluate(geometry: Any, table: Any, *, mesh_name: str) -> dict[str, Any]:
     if not isinstance(mesh_name, str) or not mesh_name.strip():
         raise PlanTaperInputError("mesh_name must be nonempty")
     stations, width_tol, taper_tol = _validate_sections(table)
-    vertices, triangles = _triangles(_mesh_from_export(geometry, mesh_name))
+    vertices, triangles, ignored_degenerate = _triangles(_mesh_from_export(geometry, mesh_name))
     xs = [vertex[0] for vertex in vertices]
     scale = max(xs) - min(xs)
     if scale <= 0:
@@ -177,7 +195,8 @@ def evaluate(geometry: Any, table: Any, *, mesh_name: str) -> dict[str, Any]:
     if reference_taper - measured_taper > taper_tol + 1e-12:
         errors.append(f"plan-view taper collapsed: reference range {reference_taper:.3f} vs measured {measured_taper:.3f} (max loss {taper_tol:.3f})")
     return {"passed": not errors, "mesh": mesh_name, "measuredStationCount": len(measured),
-            "triangleCount": len(triangles), "referenceTaper": reference_taper,
+            "triangleCount": len(triangles), "degenerateTrianglesIgnored": ignored_degenerate,
+            "referenceTaper": reference_taper,
             "measuredTaper": measured_taper, "maxNormalizedWidthError": width_tol,
             "maxTaperLoss": taper_tol, "stations": measured, "failures": errors,
             "reference": table["reference"]}
