@@ -38,6 +38,19 @@ def _mesh_from_export(payload: Any, name: str) -> dict[str, Any]:
         raise PlanTaperInputError("partial or unverified mesh export cannot support a plan-taper verdict")
     if payload.get("coordinateSpace") != "world":
         raise PlanTaperInputError("geometry evidence must declare coordinateSpace: world")
+    # An exporter may claim completeness while reporting active, skipped meshes.
+    # Such a receipt cannot certify the selected body or assembly as fully sampled.
+    for field in ("skippedMeshes", "skipped"):
+        if field not in payload:
+            continue
+        skips = payload[field]
+        if not isinstance(skips, list):
+            raise PlanTaperInputError(f"invalid {field}: expected a list")
+        if any(not isinstance(entry, dict) or entry.get("reason") not in {"hidden", "filtered"}
+               for entry in skips):
+            raise PlanTaperInputError(
+                f"partial or unverified mesh export: {field} omits active or unknown geometry"
+            )
     meshes = payload.get("meshes")
     if not isinstance(meshes, list):
         raise PlanTaperInputError("geometry evidence needs a meshes array")
