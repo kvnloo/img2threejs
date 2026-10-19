@@ -2,7 +2,7 @@
 // Export executed BufferGeometry in world coordinates for the Python geometry gates.
 // Playwright is optional and loaded only for live browser captures.
 import { createRequire } from 'node:module';
-import { writeFile } from 'node:fs/promises';
+import { writeFile, rm } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -120,6 +120,8 @@ export async function main(argv) {
       console.log('Usage: node runtime/scripts/export_mesh_geometry.mjs --url URL --out meshes.json [--include RE] [--exclude RE] [--max-triangles N] [--ready-flag F] [--viewer-handle H]');
       return 0;
     }
+    // Invalidate stale geometry evidence before attempting a new capture.
+    await rm(opt.out, { force: true });
     const { chromium } = playwrightRequire();
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
@@ -129,11 +131,12 @@ export async function main(argv) {
       await page.waitForFunction(flag => window[flag] === true, opt.readyFlag, { timeout: 30000 });
     }
     const report = await page.evaluate(collectMeshGeometry, opt);
-    await writeFile(opt.out, JSON.stringify(report, null, 2) + '\n');
     if (!report.meshes.length || report.incomplete) {
+      await writeFile(opt.out + '.incomplete.json', JSON.stringify(report, null, 2) + '\n');
       console.error('incomplete geometry export: ' + report.meshes.length + ' meshes; ' + JSON.stringify(report.skipped));
       return 2;
     }
+    await writeFile(opt.out, JSON.stringify(report, null, 2) + '\n');
     console.log('exported ' + report.meshes.length + ' world-space meshes to ' + opt.out);
     return 0;
   } catch (err) {
