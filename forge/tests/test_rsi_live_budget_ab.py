@@ -35,6 +35,24 @@ class LiveBudgetInvariantTests(unittest.TestCase):
                     self.assertEqual(live.resolve_candidate(vector, cohort), expected)
                 self.assertEqual(len(cohort) - 1, 5)
 
+    def test_budget_boundary_selected_fitness_matches_final_telemetry(self):
+        # Existing fork PR #29 repairs this exact one-iteration boundary.
+        # Exercise it for both prioritized coordinate positions.
+        from forge.stage4_review.fit_params import FitConfig, fit
+
+        for order in ((0, 1), (1, 0)):
+            with self.subTest(coordinate_order=order):
+                objective = lambda values: 0.90 + 0.1 * values[order[0]]
+                result = fit(
+                    (0.0, 0.0), ((-1.0, 1.0),) * 2,
+                    objective, FitConfig(max_evaluations=3, coordinate_order=order),
+                )
+                self.assertEqual(result.evaluations, 3)
+                self.assertEqual(result.best_score, 0.95)
+                self.assertEqual(result.iterations, 1)
+                self.assertEqual(result.history[-1].best_score, result.best_score)
+                self.assertEqual(result.history[-1].evaluations, 3)
+
     def test_unknown_nan_boolean_and_non_authored_cannot_trigger_browser(self):
         cohort = live.NEIGHBORHOODS["calibrated"]
         for values in ((1.2, 0.94), (), (0.9,), (0.9, 0.94, 1),
