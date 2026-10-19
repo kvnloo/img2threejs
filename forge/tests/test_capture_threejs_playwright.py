@@ -341,6 +341,56 @@ class CaptureRecoveryTest(unittest.TestCase):
                 self.edit(lambda manifest: change(manifest["captures"][0]))
                 self.assertEqual(self.run_capture(ids=["hero"], resume=True)["captured"], ["hero"])
 
+    def test_resume_reprobes_image_receipt_even_when_saved_hash_matches(self):
+        # This catches stale or forged metadata in a persisted receipt. An
+        # intact hash is not evidence that its saved width/type describe bytes.
+        for change in ("width", "height", "type", "missing", "nonobject", "corrupt-rehashed"):
+            with self.subTest(change=change):
+                self.make_manifest()
+                self.run_capture(ids=["hero"])
+                receipt = self.saved()
+                image_record = receipt["captures"][0]
+                if change == "missing":
+                    image_record.pop("image")
+                elif change == "nonobject":
+                    image_record["image"] = "PNG"
+                elif change == "corrupt-rehashed":
+                    screenshot = self.root / image_record["path"]
+                    screenshot.write_bytes(b"not an image")
+                    image_record["screenshotSha256"] = hashlib.sha256(screenshot.read_bytes()).hexdigest()
+                else:
+                    image_record["image"][change] = (
+                        12345 if change in {"width", "height"} else "JPEG"
+                    )
+                write_manifest(self.manifest_path, receipt)
+                result = self.run_capture(ids=["hero"], resume=True)
+                self.assertEqual(result["captured"], ["hero"])
+
+    def test_resume_reprobes_glb_baseline_and_diagnostic_pass_receipts(self):
+        for mode in ("reference", "diagnostic"):
+            with self.subTest(mode=mode):
+                self.make_manifest(glb=True, v2=True)
+                browser_mode = "reference" if mode == "reference" else "procedural"
+                self.run_capture(ids=["hero"], mode=browser_mode)
+                manifest = self.saved()
+                record = (manifest["captures"][0]["reference"] if mode == "reference"
+                          else manifest["captures"][0]["passes"]["depth"])
+                record["image"]["width"] = 999
+                write_manifest(self.manifest_path, manifest)
+                result = self.run_capture(ids=["hero"], mode=browser_mode, resume=True)
+                self.assertEqual(result["captured"], ["hero"])
+
+    def test_resume_rejects_missing_source_hash_provenance_even_when_recorded(self):
+        for source_name in ("reference", "renderProfile"):
+            with self.subTest(source=source_name):
+                self.make_manifest(glb=True, v2=True)
+                self.edit(lambda manifest: manifest[source_name].pop("sha256"))
+                # The underlying capture can be taken, but it cannot later be
+                # called safely reusable without declared source provenance.
+                self.run_capture(ids=["hero"])
+                result = self.run_capture(ids=["hero"], resume=True)
+                self.assertEqual(result["captured"], ["hero"])
+
     def test_changed_camera_inputs_require_a_fresh_capture(self):
         for key, value in (("azimuthDegrees", 20), ("target", [1, 2, 3]), ("fovDegrees", 35)):
             with self.subTest(key=key):

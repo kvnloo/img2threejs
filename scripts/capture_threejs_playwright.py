@@ -28,6 +28,7 @@ from forge.stage4_review.render_bridge import (  # noqa: E402
     record_capture_pass,
     record_reference_capture,
     now_utc,
+    probe,
     sha256,
     PASS_IDS,
     write_manifest,
@@ -78,13 +79,31 @@ def _record_is_reusable(manifest_path_value: Path, record: dict, signature: str,
         or receipt.get("version") != 1
         or receipt.get("inputSignature") != signature
         or receipt.get("complete") is not True
-        or not record.get("path")
-        or not record.get(hash_key)
+        or not isinstance(record.get("path"), str)
+        or not record["path"].strip()
+        or not isinstance(record.get(hash_key), str)
+        or len(record[hash_key]) != 64
+        or any(ch not in "0123456789abcdef" for ch in record[hash_key])
+    ):
+        return False
+    saved_image = record.get("image")
+    if not isinstance(saved_image, dict) or not all(
+        saved_image.get(field) for field in ("type", "width", "height")
     ):
         return False
     try:
-        return sha256(manifest_path(manifest_path_value, str(record["path"]))) == record[hash_key]
-    except OSError:
+        screenshot = manifest_path(manifest_path_value, record["path"])
+        if sha256(screenshot) != record[hash_key]:
+            return False
+        # A current screenshot hash alone is insufficient if the record was
+        # copied/relabelled, or if a damaged image was mistakenly rehashed.
+        # Re-read its actual dimensions and type for every reuse decision.
+        inspected = probe(screenshot)
+        return all(
+            inspected.get(field) == saved_image.get(field)
+            for field in ("type", "width", "height")
+        ) and bool(inspected.get("type") and inspected.get("width") and inspected.get("height"))
+    except (OSError, ValueError, TypeError):
         return False
 
 
@@ -92,13 +111,25 @@ def _can_resume_capture(manifest_path_value: Path, manifest: dict, capture_spec:
     target = capture_spec.get("reference") if mode == "reference" else capture_spec
     if not isinstance(target, dict):
         return False
-    for name in ("reference", "renderProfile"):
+    sources = ("reference", "renderProfile") if manifest.get("fidelityTrack") == "glb-mediated-v2" else ("reference",)
+    for name in sources:
         source = manifest.get(name)
-        if isinstance(source, dict) and source.get("path"):
-            try:
-                sha256(manifest_path(manifest_path_value, str(source["path"])))
-            except OSError:
+        if not isinstance(source, dict):
+            return False
+        path = source.get("path")
+        declared_hash = source.get("sha256")
+        if (
+            not isinstance(path, str) or not path.strip()
+            or not isinstance(declared_hash, str)
+            or len(declared_hash) != 64
+            or any(ch not in "0123456789abcdef" for ch in declared_hash)
+        ):
+            return False
+        try:
+            if sha256(manifest_path(manifest_path_value, path)) != declared_hash:
                 return False
+        except (OSError, ValueError, TypeError):
+            return False
     signature = _capture_signature(manifest_path_value, manifest, capture_spec, mode)
     if not _record_is_reusable(manifest_path_value, target, signature, "screenshotSha256"):
         return False
