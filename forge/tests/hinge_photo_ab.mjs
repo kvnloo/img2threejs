@@ -74,6 +74,7 @@ try {
   for (const kind of ['hinged', 'center-pivot']) {
     const measurement = await page.evaluate(k => window.__referenceStudy.render(k), kind);
     assert.ok(Number.isFinite(measurement.score));
+    assert.ok(Number.isFinite(measurement.registeredScore));
     assert.ok(measurement.rendererCalls > 0 && measurement.triangles > 0);
     await page.locator('canvas').screenshot({ path: join(output, kind + '.png') });
     measurements.push(measurement);
@@ -104,7 +105,8 @@ try {
     source, creator: 'Arnold Reinhold', license, credit,
     sha256: digest, photoMask, baseline: measurements[1], hinge: measurements[0],
     normalizedIoUDelta: Number((measurements[0].score - measurements[1].score).toFixed(6)),
-    methodology: 'manual proxy, fixed camera/lighting/angles, orange-vs-gray mask, independent bounding box normalization to 256x256',
+    fixedFrameIoUDelta: Number((measurements[0].registeredScore - measurements[1].registeredScore).toFixed(6)),
+    methodology: 'manual proxy, fixed camera/lighting/angles, warm-cardboard vs gray mask; record both original fixed-frame 960x760 IoU and independently bbox-normalized 256x256 silhouette IoU',
     limitations: ['single 2005 reference photograph', 'not automatic image reconstruction',
       'box walls, corrugation, perspective, lighting and crop not optimized',
       'normalized IoU discards absolute framing/scale',
@@ -114,6 +116,8 @@ try {
   console.log('HINGE_PHOTO_AB:', JSON.stringify({
     source, baselineNormalizedIoU: summary.baseline.score,
     hingeNormalizedIoU: summary.hinge.score, delta: summary.normalizedIoUDelta,
+    baselineFixedFrameIoU: summary.baseline.registeredScore,
+    hingeFixedFrameIoU: summary.hinge.registeredScore, fixedFrameDelta: summary.fixedFrameIoUDelta,
     baselineSeamMax: summary.baseline.seams.max,
     hingeSeamMax: summary.hinge.seams.max, sha256: digest,
   }));
