@@ -106,6 +106,21 @@ class RenderReadySignalTest(unittest.TestCase):
             diagnose(self.manifest_path, self.root / "report.json")
         self.assertFalse((self.root / "report.json").exists())
 
+    def test_cli_omitted_ready_signal_does_not_pass_validation(self):
+        write_manifest(self.manifest_path, self.manifest)
+        script = Path(__file__).resolve().parents[1] / "stage4_review" / "render_bridge.py"
+        cmd = [sys.executable, str(script)]
+        recorded = subprocess.run(cmd + [
+            "record", "--manifest", str(self.manifest_path), "--capture-id", "hero",
+            "--screenshot", str(self.screenshot),
+        ], capture_output=True, text=True, check=False)
+        self.assertEqual(recorded.returncode, 0, recorded.stderr)
+        validated = subprocess.run(cmd + [
+            "validate", "--manifest", str(self.manifest_path),
+        ], capture_output=True, text=True, check=False)
+        self.assertEqual(validated.returncode, 1, validated.stderr)
+        self.assertIn("ready signal", validated.stdout)
+
     def test_cli_false_text_does_not_succeed_on_validate(self):
         write_manifest(self.manifest_path, self.manifest)
         script = Path(__file__).resolve().parents[1] / "stage4_review" / "render_bridge.py"
