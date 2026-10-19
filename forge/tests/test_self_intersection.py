@@ -433,6 +433,21 @@ class CommandLine(unittest.TestCase):
                 self.assertEqual(result["meshCount"], 0)
                 self.assertEqual(result["errors"], ["no meshes to analyze"])
 
+    def test_incomplete_exporter_receipts_cannot_pass(self) -> None:
+        clean = {"name": "clean", "vertices": self.vertices, "indices": self.indices}
+        incomplete = self._write(
+            "partial.json",
+            {"meshes": [clean], "incomplete": True,
+             "skippedMeshes": [{"name": "skinned", "reason": "unsupported"}]},
+        )
+        code, _ = self._run([str(incomplete)])
+        self.assertEqual(code, 2)
+
+        complete = self._write("complete.json", {"meshes": [clean], "incomplete": False})
+        code, output = self._run([str(complete), "--json"])
+        self.assertEqual(code, 0, output)
+        self.assertEqual(json.loads(output)["meshCount"], 1)
+
     def test_empty_exporter_payload_reports_actionable_text(self) -> None:
         path = self._write("empty-cli.json", {"meshes": []})
         code, output = self._run([str(path)])
