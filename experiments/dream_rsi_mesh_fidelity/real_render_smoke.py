@@ -142,7 +142,7 @@ def score(out: Path) -> None:
     if neighborhood not in NEIGHBORHOODS or manifest.get("parameters") != NEIGHBORHOODS[neighborhood]:
         raise RuntimeError("unknown or altered candidate neighborhood")
     neighborhood_values = NEIGHBORHOODS[neighborhood]
-    if [item.get("name") for item in manifest.get("variants", [])] != list(parameters):
+    if [item.get("name") for item in manifest.get("variants", [])] != list(neighborhood_values):
         raise RuntimeError("candidate list drifted from committed neighborhood")
     reference = out / "target/render.png"
     if not reference.is_file():
