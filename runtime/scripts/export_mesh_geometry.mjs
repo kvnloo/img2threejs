@@ -252,12 +252,22 @@ export async function runCli(argv = process.argv.slice(2)) {
   const browser = await playwright.chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
+    const pageErrors = [];
+    // Geometry can be present and the ready signal true even after an uncaught
+    // browser exception. Register before navigation to catch module-load failures.
+    page.on('pageerror', error => {
+      if (pageErrors.length < 20) pageErrors.push(String(error?.message || error));
+    });
     await page.goto(opts.url, { waitUntil: 'domcontentloaded', timeout: opts.timeoutMs ?? 30000 });
     await page.waitForFunction(captureReady,
       { handle: opts.viewerHandle || '__IMG2THREEJS_VIEWER__', flag: opts.readyFlag,
         allowSceneRoot: opts.allowSceneRoot === true },
       { timeout: opts.timeoutMs ?? 30000 });
     const report = await page.evaluate(collectMeshGeometry, opts);
+    if (pageErrors.length) {
+      report.browserErrors = pageErrors;
+      report.incomplete = true;
+    }
     if (report.incomplete) {
       const diagnostics = `${opts.out}.incomplete.json`;
       await writeFile(diagnostics, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
