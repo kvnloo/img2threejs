@@ -41,11 +41,15 @@ try {
   copyFileSync(join(integration,'index.html'),join(output,'index.html'));
   copyFileSync(join(work,'factory.ts'),join(output,'createOpenFoldingCartonModel.ts'));
   copyFileSync(reference,join(output,'reference.jpg'));
+  const threeLicense = join(root, 'node_modules/three/LICENSE');
+  if (!existsSync(threeLicense)) throw new Error('missing Three.js MIT license notice');
+  copyFileSync(threeLicense, join(output,'THREE_LICENSE.txt'));
+  copyFileSync(join(root,'LICENSE'),join(output,'IMG2THREEJS_LICENSE.txt'));
   await build({
     entryPoints:[join(work,'app.mjs')],
     outfile:join(output,'bundle.js'),
     bundle:true,format:'iife',platform:'browser',
-    target:'es2022',minify:true,logLevel:'warning',
+    target:'es2022',minify:true,legalComments:'external',logLevel:'warning',
   });
   const manifest = {
     kind:'img2threejs.hinge-lab-offline',
@@ -55,6 +59,7 @@ try {
     generatedSourceSha256:createHash('sha256').update(
       readFileSync(join(output,'createOpenFoldingCartonModel.ts'))).digest('hex'),
     framework:'three@0.180.0',
+    thirdPartyLicenses:['THREE_LICENSE.txt', 'IMG2THREEJS_LICENSE.txt'],
     reference:{
       url:'https://commons.wikimedia.org/wiki/File:Box.agr.jpg',
       creator:'Arnold Reinhold',
@@ -75,6 +80,7 @@ try {
     'The generated editable TypeScript is createOpenFoldingCartonModel.ts.\n' +
     'The included reference.jpg is a CC BY-SA 3.0 work by Arnold Reinhold.\n' +
     'See manifest.json for source, license, SHA-256, and limitations.\n' +
+    'THREE_LICENSE.txt and IMG2THREEJS_LICENSE.txt retain code notices.\n' +
     'No internet connection is needed to use the app.\n';
   writeFileSync(join(output,'README.txt'),text);
 
