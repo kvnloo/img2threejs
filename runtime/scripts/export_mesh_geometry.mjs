@@ -72,6 +72,12 @@ export function collectMeshGeometry(options = {}) {
       if (parent.visible === false) return skip('hidden');
     }
     if ((include && !include.test(name)) || (exclude && exclude.test(name))) return skip('filtered');
+    // Object3D.visible is not enough: Three.js suppresses a mesh with an
+    // invisible single material too, even when its transform/geometry is valid.
+    // Omitting it would falsely certify geometry never drawn by the viewer.
+    if (mesh.material && !Array.isArray(mesh.material) && mesh.material.visible === false) {
+      return skip('hidden-material');
+    }
     if (mesh.isSkinnedMesh) return skip('skinned-mesh');
     // Instanced morph weights live in morphTexture; pseudo-mesh expansion does not bake them.
     if (mesh.morphTargetInfluences?.some(value => value !== 0) || (mesh.isInstancedMesh && mesh.morphTexture)) {
