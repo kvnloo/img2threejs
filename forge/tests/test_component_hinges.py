@@ -104,6 +104,8 @@ class ComponentHingeTests(unittest.TestCase):
             {**valid, "restAngleDeg": float("inf")},
             {**valid, "restAngelDeg": 90},
             {**valid, "axisStart": [float("inf"), 0, 0]},
+            {**valid, "axisStart": [10 ** 500, 0, 0]},
+            {**valid, "axisEnd": [1e160, 0, 0]},
         ]
         for bad in invalid:
             with self.subTest(hinge=bad):

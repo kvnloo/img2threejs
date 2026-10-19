@@ -1067,23 +1067,34 @@ def validate_hinge(component_id: str, hinge: Any, errors: list[str]) -> None:
     unsupported = sorted(str(key) for key in hinge if key not in {"axisStart", "axisEnd", "restAngleDeg"})
     if unsupported:
         errors.append(f"component {component_id!r} hinge has unsupported fields: {', '.join(unsupported)}")
+    def finite_number(value: Any) -> bool:
+        if not is_number(value):
+            return False
+        try:
+            return math.isfinite(value)
+        except (OverflowError, ValueError, TypeError):
+            return False
+
     points: dict[str, list[float]] = {}
     for field in ("axisStart", "axisEnd"):
         value = hinge.get(field)
         if (
             not isinstance(value, list)
             or len(value) != 3
-            or not all(is_number(item) and math.isfinite(item) for item in value)
+            or not all(finite_number(item) for item in value)
         ):
             errors.append(f"component {component_id!r} hinge.{field} must be three finite numbers")
         else:
             points[field] = [float(item) for item in value]
     if len(points) == 2:
         delta = [end - start for start, end in zip(points["axisStart"], points["axisEnd"])]
-        if not all(math.isfinite(item) for item in delta) or math.hypot(*delta) <= 1e-6:
-            errors.append(f"component {component_id!r} hinge axis must have non-zero length")
+        # Match Three.js Vector3.length(): its sum of squares must not
+        # overflow even when each coordinate is individually finite.
+        squared = sum(item * item for item in delta)
+        if not all(math.isfinite(item) for item in delta) or not math.isfinite(squared) or squared <= 1e-12:
+            errors.append(f"component {component_id!r} hinge axis must have finite, non-zero length")
     angle = hinge.get("restAngleDeg", 0)
-    if not is_number(angle) or not math.isfinite(angle):
+    if not finite_number(angle):
         errors.append(f"component {component_id!r} hinge.restAngleDeg must be a finite number")
 
 
