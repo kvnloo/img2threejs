@@ -20,6 +20,8 @@ An internet connection is required for the preview's pinned Three.js modules. Fo
 ```sh
 node --test integrations/pocket_world/world-data.test.mjs
 node --check integrations/pocket_world/app.mjs
+# Optional CPU-local timings; output is also attached to the WebGL CI run:
+node integrations/pocket_world/tests/bench_pathfinding.mjs
 ```
 
 An optional DOM-interaction smoke test runs in headless Chromium with a mocked Three.js runtime (requires `python3` with `playwright` and `Pillow` installed):
@@ -37,6 +39,16 @@ Node 18+ works for the pure-data tests. Browser interaction requires modern WebG
 World JSON v2 now includes a validated **adventure passport**: the scout's last completed tile, the five beacon locations, and which beacons have already been collected. Save mid-hike to resume safely from the last reached tile; saving an empty image records a no-scout/zero-beacon state. Legacy v1 terrain-only receipts still load and start a fresh treasure hunt. Both versions hold only bounded, validated 28 × 28 numeric color/height/visibility arrays and relief, not the original source image. Receipts are capped at 128 KB and reject mismatched, invisible, duplicate or fabricated bookmark coordinates. A newer world, bridge edit or photo selection supersedes older in-flight imports.
 
 Build a bridge by selecting two visible tiles, even across disconnected islands. The app fills only transparent cells along an orthogonal corridor, interpolating their visual height between anchors, and leaves all original color/height evidence unchanged. Bridges can be undone (up to 12 snapshots), saved as portable JSON, or embedded in an exported Three.js factory. Editing preserves discovered beacons and the scout's reachable position; undo returns a scout stranded on vanished terrain to a surviving tile. Switching presets invalidates in-flight image decodes to avoid stale selections.
+
+The scout uses a deterministic binary-heap A* route planner over visible cells,
+replacing a linear scan of every frontier tile. The compass finds the minimum-cost
+reachable uncollected beacon with **one** slope-aware Dijkstra traversal instead
+of repeating a separate A* search for every beacon. Equal-cost targets still
+choose the lower tile ID; paths remain four-connected and never cross invisible
+tiles. Randomized tests compare route costs against independent Dijkstra and
+the compass against separate A* searches. CPU timing receipts cover 28×28 and
+64×64 synthetic grids and must not be described as measured GPU frame-time or
+image-to-3D fidelity improvement.
 
 The scout only follows connected nontransparent cells. The **Find next beacon** compass uses the same slope-aware A* cost as the scout to choose the closest reachable *uncollected* target; it never teleports or fabricates a path through transparent water. If all remaining treasure is disconnected, use the bridge tool and try again. Pixel brightness is only an artistic height proxy, not measured elevation. Directly tapping a beacon also collects it. Animated hopping stops under reduced-motion preferences. Image files over 12 MB or decoded images over 36 megapixels are refused.
 
