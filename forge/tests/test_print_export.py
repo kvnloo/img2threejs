@@ -85,6 +85,7 @@ class ClosedSolids(unittest.TestCase):
         report = print_export.build_export([cube(), cube(offset=(3, 0, 0), name="b")])["report"]
         self.assertTrue(report["watertight"])
         self.assertEqual(report["shellCount"], 2)
+        self.assertEqual(report["nonManifoldVertexCount"], 0)
         self.assertAlmostEqual(report["volume"], 2.0, places=9)
 
     def test_scale_to_longest_edge_in_mm(self):
@@ -102,6 +103,20 @@ class BrokenSolidsAreReported(unittest.TestCase):
         self.assertFalse(report["watertight"])
         self.assertEqual(report["boundaryEdgeCount"], 4)
         self.assertFalse(report["shells"][0]["closed"])
+
+    def test_vertex_touching_closed_cubes_are_not_two_manifold(self):
+        # Two individually watertight cubes share one welded vertex and NO edges.
+        # Edge-only checks incorrectly accept this pinched/non-manifold union.
+        report = print_export.build_export([
+            cube(), cube(offset=(1, 1, 1), name="corner-touch"),
+        ])["report"]
+        self.assertEqual(report["boundaryEdgeCount"], 0)
+        self.assertEqual(report["nonManifoldEdgeCount"], 0)
+        self.assertEqual(report["misorientedEdgeCount"], 0)
+        self.assertEqual(report["nonManifoldVertexCount"], 1)
+        self.assertEqual(len(report["nonManifoldVertexSample"]), 1)
+        self.assertEqual(report["shellCount"], 2)
+        self.assertFalse(report["watertight"])
 
     def test_fin_sharing_an_edge_is_non_manifold(self):
         mesh = cube()
@@ -210,6 +225,20 @@ class Cli(unittest.TestCase):
         report = json.loads(stdout)
         self.assertFalse(report["written"])
         self.assertIsNone(report["output"])
+        code, _, _ = run_cli(src, "--out", out, "--allow-open")
+        self.assertEqual(code, 1)
+        self.assertTrue(out.exists())
+
+    def test_vertex_pinch_refused_without_allow_open(self):
+        src = self.write([cube(), cube(offset=(1, 1, 1), name="corner-touch")])
+        out = self.tmp / "pinched.stl"
+        code, stdout, _ = run_cli(src, "--out", out, "--json")
+        self.assertEqual(code, 1)
+        self.assertFalse(out.exists())
+        report = json.loads(stdout)
+        self.assertEqual(report["nonManifoldVertexCount"], 1)
+        self.assertFalse(report["printable"])
+        self.assertFalse(report["written"])
         code, _, _ = run_cli(src, "--out", out, "--allow-open")
         self.assertEqual(code, 1)
         self.assertTrue(out.exists())
