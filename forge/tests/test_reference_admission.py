@@ -107,6 +107,25 @@ class ImageHashTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pixel payload"):
             phash_from_image(16, 16, [(255, 255, 255, 255)])
 
+    def test_truncated_normal_resolution_payload_fails_closed(self):
+        # Fast binning previously left black bands if the decoder yielded
+        # fewer pixels than its stated 32x32 or 64x64 image dimensions.
+        for side in (32, 64):
+            with self.subTest(side=side):
+                pixels = self._split_image(vertical=True, size=side)
+                for missing in (1, side, side * 4):
+                    with self.subTest(missing=missing), self.assertRaisesRegex(
+                        ValueError, "pixel payload"
+                    ):
+                        phash_from_image(side, side, pixels[:-missing])
+
+    def test_empty_positive_size_does_not_become_a_black_image_hash(self):
+        with self.assertRaisesRegex(ValueError, "pixel payload"):
+            phash_from_image(64, 64, [])
+        # Preserve the legacy no-dimensions sentinel for callers that cannot
+        # decode an image header at all.
+        self.assertEqual(to_grayscale_downsampled(0, 0, [], size=8), [[0.0] * 8 for _ in range(8)])
+
     def test_different_structure_differs_substantially(self):
         a = phash_from_image(64, 64, self._split_image(vertical=True))
         b = phash_from_image(64, 64, self._split_image(vertical=False))
