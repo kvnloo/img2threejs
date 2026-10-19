@@ -13,6 +13,7 @@ from copy import deepcopy
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import struct
 import subprocess
@@ -198,8 +199,17 @@ def prepare_world(out: Path, world_id: str, *, policy: Path | None = None) -> No
         raise ValueError("output directory already contains files; never reuse prior candidate evidence")
     out.mkdir(parents=True, exist_ok=True)
     parameters = parameter_variants(world)
+    source_head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, timeout=15,
+    ).strip()
+    expected_head = os.environ.get("SOURCE_HEAD_SHA")
+    if expected_head and source_head != expected_head:
+        raise ValueError("checkout differs from expected source commit")
     manifest: dict[str, Any] = {
         "schemaVersion": 1, "status": "prepared-not-rendered",
+        "sourceGitSha": source_head,
+        "generatorSha256": sha256(GENERATOR),
+        "browserRunnerSha256": sha256(Path(__file__).with_name("real_browser_capture.mjs")),
         "worldId": world_id, "family": world["family"], "split": world["split"],
         "world": deepcopy(world), "registrationSha256": registration_sha,
         "sourceFixtureSha256": sha256(SOURCE),
@@ -244,6 +254,14 @@ def score_world(out: Path, *, policy: Path | None = None) -> dict[str, Any]:
         raise ValueError("world/registration hash or content changed after preregistration")
     if sha256(SOURCE) != manifest.get("sourceFixtureSha256"):
         raise ValueError("source spec fixture changed after preparation")
+    if (
+        manifest.get("generatorSha256") != sha256(GENERATOR)
+        or manifest.get("browserRunnerSha256") != sha256(Path(__file__).with_name("real_browser_capture.mjs"))
+    ):
+        raise ValueError("generator or browser runner changed since preparation")
+    recorded_head = manifest.get("sourceGitSha")
+    if not isinstance(recorded_head, str) or len(recorded_head) != 40:
+        raise ValueError("missing immutable source Git SHA")
     if world["split"] == "holdout":
         check_frozen_policy(policy, digest)
     parameters = parameter_variants(world)
@@ -255,6 +273,8 @@ def score_world(out: Path, *, policy: Path | None = None) -> dict[str, Any]:
     scored: dict[str, Any] = {}
     for variant in manifest["variants"]:
         name = variant["name"]
+        if variant.get("parameters") != parameters[name]:
+            raise ValueError("candidate parameter vector drifted from preregistered root")
         folder = out / name
         spec = folder / "spec.json"
         generated = folder / "model.ts"
