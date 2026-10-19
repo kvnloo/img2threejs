@@ -90,6 +90,7 @@ function invalidateStatus() {
   document.getElementById('collision-timeline').setAttribute('aria-label', 'No sampled collision timeline');
   document.getElementById('timeline-key').textContent = 'No angle samples yet.';
   setStatus('inactive', 'Not evaluated', 'Select a panel and evaluate its path.');
+  scheduleRender();
 }
 function fitCanvas() {
   const bounds = stage.getBoundingClientRect();
@@ -276,20 +277,30 @@ function getStatus() {
     lastEvaluation,
     drawCalls:renderer.info.render.calls,
     triangles:renderer.info.render.triangles,
+    renderCount,
   };
 }
+let renderCount = 0;
 function render() {
   fitCanvas();
   controls.update();
   renderer.render(scene, camera);
+  renderCount++;
   document.getElementById('triangle-count').textContent =
     renderer.info.render.triangles.toLocaleString();
 }
-let raf;
-function loop() {
-  render();
-  raf = window.requestAnimationFrame(loop);
+// Draw only when the scene, camera or viewport actually changes.
+ // OrbitControls with damping dispatches change events until it settles;
+ // the last frame does not perpetually schedule another idle GPU render.
+let raf = null;
+function scheduleRender() {
+  if (raf !== null) return;
+  raf = window.requestAnimationFrame(() => {
+    raf = null;
+    render();
+  });
 }
+controls.addEventListener('change', scheduleRender);
 for (const id of ids) {
   const label = document.createElement('label');
   label.className = 'slider-field';
@@ -359,10 +370,9 @@ importFile.addEventListener('change', async () => {
     importFile.value = '';
   }
 });
-window.addEventListener('resize', render);
+window.addEventListener('resize', scheduleRender);
 applyAll({});
 render();
-raf = window.requestAnimationFrame(loop);
 window.__hingeLab = {
   getStatus, setFold, evaluate, animateFolds, stopAnimation, setObstacle(enabled, id) {
     if (id !== undefined) {
@@ -383,7 +393,9 @@ window.__hingeLab = {
   },
   dispose() {
     stopAnimation();
-    if (raf) cancelAnimationFrame(raf);
+    controls.removeEventListener('change', scheduleRender);
+    if (raf !== null) window.cancelAnimationFrame(raf);
+    raf = null;
     controls.dispose();
     renderer.dispose();
   },
