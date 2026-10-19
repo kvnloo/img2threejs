@@ -14,7 +14,8 @@ extract it, and open index.html with a browser supporting WebGL2.
 The package contains index.html, bundled Three.js and generated model code in
 bundle.js, the **editable generated TypeScript factory** as
 createOpenFoldingCartonModel.ts, a credited reference.jpg, a provenance
-manifest.json with source SHA-256, and four browser-tested screenshots.
+manifest.json with source SHA-256, Three.js MIT and repository license
+notices, and four browser-tested screenshots.
 
 There is no CDN, account, live network, remote model loading or backend. The
 build fetches the licensed reference photo, then bundles it locally.
