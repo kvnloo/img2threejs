@@ -183,8 +183,12 @@ try {
   await mobile.setViewportSize({width:844, height:390});
   await mobile.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);
   await mobile.locator('#hint').scrollIntoViewIfNeeded();
+  const landscapeStart = await mobile.evaluate(() => globalThis.__pocketSmoke.snapshot().collected);
   await mobile.locator('#hint').tap();
-  await mobile.waitForFunction(() => globalThis.__pocketSmoke.snapshot().collected > 0, null, {timeout:30000});
+  await mobile.waitForFunction(previous => {
+    const state = globalThis.__pocketSmoke.snapshot();
+    return state.collected > previous && state.scoutDestination === -1;
+  }, landscapeStart, {timeout:30000});
   await mobile.locator('#viewport').screenshot({path:join(shotDir, 'world-mobile-landscape.png')});
   const mobileState = await mobile.evaluate(() => globalThis.__pocketSmoke.snapshot());
   await mobile.close();
@@ -192,7 +196,7 @@ try {
   await writeFile(join(shotDir, 'verification.json'), JSON.stringify({
     webgl, brightSubjectPixels: visible, collected: progress, receiptVersion: receipt.version,
     errorCount: errors.length,
-    mobileEmulation: {touchTarget:target.cell, pinchPreservedAdventure:true, landscapeCollected:mobileState.collected},
+    mobileEmulation: {touchTarget:target.cell, pinchPreservedAdventure:true, landscapeStart, landscapeCollected:mobileState.collected},
   }, null, 2));
   console.log(`PASS real WebGL r169, ${visible} visible island pixels, beacons ${progress}, JSON v2 restored, mobile touch/pinch/landscape passed`);
 } finally {
