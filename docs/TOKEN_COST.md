@@ -35,3 +35,32 @@ Characters cost more (more review cycles plus landmark and projection checks): r
 - Model tokens are spent only on vision (reading one sheet per pass), authoring the spec, and writing code.
 - The gates are the savings mechanism: strict-quality blocks codegen on an underspecified spec, and the detail-inventory gate blocks it on missing detail — each avoided bad render saves roughly one full cycle (~10k-20k tokens).
 - The single biggest lever on cost is the review-cycle count. A well-formed spec up front is worth more tokens than any micro-optimization downstream.
+
+## Measured benchmark: provider receipts required
+
+All figures above remain **estimates**. The new opt-in script aggregates actual
+provider usage records; it does not invoke an agent or reconstruct an object.
+No measured corpus or measured savings is claimed yet.
+
+Capture one JSONL event per provider request, using a unique event ID for each
+render-review attempt. Omit prompts and image bytes from the usage log:
+
+```json
+{"run_id":"demo-a","event_id":"call-001","stage":"assessment","model":"your-model","provider":"your-provider","usage_source":"provider","usage":{"prompt_tokens":1000,"completion_tokens":300,"total_tokens":1300},"cost_usd":"0.0123"}
+```
+
+To claim a **complete reconstruction**, each run needs measured calls for
+`assessment`, `spec`, `codegen`, and `render-review`. Stage labels may
+include additional measurements. Counts must come from actual provider usage.
+If the provider supplies tokens but no price, omit `cost_usd` rather than
+assuming free service.
+
+```bash
+python3 scripts/benchmark_token_cost.py work/usage.jsonl \
+  --minimum-runs 3 --out work/usage-report.json
+```
+
+The deterministic report breaks down calls, prompt/completion/total tokens
+and known (possibly partial) billed USD by stage. Comparable A/B benchmarks
+must hold reference set, model, render budgets, and stage routing fixed,
+and should preserve engine/agent revisions separately with the run artifacts.
