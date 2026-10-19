@@ -89,7 +89,51 @@ export function nearestVisibleTile(data, index) {
   return best;
 }
 
-/** Deterministic A* over visible tiles. Slope affects cost, not reachability. */
+/** A small stable min-heap for pathfinding. Lower score, then lower tile ID wins.
+ * Stale heap entries are skipped by the caller instead of requiring decrease-key.
+ */
+function heapPush(heap, entry) {
+  let position = heap.length;
+  heap.push(entry);
+  while (position > 0) {
+    const parent = (position - 1) >> 1;
+    const candidate = heap[parent];
+    if (candidate.score < entry.score ||
+        (candidate.score === entry.score && candidate.index <= entry.index)) break;
+    heap[position] = candidate;
+    position = parent;
+  }
+  heap[position] = entry;
+}
+
+function heapPop(heap) {
+  const first = heap[0];
+  const last = heap.pop();
+  if (heap.length > 0) {
+    let position = 0;
+    for (;;) {
+      const left = position * 2 + 1;
+      if (left >= heap.length) break;
+      const right = left + 1;
+      let child = left;
+      if (right < heap.length) {
+        const a = heap[right], b = heap[left];
+        if (a.score < b.score || (a.score === b.score && a.index < b.index)) child = right;
+      }
+      const next = heap[child];
+      if (next.score > last.score ||
+          (next.score === last.score && next.index >= last.index)) break;
+      heap[position] = next;
+      position = child;
+    }
+    heap[position] = last;
+  }
+  return first;
+}
+
+/** Deterministic A* over visible tiles using a binary heap (O(E log V)).
+ * Slope affects cost, not reachability. Equal scores preserve lower tile IDs.
+ */
 export function findTilePath(data, start, goal) {
   validateWorld(data);
   const n = data.size, count = n * n;
@@ -99,23 +143,19 @@ export function findTilePath(data, start, goal) {
   const cost = new Float64Array(count).fill(Infinity);
   const previous = new Int32Array(count).fill(-1);
   const settled = new Uint8Array(count);
-  const frontier = new Set([start]);
   const heuristic = i => Math.abs(i % n - goal % n) + Math.abs(Math.floor(i / n) - Math.floor(goal / n));
+  const frontier = [];
   cost[start] = 0;
-  while (frontier.size) {
-    let current = -1, bestScore = Infinity;
-    for (const i of frontier) {
-      const score = cost[i] + heuristic(i);
-      if (score < bestScore || (score === bestScore && i < current)) {
-        current = i; bestScore = score;
-      }
-    }
+  heapPush(frontier, { index: start, score: heuristic(start), cost: 0 });
+  while (frontier.length) {
+    const nextEntry = heapPop(frontier);
+    const current = nextEntry.index;
+    if (settled[current] || nextEntry.cost !== cost[current]) continue;
     if (current === goal) {
       const path = [];
       for (let i = goal; i !== -1; i = previous[i]) path.push(i);
       return path.reverse();
     }
-    frontier.delete(current);
     settled[current] = 1;
     const x = current % n, y = Math.floor(current / n);
     const neighbors = [y > 0 ? current - n : -1, x < n - 1 ? current + 1 : -1, y < n - 1 ? current + n : -1, x > 0 ? current - 1 : -1];
@@ -125,7 +165,7 @@ export function findTilePath(data, start, goal) {
       if (candidate < cost[next]) {
         cost[next] = candidate;
         previous[next] = current;
-        frontier.add(next);
+        heapPush(frontier, { index: next, score: candidate + heuristic(next), cost: candidate });
       }
     }
   }
