@@ -67,6 +67,14 @@ def _safe_region_token(region_id: str) -> str:
     return token
 
 
+def _contained_artifact(out_dir: Path, filename: str) -> Path:
+    """Refuse pre-existing symlinks and resolved paths outside the selected output root."""
+    candidate = out_dir / filename
+    if candidate.is_symlink() or not candidate.resolve().is_relative_to(out_dir.resolve()):
+        raise ValueError(f"material artifact path escapes output directory: {filename!r}")
+    return candidate
+
+
 def crop_region(source: Path, bbox: dict[str, Any], output: Path) -> dict[str, Any]:
     width, height, pixels, warnings = load_image(source)
     x0, y0, crop_width, crop_height = _bounded_bbox(bbox, width, height)
@@ -132,10 +140,10 @@ def analyze_manifest(
         if not source.exists():
             raise ValueError(f"region {region_id!r} source image does not exist: {source}")
         region_token = _safe_region_token(region_id)
-        crop_path = out_dir / f"{index:02d}-{region_token}.png"
+        crop_path = _contained_artifact(out_dir, f"{index:02d}-{region_token}.png")
         crop_info = crop_region(source, region.get("bbox"), crop_path)
         texture_report = analyze(crop_path)
-        pbr_dir = out_dir / f"pbr-{index:02d}-{region_token}"
+        pbr_dir = _contained_artifact(out_dir, f"pbr-{index:02d}-{region_token}")
         args = Namespace(
             image=crop_path,
             out_dir=pbr_dir,
