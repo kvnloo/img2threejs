@@ -77,6 +77,15 @@ def now_utc() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def ready_signal_passed(value: Any) -> bool:
+    """Only an explicit true value proves that the browser reached readiness.
+
+    CLI --ready-signal values arrive as strings; never rely on bool("false").
+    Missing or ambiguous values must not validate a recorded screenshot.
+    """
+    return value is True or (isinstance(value, str) and value.strip().lower() == "true")
+
+
 def init_manifest(
     reference: Path | None,
     runtime_url: str,
@@ -338,12 +347,16 @@ def validate_manifest(path: Path, require_complete: bool = False) -> dict[str, A
         if capture_id in ids:
             errors.append(f"duplicate capture id: {capture_id}")
         ids.add(capture_id)
-        if reference.get("kind") == "glb":
+        if isinstance(reference, dict) and reference.get("kind") == "glb":
             baseline = capture.get("reference")
             if not isinstance(baseline, dict) or baseline.get("status") != "recorded":
                 if require_complete:
                     errors.append(f"GLB reference baseline is not recorded: {capture_id}")
-            elif baseline.get("path"):
+            elif not baseline.get("path"):
+                errors.append(f"recorded GLB reference baseline has no path: {capture_id}")
+            else:
+                if not ready_signal_passed(baseline.get("readySignal")):
+                    errors.append(f"GLB reference capture lacks a passing ready signal: {capture_id}")
                 baseline_path = manifest_path(path, str(baseline["path"]))
                 if not baseline_path.is_file():
                     errors.append(f"GLB reference baseline is missing: {baseline_path}")
@@ -365,6 +378,8 @@ def validate_manifest(path: Path, require_complete: bool = False) -> dict[str, A
                 errors.append(f"capture is not recorded: {capture_id}")
             continue
         recorded += 1
+        if not ready_signal_passed(capture.get("readySignal")):
+            errors.append(f"recorded capture lacks a passing ready signal: {capture_id}")
         screenshot_value = capture.get("path")
         if not screenshot_value:
             errors.append(f"recorded capture has no path: {capture_id}")
@@ -410,6 +425,8 @@ def diagnose(path: Path, output: Path) -> dict[str, Any]:
     hero_path = manifest_path(path, str(hero["path"]))
     if hero.get("status") != "recorded":
         raise ValueError("hero capture must be recorded before diagnostics")
+    if not ready_signal_passed(hero.get("readySignal")):
+        raise ValueError("hero capture must have a passing browser ready signal before diagnostics")
 
     review_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(review_dir))
@@ -419,11 +436,15 @@ def diagnose(path: Path, output: Path) -> dict[str, Any]:
     orbit_paths = []
     for capture in manifest.get("captures", []):
         if isinstance(capture, dict) and capture.get("role") == "orbit" and capture.get("status") == "recorded":
+            if not ready_signal_passed(capture.get("readySignal")):
+                raise ValueError(f"orbit capture lacks a passing browser ready signal: {capture.get('id')}")
             orbit_paths.append(manifest_path(path, str(capture["path"])))
     if reference_record.get("kind") == "glb":
         hero_reference = hero.get("reference")
         if not isinstance(hero_reference, dict) or hero_reference.get("status") != "recorded":
             raise ValueError("GLB reference hero baseline must be recorded before diagnostics")
+        if not ready_signal_passed(hero_reference.get("readySignal")):
+            raise ValueError("GLB reference hero baseline must have a passing browser ready signal")
         comparison_reference_path = manifest_path(path, str(hero_reference["path"]))
     else:
         comparison_reference_path = reference_path
