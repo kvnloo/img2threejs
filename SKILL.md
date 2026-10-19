@@ -221,6 +221,14 @@ Full flags: `grimoire/scripts.md`. Never let a script *score* visuals — that i
    `forge/stage4_review/turntable_gate.py --capture 0=front.png --capture 90=right.png --capture 180=rear.png --capture 270=left.png --json`
    `node runtime/scripts/export_mesh_geometry.mjs --url <preview> --out meshes.json` then
    `forge/stage4_review/self_intersection.py meshes.json --json`
+   The preview must expose `window.__IMG2THREEJS_READY__ = true` plus
+   `window.__IMG2THREEJS_MESH_ROOT__ = modelGroup` (the rendered model `THREE.Group`,
+   not the whole scene), or `window.__IMG2THREEJS_CAPTURE__.getModelRoot()` returning
+   that group. The exporter uses optional Playwright; install it in an isolated Node
+   environment (`npm install --no-save --package-lock=false playwright` followed by
+   `npx playwright install chromium`). It emits world-space mesh vertices/normals and
+   fails closed on missing geometry, incomplete draw ranges, or active skin/morph poses
+   until those geometries are baked.
    `forge/stage4_review/attachment_anchor.py object-sculpt-spec.json --measured measured.json --json`
    All three exit `0` clean / `1` gate failure / `2` error. A failure blocks `continue` even when
    the global fidelity score passes. Read `sampledVertexCount` / `unmeasuredAttachments` /
