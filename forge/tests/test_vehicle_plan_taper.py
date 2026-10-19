@@ -68,6 +68,30 @@ class PlanTaperContract(unittest.TestCase):
         self.assertTrue(report["passed"], report["failures"])
         self.assertAlmostEqual(report["stations"][1]["measuredWidth"], 0.8)
 
+    def test_side_only_rails_cannot_mimic_a_complete_body_width(self):
+        # Keep only the two longitudinal side surfaces from an otherwise
+        # exact reference-profile prism. Every station still has the correct
+        # min/max Z, but no triangle supports the span between these rails.
+        specimen = car_mesh()
+        indices = specimen["meshes"][0]["indices"]
+        side_only = []
+        for strip in range(4):
+            for side in (1, 3):
+                start = strip * 24 + side * 6
+                side_only.extend(indices[start:start + 6])
+        specimen["meshes"][0]["indices"] = side_only
+        self.assertEqual(len(side_only), 48)
+        with self.assertRaisesRegex(module.PlanTaperInputError, "surface-backed lateral coverage"):
+            module.evaluate(specimen, table(), mesh_name="body")
+
+    def test_connected_surface_has_full_lateral_coverage_receipts(self):
+        report = module.evaluate(car_mesh(), table(), mesh_name="body")
+        self.assertTrue(report["passed"])
+        self.assertEqual(
+            [row["lateralCoverageFraction"] for row in report["stations"]],
+            [1.0] * 5,
+        )
+
     def test_constant_width_stadium_body_is_rejected(self):
         report = module.evaluate(car_mesh((1, 1, 1, 1, 1)), table(), mesh_name="body")
         self.assertFalse(report["passed"])
@@ -208,6 +232,28 @@ class PlanTaperContract(unittest.TestCase):
         mesh["meshes"][0]["indices"][3] = len(mesh["meshes"][0]["vertices"]) + 99
         with self.assertRaisesRegex(module.PlanTaperInputError, "invalid vertex index"):
             module.evaluate(mesh, table(), mesh_name="body")
+
+    def test_rail_only_cli_fails_closed_without_fabricated_profile(self):
+        specimen = car_mesh()
+        indices = specimen["meshes"][0]["indices"]
+        specimen["meshes"][0]["indices"] = [
+            value
+            for strip in range(4)
+            for side in (1, 3)
+            for value in indices[strip * 24 + side * 6:strip * 24 + side * 6 + 6]
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            geo, sections = root / "mesh.json", root / "sections.json"
+            geo.write_text(json.dumps(specimen), encoding="utf-8")
+            sections.write_text(json.dumps(table()), encoding="utf-8")
+            result = subprocess.run([
+                sys.executable, str(SCRIPT), "--geometry", str(geo),
+                "--sections", str(sections), "--mesh", "body", "--json",
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("surface-backed lateral coverage", result.stderr)
+            self.assertNotIn('"passed": true', result.stdout)
 
     def test_cli_pass_fail_and_error_exit_codes(self):
         with tempfile.TemporaryDirectory() as temp:
