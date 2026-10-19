@@ -34,7 +34,7 @@ its regular material, geometry, and review fields.
   parent component node's frame** (or model-root frame for a root component).
 - `transform.position` retains its old meaning: component center in the
   same parent frame. It is not reinterpreted as a hinge position.
-- `restAngleDeg` is a finite angle around the directed
+- `restAngleDeg` is optional (defaults to 0), a finite angle around the directed
   `axisStart -> axisEnd` axis (right-hand rule), in degrees.
 - An absent `hinge` emits the original hierarchy unchanged. Malformed,
   degenerate, or non-finite hinge declarations fail spec validation.
