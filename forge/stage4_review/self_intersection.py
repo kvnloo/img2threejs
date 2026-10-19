@@ -527,10 +527,17 @@ def _load_meshes(path: Path) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict):
-        # A browser exporter may have captured only a subset of the scene.
-        # Passing that partial list would certify uninspected geometry as clean.
-        if "incomplete" in payload and payload["incomplete"] is not False:
-            raise ValueError("incomplete mesh export: not all requested geometry was captured")
+        # Raw legacy meshes/components need no browser-side metadata, but an
+        # exporter *receipt* is evidence of scene coverage, not just geometry.
+        # If its schema/space/skipped fields identify it as such, omission of the
+        # completeness flag must not silently certify an unknown partial scene.
+        exporter_fields = {"schemaVersion", "coordinateSpace", "skipped", "skippedMeshes"}
+        exporter_receipt = any(field in payload for field in exporter_fields)
+        if ("incomplete" in payload or exporter_receipt) and payload.get("incomplete") is not False:
+            raise ValueError("incomplete or unverified mesh export: explicit incomplete=false required")
+        if "schemaVersion" in payload and (type(payload["schemaVersion"]) is not int or
+                                           payload["schemaVersion"] != 1):
+            raise ValueError("unsupported mesh export schemaVersion: expected integer 1")
         if "coordinateSpace" in payload and payload["coordinateSpace"] != "world":
             raise ValueError("mesh export coordinates must be in world space")
         # An exporter that omitted active meshes must not report a clean
