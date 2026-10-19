@@ -55,7 +55,10 @@ def build_brief(path: Path, *, since: str = "", max_ids: int = 8) -> dict[str, A
     raw = path.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
     manifest = read_manifest(path)
-    validation = validate_manifest(path, require_complete=True)
+    # A pending camera is expected incomplete work, not corrupt evidence.
+    # Use non-strict structural validation; pending views are independently
+    # accounted for below and still prevent evidenceComplete.
+    validation = validate_manifest(path, require_complete=False)
     captures = manifest.get("captures")
     if not isinstance(captures, list):
         captures = []
