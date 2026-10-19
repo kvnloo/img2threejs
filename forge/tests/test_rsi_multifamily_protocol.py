@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+from copy import deepcopy
+import hashlib
 import json
 import sys
 import tempfile
@@ -60,29 +62,51 @@ class RegisteredProtocolTest(unittest.TestCase):
     def test_holdout_policy_cannot_use_validation_or_partial_training_data(self) -> None:
         registration, digest = rsi.registration()
         train_ids = [w["id"] for w in registration["worlds"] if w["split"] == "train"]
+        validation_ids = [w["id"] for w in registration["worlds"] if w["split"] == "validation"]
         good = {
             "schema": "rsi-multifamily-policy-freeze-v1",
             "registrationSha256": digest,
             "coordinateOrder": [1, 0],
             "trainingWorldIds": train_ids,
-            "holdoutOpened": False,
+            "validationWorldIds": validation_ids,
+            "trainingReceiptSha256": {wid: "a" * 64 for wid in train_ids},
+            "validationReceiptSha256": {wid: "b" * 64 for wid in validation_ids},
+            "holdoutOpened": False, "holdoutObserved": False,
+            "trainingOnlyPolicy": True, "photoFidelityClaim": False,
+            "holdoutPerformanceClaim": False, "validationPassed": True,
         }
+
+        def add_digest(record):
+            record["policyDigest"] = hashlib.sha256(rsi._canonical({
+                key: value for key, value in record.items() if key != "policyDigest"
+            })).hexdigest()
+            return record
+
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "frozen.json"
-            path.write_text(json.dumps(good), encoding="utf-8")
+            path.write_text(json.dumps(add_digest(good)), encoding="utf-8")
             rsi.check_frozen_policy(path, digest)
             for mutate in (
                 lambda d: d.update(coordinateOrder=[0, 0]),
                 lambda d: d.update(trainingWorldIds=train_ids[:-1]),
                 lambda d: d.update(trainingWorldIds=train_ids[:-1] + ["lathe-validation-05"]),
+                lambda d: d.update(validationWorldIds=validation_ids[:-1]),
                 lambda d: d.update(holdoutOpened=True),
+                lambda d: d.update(holdoutObserved=True),
+                lambda d: d.update(validationPassed=False),
                 lambda d: d.update(registrationSha256="f" * 64),
             ):
-                receipt = dict(good)
+                receipt = deepcopy(good)
                 mutate(receipt)
-                path.write_text(json.dumps(receipt), encoding="utf-8")
+                path.write_text(json.dumps(add_digest(receipt)), encoding="utf-8")
                 with self.assertRaises(ValueError):
                     rsi.check_frozen_policy(path, digest)
+            # Even a content edit with old valid metadata must fail the digest.
+            receipt = deepcopy(good)
+            receipt["candidateOrder"] = [0, 1]
+            path.write_text(json.dumps(receipt), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "digest"):
+                rsi.check_frozen_policy(path, digest)
 
     def test_each_family_changes_real_generated_topology(self) -> None:
         # This calls the same native generator as the real Chromium job. A
