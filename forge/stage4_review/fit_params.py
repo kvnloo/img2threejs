@@ -297,6 +297,10 @@ def _normalize_inputs(initial: Sequence[float], bounds: Sequence[Sequence[float]
         upper = _finite_parameter(pair[1], f"bounds[{index}][1]")
         if lower >= upper:
             raise FitInputError(f"bounds[{index}]", "lower must be smaller than upper")
+        # Finite endpoints can still have an infinite width, e.g. [-1e308, 1e308].
+        # That yields an infinite trial step and non-JSON-compliant telemetry.
+        if not math.isfinite(upper - lower):
+            raise FitInputError(f"bounds[{index}]", "span must be finite")
         if not lower <= parameters[index] <= upper:
             raise FitInputError(f"initial[{index}]", "must be within its bounds")
         normalized_bounds.append((lower, upper))
@@ -304,15 +308,27 @@ def _normalize_inputs(initial: Sequence[float], bounds: Sequence[Sequence[float]
 
 
 def _finite_parameter(value: float, field: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, int | float):
         raise FitInputError(field, "must be a finite non-boolean number")
-    return float(value)
+    try:
+        normalized = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise FitInputError(field, "must be a finite non-boolean number") from exc
+    if not math.isfinite(normalized):
+        raise FitInputError(field, "must be a finite non-boolean number")
+    return normalized
 
 
 def _finite_score(score: float) -> float:
-    if isinstance(score, bool) or not isinstance(score, int | float) or not math.isfinite(score):
+    if isinstance(score, bool) or not isinstance(score, int | float):
         raise NonFiniteScoreError(repr(score))
-    return float(score)
+    try:
+        value = float(score)
+    except (OverflowError, ValueError) as exc:
+        raise NonFiniteScoreError("unrepresentable numeric objective score") from exc
+    if not math.isfinite(value):
+        raise NonFiniteScoreError(repr(score))
+    return value
 
 
 def _replace_coordinate(values: ParameterVector, index: int, value: float) -> ParameterVector:
@@ -324,12 +340,13 @@ def _validate_config(config: FitConfig) -> None:
         raise FitInputError("config", "must be a FitConfig")
     if not all(_is_positive_integer(value) for value in (config.max_iterations, config.max_evaluations, config.plateau_iterations, config.oscillation_flips)):
         raise FitInputError("config", "iteration, evaluation, plateau, and oscillation limits must be positive")
-    if (
-        isinstance(config.min_improvement, bool)
-        or not isinstance(config.min_improvement, int | float)
-        or config.min_improvement < 0.0
-        or not math.isfinite(config.min_improvement)
-    ):
+    if isinstance(config.min_improvement, bool) or not isinstance(config.min_improvement, int | float):
+        raise FitInputError("config.min_improvement", "must be a finite non-negative number")
+    try:
+        finite_improvement = float(config.min_improvement)
+    except (OverflowError, ValueError) as exc:
+        raise FitInputError("config.min_improvement", "must be a finite non-negative number") from exc
+    if not math.isfinite(finite_improvement) or finite_improvement < 0.0:
         raise FitInputError("config.min_improvement", "must be a finite non-negative number")
     if config.seed is not None and (isinstance(config.seed, bool) or not isinstance(config.seed, int)):
         raise FitInputError("config.seed", "must be an integer or null")
