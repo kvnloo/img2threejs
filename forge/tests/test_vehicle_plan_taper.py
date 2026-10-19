@@ -93,6 +93,38 @@ class PlanTaperContract(unittest.TestCase):
         self.assertEqual([row["measuredWidth"] for row in flat["stations"]],
                          [row["measuredWidth"] for row in grouped["stations"]])
 
+    def test_collinear_edges_at_every_station_are_not_surface_evidence(self):
+        # This fake car is only five isolated horizontal lines. The old
+        # slice algorithm saw min/max Z at every X and returned a false pass.
+        vertices, indices = [], []
+        for x in (-2, -1, 0, 1, 2):
+            base = len(vertices)
+            vertices.extend([[x, 0, -1], [x, 0, 0], [x, 0, 1]])
+            indices.extend([base, base + 1, base + 2])
+        mesh = {"coordinateSpace": "world", "incomplete": False, "meshes": [
+            {"name": "body", "vertices": vertices, "indices": indices}
+        ]}
+        with self.assertRaisesRegex(module.PlanTaperInputError, "no nondegenerate surface"):
+            module.evaluate(mesh, table((1, 1, 1, 1, 1)), mesh_name="body")
+
+    def test_degenerate_wide_spike_does_not_poison_valid_plan_profile(self):
+        mesh = car_mesh()
+        part = mesh["meshes"][0]
+        base = len(part["vertices"])
+        part["vertices"].extend([[0, 0, -100], [0, 0, 0], [0, 0, 100]])
+        part["indices"].extend([base, base + 1, base + 2])
+        report = module.evaluate(mesh, table(), mesh_name="body")
+        self.assertTrue(report["passed"], report["failures"])
+        self.assertEqual(report["degenerateTrianglesIgnored"], 1)
+        self.assertAlmostEqual(report["stations"][2]["measuredWidth"], 0.8)
+
+    def test_repeated_vertex_face_is_ignored_without_corrupting_measured_body(self):
+        mesh = car_mesh()
+        mesh["meshes"][0]["indices"].extend([0, 0, 1])
+        report = module.evaluate(mesh, table(), mesh_name="body")
+        self.assertTrue(report["passed"], report["failures"])
+        self.assertEqual(report["degenerateTrianglesIgnored"], 1)
+
     def test_missing_center_slice_has_no_false_pass(self):
         mesh = car_mesh()
         spec = table()
