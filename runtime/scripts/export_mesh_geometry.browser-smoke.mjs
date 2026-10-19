@@ -4,7 +4,7 @@
  * The workflow installs them outside the repository and keeps the core dep-free.
  */
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
@@ -19,6 +19,7 @@ const depsRoot = process.env.IMG2THREEJS_SHOWCASE_ROOT;
 assert.ok(depsRoot, 'set IMG2THREEJS_SHOWCASE_ROOT to an isolated Playwright + Three.js installation');
 const require = createRequire(join(resolve(depsRoot), 'package.json'));
 const { chromium } = require('playwright');
+const { build } = require('esbuild');
 const buildDir = join(resolve(depsRoot), 'node_modules', 'three', 'build');
 const screenshots = join(process.env.RUNNER_TEMP || tmpdir(), 'img2-export-smoke');
 
@@ -71,6 +72,12 @@ const server = createServer(async (req, res) => {
     if (pathname === '/' || pathname === '/partial' || pathname === '/instances' || pathname === '/studio-only' || pathname === '/browser-error') {
       res.writeHead(200, {'content-type': 'text/html; charset=utf-8'});
       res.end(fixture(pathname.slice(1) || 'normal'));
+    } else if (pathname === '/generated') {
+      res.writeHead(200, {'content-type': 'text/html; charset=utf-8'});
+      res.end('<!doctype html><html><body><script type="module" src="/generated-bundle.js"></script></body></html>');
+    } else if (pathname === '/generated-bundle.js') {
+      res.writeHead(200, {'content-type': 'text/javascript; charset=utf-8'});
+      res.end(await readFile(join(depsRoot, 'generated-factory-bundle.js')));
     } else if (pathname.startsWith('/three/')) {
       const name = basename(pathname);
       if (!/^[a-zA-Z0-9._-]+\.js$/.test(name)) throw new Error('unexpected module');
@@ -189,6 +196,54 @@ try {
     assert.ok(visibleSubjectPixels > 80,
       `WebGL screenshot contains no visible green subject; matching pixels: ${visibleSubjectPixels}`);
   } finally { await browser.close(); }
+
+  // Exercise the actual img2threejs stage3 generator, not only a hand-authored box.
+  // The fixture already belongs to the repository's hierarchy-scale regression;
+  // output is written to the isolated browser dependency directory, never the repo.
+  const generatedTs = join(depsRoot, 'generated-factory.ts');
+  const generatedClient = join(depsRoot, 'generated-factory-client.ts');
+  const generatedBundle = join(depsRoot, 'generated-factory-bundle.js');
+  const generatePython = [
+    'from pathlib import Path',
+    'import sys',
+    'sys.path.insert(0, "forge/tests")',
+    'from test_hierarchy_scale import NESTED_SCALE_SPEC, generate',
+    'Path(sys.argv[1]).write_text(generate(NESTED_SCALE_SPEC, "blockout"), encoding="utf-8")',
+  ].join('\\n');
+  execFileSync('python3', ['-c', generatePython, generatedTs], {cwd: REPO_ROOT});
+  await writeFile(generatedClient, [
+    "import * as THREE from 'three';",
+    "import { createNestedScaleRigModel } from './generated-factory.ts';",
+    "const scene = new THREE.Scene();",
+    "scene.background = new THREE.Color(0x182536);",
+    "const model = createNestedScaleRigModel();",
+    "scene.add(model);",
+    "const renderer = new THREE.WebGLRenderer({antialias:false});",
+    "renderer.setSize(320, 240);",
+    "document.body.appendChild(renderer.domElement);",
+    "const camera = new THREE.PerspectiveCamera(42, 320/240, .1, 100);",
+    "camera.position.set(4, 3, 6);",
+    "camera.lookAt(0, 0.5, 0);",
+    "renderer.render(scene, camera);",
+    "window.__IMG2THREEJS_VIEWER__ = {scene, modelRoot: model, started:true};",
+    "window.__IMG2THREEJS_READY__ = true;",
+  ].join('\\n') + '\\n', 'utf8');
+  await build({entryPoints: [generatedClient], outfile: generatedBundle,
+    bundle:true, format:'esm', platform:'browser', logLevel:'warning'});
+  const generatedOut = join(screenshots, 'generated-factory-meshes.json');
+  assert.equal(await runCli(['--url', url + 'generated', '--out', generatedOut]), 0,
+    'real stage3-generated factory must be exportable');
+  const generatedReceipt = JSON.parse(await readFile(generatedOut, 'utf8'));
+  assert.equal(generatedReceipt.incomplete, false);
+  assert.equal(generatedReceipt.rootSource, 'modelRoot');
+  assert.ok(generatedReceipt.meshes.length >= 2, 'generated torso + head geometry missing');
+  assert.ok(generatedReceipt.meshes.every(m => m.triangleCount > 0));
+  const generatedGate = spawnSync('python3',
+    ['forge/stage4_review/self_intersection.py', generatedOut, '--json'],
+    {cwd:REPO_ROOT, encoding:'utf8', maxBuffer:4_000_000});
+  await writeFile(join(screenshots, 'generated-factory-gate.json'), generatedGate.stdout, 'utf8');
+  assert.equal(generatedGate.status, 0,
+    'generated factory geometry gate: ' + generatedGate.stderr + ' ' + generatedGate.stdout);
 
   // Fail closed even when a successful artifact existed before an incomplete run.
   const partial = await runCli(['--url', url + 'partial', '--out', out]);
