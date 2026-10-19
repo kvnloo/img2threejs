@@ -228,6 +228,36 @@ document.getElementById('export').addEventListener('click', () => {
   document.body.append(a); a.click(); a.remove();
   URL.revokeObjectURL(href);
 });
+const importFile = document.getElementById('import-file');
+document.getElementById('import').addEventListener('click', () => importFile.click());
+importFile.addEventListener('change', async () => {
+  const file = importFile.files?.[0];
+  if (!file) return;
+  try {
+    if (file.size < 2 || file.size > 64 * 1024) {
+      throw new RangeError('Pose file size must be between 2 bytes and 64 KiB');
+    }
+    const parsed = JSON.parse(await file.text());
+    if (parsed?.format !== 'img2threejs.hinge-lab-pose.v1' ||
+        !parsed.anglesDegrees || typeof parsed.anglesDegrees !== 'object') {
+      throw new Error('Unsupported pose format');
+    }
+    const angles = Object.fromEntries(ids.map(id => {
+      const angle = parsed.anglesDegrees[id];
+      if (typeof angle !== 'number' || !Number.isFinite(angle) ||
+          angle < -180 || angle > 180) {
+        throw new Error('Missing or invalid angle for ' + id);
+      }
+      return [id, angle];
+    }));
+    applyAll(angles);
+    setStatus('inactive', 'Pose imported', file.name + ': four fold angles loaded locally.');
+  } catch (error) {
+    setStatus('unresolved', 'Import rejected', String(error.message || error));
+  } finally {
+    importFile.value = '';
+  }
+});
 window.addEventListener('resize', render);
 applyAll({});
 render();
