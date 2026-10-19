@@ -22,15 +22,31 @@ export function collectMeshGeometry(options = {}) {
   const include = options.include ? new RegExp(options.include) : null;
   const exclude = options.exclude ? new RegExp(options.exclude) : null;
   const cap = options.maxTriangles ?? 50000;
-  if (!Number.isSafeInteger(cap) || cap < 1) throw new Error('maxTriangles must be a positive integer');
+  for (const [key, value] of Object.entries({ maxTriangles: cap,
+    maxVertices: options.maxVertices ?? 300000,
+    maxInstances: options.maxInstances ?? 1000,
+    maxTotalTriangles: options.maxTotalTriangles ?? 100000 })) {
+    if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${key} must be a positive integer`);
+  }
   scene.updateMatrixWorld?.(true);
   const meshes = [];
   const skippedMeshes = [];
+  let exportedTriangles = 0;
+  let exportedVertices = 0;
   let named = 0;
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const attrAt = (attr, i) => [attr.getX(i), attr.getY(i), attr.getZ(i)];
-  root.traverse((mesh) => {
+  const multiply = (left, right) => {
+    const out = new Array(16);
+    for (let col = 0; col < 4; col++) for (let row = 0; row < 4; row++) {
+      let sum = 0;
+      for (let k = 0; k < 4; k++) sum += left[k * 4 + row] * right[col * 4 + k];
+      out[col * 4 + row] = sum;
+    }
+    return out;
+  };
+  const collect = (mesh) => {
     if (!mesh?.isMesh) return;
     const name = mesh.name || `unnamed-mesh-${++named}`;
     const skip = (reason) => skippedMeshes.push({ name, reason });
@@ -38,7 +54,41 @@ export function collectMeshGeometry(options = {}) {
       if (parent.visible === false) return skip('hidden');
     }
     if ((include && !include.test(name)) || (exclude && exclude.test(name))) return skip('filtered');
-    if (mesh.isInstancedMesh || mesh.isSkinnedMesh) return skip('animated-or-instanced-mesh');
+    if (mesh.isSkinnedMesh) return skip('skinned-mesh');
+    if (mesh.isInstancedMesh) {
+      const count = mesh.count;
+      const limit = options.maxInstances ?? 1000;
+      const instances = mesh.instanceMatrix?.array;
+      if (!Number.isSafeInteger(count) || count < 1 || count > limit) return skip('instance-count-budget');
+      if (!instances || instances.length < count * 16) return skip('missing-instance-matrices');
+      const world = mesh.matrixWorld?.elements;
+      if (!world || world.length !== 16 || !Array.from(world).every(Number.isFinite)) return skip('invalid-world-matrix');
+      const tintAttr = mesh.instanceColor;
+      if (tintAttr && tintAttr.count < count) return skip('invalid-instance-colors');
+      for (let i = 0; i < count; i++) {
+        const matrix = multiply(world, instances.slice(16 * i, 16 * (i + 1)));
+        if (!matrix.every(Number.isFinite)) return skip('invalid-instance-world-matrix');
+        const tint = tintAttr ? attrAt(tintAttr, i) : null;
+        if (tint && !tint.every(Number.isFinite)) return skip('invalid-instance-colors');
+        const original = mesh.geometry;
+        const geometry = tint ? {
+          index: original.index, drawRange: original.drawRange,
+          getAttribute(kind) {
+            const base = original.getAttribute(kind);
+            if (kind !== 'color') return base;
+            const count = original.getAttribute('position')?.count || 0;
+            return { count,
+              getX: k => (base ? base.getX(k) : 1) * tint[0],
+              getY: k => (base ? base.getY(k) : 1) * tint[1],
+              getZ: k => (base ? base.getZ(k) : 1) * tint[2],
+            };
+          }
+        } : original;
+        collect({ isMesh: true, name: `${name}[${i}]`, visible: true, parent: mesh.parent,
+          matrixWorld: { elements: matrix }, geometry });
+      }
+      return;
+    }
     if (mesh.morphTargetInfluences?.some((value) => value !== 0)) return skip('active-morph-targets');
     const geometry = mesh.geometry;
     const position = geometry?.getAttribute?.('position');
@@ -54,6 +104,8 @@ export function collectMeshGeometry(options = {}) {
     // A partial drawRange cannot certify the full mesh in an off-axis gate.
     if (start !== 0 || end !== available) return skip('partial-draw-range');
     if ((end - start) / 3 > cap) return skip('triangle-cap');
+    if (exportedTriangles + (end - start) / 3 > (options.maxTotalTriangles ?? 100000)) return skip('total-triangle-budget');
+    if (exportedVertices + position.count > (options.maxVertices ?? 300000)) return skip('vertex-budget');
     const e = mesh.matrixWorld?.elements;
     if (!e || e.length !== 16 || !Array.from(e).every(Number.isFinite)) return skip('invalid-world-matrix');
     const a = [e[0], e[1], e[2]], b = [e[4], e[5], e[6]], c = [e[8], e[9], e[10]];
@@ -102,7 +154,10 @@ export function collectMeshGeometry(options = {}) {
     if (normalsAttr) result.normals = normals;
     if (colorsAttr) result.colors = colors;
     meshes.push(result);
-  });
+    exportedTriangles += result.triangleCount;
+    exportedVertices += position.count;
+  };
+  root.traverse(collect);
   const incomplete = meshes.length === 0 || skippedMeshes.some(m => !['filtered', 'hidden'].includes(m.reason));
   return { schemaVersion: 1, coordinateSpace: 'world', meshes, skippedMeshes, incomplete };
 }
@@ -134,7 +189,8 @@ function parseArgs(argv) {
   if (argv.includes('--help') || argv.includes('-h')) return { help: true };
   const names = new Map([['--url', 'url'], ['--out', 'out'], ['--include', 'include'], ['--exclude', 'exclude'],
     ['--max-triangles', 'maxTriangles'], ['--ready-flag', 'readyFlag'], ['--viewer-handle', 'viewerHandle'],
-    ['--timeout-ms', 'timeoutMs']]);
+    ['--timeout-ms', 'timeoutMs'], ['--max-instances', 'maxInstances'],
+    ['--max-vertices', 'maxVertices'], ['--max-total-triangles', 'maxTotalTriangles']]);
   for (let i = 0; i < argv.length; i++) {
     const key = names.get(argv[i]);
     if (!key || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`invalid argument: ${argv[i]}`);
@@ -144,7 +200,7 @@ function parseArgs(argv) {
   const url = new URL(opts.url);
   if (!['http:', 'https:', 'file:'].includes(url.protocol)) throw new Error('unsupported preview URL protocol');
   for (const prop of ['include', 'exclude']) if (opts[prop]) new RegExp(opts[prop]);
-  for (const prop of ['maxTriangles', 'timeoutMs']) if (opts[prop] !== undefined) {
+  for (const prop of ['maxTriangles', 'maxInstances', 'maxVertices', 'maxTotalTriangles', 'timeoutMs']) if (opts[prop] !== undefined) {
     const n = Number(opts[prop]);
     if (!Number.isSafeInteger(n) || n < 1) throw new Error(`${prop} must be a positive integer`);
     opts[prop] = n;
