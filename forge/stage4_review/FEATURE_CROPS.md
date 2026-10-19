@@ -39,6 +39,22 @@ The script rejects malformed ROIs, mismatched sheet dimensions, missing or
 duplicated landmarks, and landmark displacement beyond the threshold.
 It does not write a new feature image when alignment fails.
 
+### Provenance checks
+
+`--sheet` must refer to the resolved `comparisonImage` path recorded in
+`comparison.json`; identical-looking or copied sheets at other paths are
+rejected rather than silently mixing evidence. If the manifest includes a
+`comparisonSha256` field, its 64-character hexadecimal digest must match
+the sheet bytes. The tool also refuses a sheet that changes during PNG
+decoding and records the verified SHA-256 in the feature receipt. Existing
+comparison manifests without a digest remain supported (with strict path
+binding).
+
+The crop samples pixels from the *finished* sheet. This matters when
+[full-frame contain/letterbox fitting](https://github.com/img2threejs/img2threejs/pull/73)
+replaces center cropping: crop coordinates remain panel-relative and no
+second source-to-panel transform is inferred.
+
 **Limits:** Manually declared 2D correspondences are not independent image
 registration, camera pose validation, or proof of 3D reconstruction fidelity.
 Check actual camera/landmark calibration before treating a feature comparison
