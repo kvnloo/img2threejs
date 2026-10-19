@@ -31,11 +31,12 @@ Malformed and zero-length axes fail spec validation.
 
 The generator retains the original component pivot in
 `root.userData.sculptRuntime.nodes[id]`. For a hinged component it inserts
-three groups between the parent and that pivot: an axis-alignment group,
-a Y-rotation group, and an inverse-alignment group. At 0 degrees these
-cancel, preserving the original component transform; at nonzero angles
-the subtree swings about the declared edge. Children may declare their
-own hinges, so fold chains are hierarchical.
+four groups between parent and pivot: axis-alignment, Y-rotation,
+inverse-alignment, and translation offset. The offset keeps the exposed
+`nodes[id].position` equal to the authored local position rather than
+silently mutating it. At 0 degrees these transforms compose to the
+unhinged pose; at nonzero angles the subtree swings about the declared
+edge. Children may declare their own hinges, so fold chains are hierarchical.
 
 To animate a fold after creating the model:
 
@@ -61,11 +62,13 @@ npx --no-install playwright install --with-deps chromium
 HINGE_SCREENSHOTS=/tmp/hinge-screenshots node forge/tests/hinge_runtime.mjs
 ```
 
-The separate [WebGL smoke workflow](../.github/workflows/hinge-runtime.yml)
-compiles the actual generated TypeScript, verifies parent-frame and nested
-joint world transforms, checks lid/flap seam continuity across 0–90 degrees
-in 5-degree steps, and captures Chromium screenshots at 0/45/90 degrees.
-These are uploaded as `hinge-swept-views` artifacts.
+An [opt-in downstream WebGL acceptance harness](https://github.com/kvnloo/img2threejs/tree/study/hinge-real-photo-ab-20261019/forge/tests)
+compiles the actual generated TypeScript, verifies nested parent-frame
+joint world transforms and lid/flap crease continuity across a 0–90
+degree sweep, and captures Chromium views at 0/45/90 degrees.
+[Passing Chromium/TypeScript evidence](https://github.com/kvnloo/img2threejs/actions/runs/39214481055).
+The Python-only core remains dependency-free; browser tooling and
+downloaded reference images stay outside this proposed upstream patch.
 
 This proves fixture articulation, not reference-image reconstruction fidelity
 or collision-free motion for arbitrary subjects. Bone-bound components in
