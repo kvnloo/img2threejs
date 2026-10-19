@@ -86,12 +86,30 @@ def create_feature_crop(
     landmarks: list[dict],
     max_alignment_px: float = 8.0,
 ) -> dict:
+    if not isinstance(manifest, dict):
+        raise ValueError("comparison manifest must be a JSON object")
+    recorded_sheet = manifest.get("comparisonImage")
+    if not isinstance(recorded_sheet, str) or not recorded_sheet.strip():
+        raise ValueError("comparison manifest must include comparisonImage")
+    if Path(recorded_sheet).expanduser().resolve() != sheet.expanduser().resolve():
+        raise ValueError("comparison manifest points to a different sheet")
+    source_sha256 = hashlib.sha256(sheet.read_bytes()).hexdigest()
+    expected_sha256 = manifest.get("comparisonSha256")
+    if expected_sha256 is not None:
+        if (not isinstance(expected_sha256, str)
+                or len(expected_sha256) != 64
+                or any(char not in "0123456789abcdefABCDEF" for char in expected_sha256)):
+            raise ValueError("comparisonSha256 must be 64 hexadecimal characters")
+        if source_sha256 != expected_sha256.lower():
+            raise ValueError("comparison sheet SHA-256 disagrees with manifest")
     if manifest.get("layout") != "left=reference,right=render":
         raise ValueError("expected a left=reference,right=render comparison manifest")
     panel_w, panel_h = manifest.get("panelWidth"), manifest.get("panelHeight")
     if any(type(size) is not int or size <= 0 for size in (panel_w, panel_h)):
         raise ValueError("manifest panelWidth and panelHeight must be positive integers")
     sheet_w, sheet_h, pixels = read_png(sheet)
+    if hashlib.sha256(sheet.read_bytes()).hexdigest() != source_sha256:
+        raise ValueError("comparison sheet changed during crop extraction")
     leftover = sheet_w - 2 * panel_w
     if leftover < 0 or leftover % 3 != 0:
         raise ValueError("sheet width does not match the comparison manifest")
@@ -117,7 +135,7 @@ def create_feature_crop(
     return {
         "featureImage": str(out.resolve()),
         "sourceComparison": str(sheet.resolve()),
-        "sourceComparisonSha256": hashlib.sha256(sheet.read_bytes()).hexdigest(),
+        "sourceComparisonSha256": source_sha256,
         "layout": "left=reference,right=render",
         "roiPanelPixels": [left, top, right, bottom],
         "width": output_w,
