@@ -96,14 +96,53 @@ test('negative determinant flips triangle winding and transforms normals', () =>
   assert.deepEqual(result.meshes[0].normals[0], [0, 0, 1]);
 });
 
-test('rejects unsupported skinned and instanced meshes without fake clean evidence', () => {
-  const skin = makeMesh('skin'); skin.isSkinnedMesh = true;
-  const instance = makeMesh('copies'); instance.isInstancedMesh = true;
-  const options = install(makeMesh('safe'), skin, instance);
-  const result = collectMeshGeometry(options);
-  assert.equal(result.meshes.length, 1);
+test('static instance matrices and tints expand into independently checkable meshes', () => {
+  const copies = makeMesh('copies');
+  copies.isInstancedMesh = true;
+  copies.count = 2;
+  const second = [...IDENTITY];
+  second[12] = 4;
+  copies.instanceMatrix = { array: [...IDENTITY, ...second] };
+  copies.instanceColor = attr([[1, 0, 0], [0, 1, 0]]);
+  const opts = install(copies);
+  const result = collectMeshGeometry(opts);
+  assert.equal(result.incomplete, false);
+  assert.deepEqual(result.meshes.map(m => m.name), ['copies[0]', 'copies[1]']);
+  assert.deepEqual(result.meshes[0].vertices[1], [1, 0, 0]);
+  assert.deepEqual(result.meshes[1].vertices[1], [5, 0, 0]);
+  assert.deepEqual(result.meshes[0].colors.slice(0, 3), [1, 0, 0]);
+  assert.deepEqual(result.meshes[1].colors.slice(0, 3), [0, 0, 0]);
+  assert.deepEqual(result.meshes[1].colors.slice(3, 6), [0, 1, 0]);
+});
+
+test('instance budgets and missing matrices fail closed', () => {
+  const copies = makeMesh('copies');
+  copies.isInstancedMesh = true;
+  copies.count = 2;
+  copies.instanceMatrix = {array: [...IDENTITY, ...IDENTITY]};
+  const opts = install(copies);
+  const capped = collectMeshGeometry({...opts, maxInstances: 1});
+  assert.equal(capped.incomplete, true);
+  assert.deepEqual(capped.skippedMeshes.map(m => m.reason), ['instance-count-budget']);
+  const vertexCapped = collectMeshGeometry({...opts, maxVertices: 3});
+  assert.equal(vertexCapped.incomplete, true);
+  assert.equal(vertexCapped.meshes.length, 1);
+  assert.deepEqual(vertexCapped.skippedMeshes.map(m => m.reason), ['vertex-budget']);
+  const triangleCapped = collectMeshGeometry({...opts, maxTotalTriangles: 1});
+  assert.equal(triangleCapped.incomplete, true);
+  assert.equal(triangleCapped.meshes.length, 1);
+  copies.instanceMatrix = null;
+  assert.deepEqual(collectMeshGeometry(opts).skippedMeshes.map(m => m.reason), ['missing-instance-matrices']);
+});
+
+test('skinned meshes remain explicitly incomplete evidence', () => {
+  const skin = makeMesh('skin');
+  skin.isSkinnedMesh = true;
+  const opts = install(makeMesh('safe'), skin);
+  const result = collectMeshGeometry(opts);
   assert.equal(result.incomplete, true);
-  assert.deepEqual(result.skippedMeshes.map(x => x.name), ['skin', 'copies']);
+  assert.deepEqual(result.meshes.map(x => x.name), ['safe']);
+  assert.deepEqual(result.skippedMeshes.map(x => x.reason), ['skinned-mesh']);
 });
 
 test('filters and hidden meshes remain explicitly accounted for', () => {
