@@ -93,6 +93,35 @@ the existing fixed order reached **0.9892** clean silhouette IoU versus
 helps. The calibration is neither an independent holdout nor an on-demand
 render-budget experiment, so **no upstream fitter-promotion gate is passed**.
 
+## New: on-demand browser render budget A/B
+
+`live_budget_ab.py --out DIR` now runs **after** the conventional six-image
+preflight. For each of the two coordinate orders, the native
+`fit_against_divine_eye` callback invokes the **actual Chrome executable**
+through `real_browser_capture.mjs --variant NAME --tag UNIQUE_TAG` for
+each requested candidate. Every call recompiles the candidate's
+generated TypeScript, opens a new headless Chromium instance, renders a
+new 256px PNG and stores an independent WebGL2 readiness/error receipt.
+
+- Exactly **3 freshly rendered candidates per order** (root + signed probes
+  on the prioritized coordinate); the same pre-existing target image is
+  supplied as the reference and excluded equally from both policy budgets.
+- The callback refuses any unseen vector, out-of-budget request, reused
+  screenshot filename, altered source spec or malformed browser receipt.
+- New PNG hashes, actual browser invocation count, elapsed seconds,
+  native Divine Eye verdict, fidelity, silhouette IoU and hard-gate failures
+  are published at `worlds/live-browser-budget-ab.json`. Partial work is
+  retained if a later capture fails. Evaluations and browser renders are
+  counted separately, and unexpected dispatch order is an error.
+- The original and calibrated cohorts are independent CI matrix jobs with
+  all their candidate PNGs and source hashes retained.
+
+This **does** exercise an on-demand browser cost boundary, unlike the earlier
+pre-rendered fitting preflight. It is still only a single procedural geometry
+family and a post-hoc calibration cohort, not a trained policy, genuine
+unseen holdout, public-photograph test, reproducible cross-hardware latency
+benchmark or evidence for an upstream advantage.
+
 ## Split
 
 Minimum initial run:
