@@ -24,9 +24,11 @@ Use the four fold sliders to rotate the emitted scene's real hinge joints.
 **Flatten all** resets to zero, and **Photo pose** applies a manually authored
 reference-like pose. Drag or touch the canvas to orbit the model.
 
-Enable **Collision experiment** to inject a small red BoxGeometry obstacle
-at the selected panel's positive 90-degree location. Evaluate the sweep to
-receive one of three states:
+The collision experiment always checks the selected emitted rigid flap
+against the **actual generated carton floor**, even without an injected
+obstacle. Enable the optional checkbox to add a small red BoxGeometry
+obstacle at the panel's positive 90-degree location. Evaluate the sweep
+to receive one of three states across all selected targets:
 
 - collision: penetration was found during the supported rigid-box sweep.
 - certified-clear: all tested intervals have conservative separation proofs
@@ -35,9 +37,21 @@ receive one of three states:
   This is not a safe verdict.
 
 The checker is not a universal mesh collision solver or physical sheet
-simulator. Obstacles are research-only injections and were not recovered
-from the photograph. The **Export pose JSON** control saves angles and the
-most recent collision verdict locally; no external service is contacted.
+simulator. In the test fixture, fully folding any of the four finite-thickness
+panels through 180° produces about **0.0425 model units** of overlap with
+the base floor. This is a genuine rendered-volume constraint, not evidence
+about real deformable cardboard.
+
+The green/red timeline shows sampled overlaps at up to 5° intervals; only
+the conservative adaptive interval checker can issue a supported
+certified-clear verdict, and it reports unresolved when its capped 512
+evaluations per target cannot establish clearance. On-screen latency is
+reported for transparency.
+
+Obstacles are research-only injections and were not recovered from the
+photograph. **Export pose JSON** and **Import pose JSON** round-trip
+the four fold angles locally. File imports are size-bounded, numeric-range
+validated and fail closed without mutating the current pose. No backend is used.
 
 ## Build and acceptance
 
