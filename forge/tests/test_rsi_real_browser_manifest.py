@@ -6,6 +6,7 @@ regressions fail before expensive Chrome rendering is scheduled.
 from __future__ import annotations
 
 import importlib.util
+from copy import deepcopy
 import json
 import tempfile
 import unittest
@@ -30,7 +31,7 @@ class RealBrowserCohortIntegrityTest(unittest.TestCase):
             "status": "prepared-not-rendered",
             "fixtureSha256": rsi.sha256(rsi.FIXTURE),
             "neighborhood": neighborhood,
-            "parameters": rsi.NEIGHBORHOODS[neighborhood],
+            "parameters": deepcopy(rsi.NEIGHBORHOODS[neighborhood]),
             "variants": [{"name": name} for name in rsi.NEIGHBORHOODS[neighborhood]],
         }
 
