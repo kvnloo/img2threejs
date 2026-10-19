@@ -67,6 +67,39 @@ class CoordinateOrderTest(unittest.TestCase):
         self.assertEqual(result.to_json()["fitResult"]["coordinateOrder"], [1, 0])
         self.assertEqual(result.correction_history[1]["hardGateFailures"], ["scale"])
 
+    def test_both_orders_preserve_probe_only_no_winner_verdict(self):
+        # The native Chromium preflight reproduced this exact failure mode:
+        # higher raw silhouette scores had action=probe/low-confidence, so
+        # neither coordinate order may turn a non-approved render into a win.
+        for order in ((0, 1), (1, 0)):
+            visits = []
+
+            def render(parameters):
+                visits.append(parameters)
+                return Path(f"candidate-{len(visits)}.png")
+
+            def evaluator(_reference, candidate):
+                return {
+                    "fidelity": 0.79 + 0.01 * int(candidate.stem.split("-")[1]),
+                    "hardGateFailures": [],
+                    "action": "probe",
+                    "verdict": "low-confidence",
+                }
+
+            with self.subTest(coordinate_order=order):
+                result = fit_against_divine_eye(
+                    (0.0, 0.0), ((-1.0, 1.0),) * 2,
+                    render, "reference.png", evaluator,
+                    FitConfig(max_evaluations=3, coordinate_order=order),
+                )
+                self.assertEqual(result.fit_result.evaluations, 3)
+                self.assertEqual(len(visits), 3)
+                self.assertEqual(result.fit_result.best_score, -1.0)
+                self.assertIsNone(result.best_raw_fidelity)
+                self.assertEqual(result.to_json()["fitResult"]["coordinateOrder"], list(order))
+                self.assertTrue(all(row["pendingReview"] for row in result.correction_history))
+                self.assertTrue(all(row["hardGateFailures"] == [] for row in result.correction_history))
+
     def test_cli_priority_and_malformed_order(self):
         payload = {
             "initial": [0.0, 0.0, 0.0],
