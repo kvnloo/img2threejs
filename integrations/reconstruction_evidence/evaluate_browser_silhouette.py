@@ -159,7 +159,7 @@ def run_experiment(reference_render: Path, matching_render: Path,
     if experimental["bestRawFidelity"] != baseline["bestRawFidelity"]:
         raise ValueError("silhouette evidence modified the evaluator's raw fidelity")
     report = {
-        "schemaVersion": 1, "fixtureClass": "synthetic-independent-webgl-reference",
+        "schemaVersion": 1, "fixtureClass": "synthetic-controlled-webgl-reference",
         "actualBrowserRendering": True, "photographicReconstruction": False,
         "realDA3Inference": False, "independentFidelityEvaluation": False,
         "shadowParity": parity["parity"],
