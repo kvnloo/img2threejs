@@ -351,6 +351,55 @@ test('v2 refuses fabricated/missing/duplicate/hidden bookmark state', () => {
   assert.throws(() => serializeWorld(empty, 0, adventure), RangeError);
 });
 
+test('single-pass compass agrees with separate A* route costs on randomized worlds', () => {
+  let seed = 71629;
+  const random = () => ((seed = (1664525 * seed + 1013904223) >>> 0) / 2 ** 32);
+  const side = 16;
+  for (let trial = 0; trial < 110; trial++) {
+    const world = voxelize(demoPixels('forest', side), side);
+    world.visible = world.visible.map(() => Number(random() > .21));
+    world.heights = world.heights.map(() => Math.floor(random() * 256));
+    const scoutCell = Math.floor(random() * (side * side));
+    world.visible[scoutCell] = 1;
+    const beacons = [];
+    while (beacons.length < 5) {
+      const candidate = Math.floor(random() * (side * side));
+      if (!beacons.includes(candidate)) beacons.push(candidate);
+    }
+    for (const beacon of beacons) world.visible[beacon] = 1;
+    const collected = beacons.filter(() => random() < .35);
+    let expected = null;
+    for (const target of beacons) {
+      if (collected.includes(target)) continue;
+      const path = findTilePath(world, scoutCell, target);
+      if (!path.length) continue;
+      const cost = path.reduce((sum, tile, i) =>
+        i ? sum + 1 + Math.abs(world.heights[tile] - world.heights[path[i - 1]]) / 255 * 1.5 : 0, 0);
+      if (!expected || cost < expected.cost - 1e-9 ||
+          (Math.abs(cost - expected.cost) < 1e-9 && target < expected.target)) {
+        expected = { target, cost };
+      }
+    }
+    const actual = nextBeaconRoute(world, scoutCell, beacons, collected);
+    if (!expected) {
+      assert.equal(actual, null, `trial ${trial} invented a beacon route`);
+      continue;
+    }
+    assert.equal(actual?.target, expected.target, `trial ${trial} chose wrong beacon`);
+    assert.ok(Math.abs(actual.cost - expected.cost) < 1e-8,
+      `trial ${trial} got cost ${actual.cost}, expected ${expected.cost}`);
+    assert.equal(actual.path[0], scoutCell);
+    assert.equal(actual.path.at(-1), expected.target);
+    assert.equal(actual.steps, actual.path.length - 1);
+    for (let i = 1; i < actual.path.length; i++) {
+      const a = actual.path[i - 1], b = actual.path[i];
+      assert.ok(world.visible[b]);
+      assert.equal(Math.abs(a % side - b % side) +
+        Math.abs(Math.floor(a / side) - Math.floor(b / side)), 1);
+    }
+  }
+});
+
 test('compass selects minimum-cost reachable uncollected beacon with deterministic ties', () => {
   const world = voxelize(demoPixels('forest', 8), 8);
   world.heights.fill(100);
