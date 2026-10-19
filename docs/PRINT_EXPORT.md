@@ -38,14 +38,16 @@ output directory, then atomically published: a write or float32 serialization
 error leaves no truncated output and does not destroy an existing file, even
 with `--force`.
 
-**Input completeness:** if the browser mesh exporter declares
-`"incomplete": true` or a coordinate space other than `"world"`, the
-print exporter refuses the receipt. `--allow-open` only permits intentionally
-open **captured** geometry; it never overrides missing/skipped live meshes.
-Legacy inputs without receipt metadata remain supported. A producer's
-`skippedMeshes` or `skipped` list is independently checked; only intentional
-`hidden` and `filtered` entries are accepted. Active or malformed skips
-fail closed even if the producer claims `incomplete: false`.
+**Input completeness:** a browser receipt declaring `schemaVersion`,
+`coordinateSpace`, `skippedMeshes` or `skipped` must also explicitly declare
+`"incomplete": false` as a JSON Boolean; omission or a truthy/stringified
+value is not proof that every live mesh was captured. The supported receipt
+schema is integer `"schemaVersion": 1` and its coordinates must be
+`"world"`. `--allow-open` only permits intentionally open **captured**
+geometry; it never overrides missing/skipped live meshes. Legacy raw arrays
+and simple mesh containers without exporter metadata remain supported.
+Only intentionally `hidden` and `filtered` skip entries are accepted;
+active or malformed skips fail closed even if completeness is declared false.
 
 ## CLI reference (exactly as in `build_parser`)
 
