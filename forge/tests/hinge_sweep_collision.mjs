@@ -179,10 +179,20 @@ export function certifyFoldSweep(joint, moving, obstacle, startDeg, endDeg, {
     const sat = boxPenetration(moving, obstacle, eps);
     const box = readBox(moving);
     const pivot = joint.getWorldPosition(new THREE.Vector3());
-    // Every box point lies within this sphere around the pivot. This loose
-    // bound is deliberately conservative for narrow or offset panels.
-    const radius = box.center.distanceTo(pivot) +
-      box.half[0] + box.half[1] + box.half[2];
+    const axis = new THREE.Vector3(0, 1, 0)
+      .transformDirection(joint.matrixWorld);
+    // Only distance perpendicular to the hinge axis contributes to motion.
+    // Projection of each oriented half-axis adds at most
+    // halfExtent * sqrt(1 - (boxAxis dot hingeAxis)^2).
+    // The triangle inequality bounds every box vertex without treating its
+    // length ALONG the hinge axis as sweep radius.
+    const offset = box.center.clone().sub(pivot);
+    const radialOffset = offset.addScaledVector(axis, -offset.dot(axis));
+    const radius = radialOffset.length() +
+      box.axes.reduce((sum, vector, i) => {
+        const parallel = Math.max(-1, Math.min(1, vector.dot(axis)));
+        return sum + box.half[i] * Math.sqrt(Math.max(0, 1 - parallel * parallel));
+      }, 0);
     if (!Number.isFinite(radius)) throw new Error('nonfinite swept radius');
     const result = { degrees, radius, overlap: sat.overlap,
       penetrating: sat.penetrating };
