@@ -107,6 +107,28 @@ export function collectMeshGeometry(options = {}) {
   return { schemaVersion: 1, coordinateSpace: 'world', meshes, skippedMeshes, incomplete };
 }
 
+/** Wait for a real, capture-ready subject, not the first partially mounted mesh.
+ * Keep self-contained: Playwright serializes this function into the page. */
+export function captureReady({ handle = '__IMG2THREEJS_VIEWER__', flag } = {}) {
+  const viewer = globalThis[handle];
+  const scene = viewer?.scene;
+  const root = viewer?.explodeRoot?.traverse ? viewer.explodeRoot
+    : viewer?.modelRoot?.traverse ? viewer.modelRoot : scene;
+  if (!scene || !root || typeof root.traverse !== 'function' || viewer?.disposed === true) return false;
+  // Viewer.start() can lag behind build(): a geometry handle alone is not readiness.
+  if (viewer.started === false) return false;
+  let found = false;
+  root.traverse(node => { if (node?.isMesh) found = true; });
+  if (!found) return false;
+  if (flag) return globalThis[flag] === true;
+  // The official showcase publishes this flag after loading + a few render frames.
+  // Once declared, false means "not ready", never "flag is optional".
+  if ('__IMG2THREEJS_READY__' in globalThis) return globalThis.__IMG2THREEJS_READY__ === true;
+  // Third-party previews without a readiness contract remain compatible. They can
+  // opt into a hard readiness gate with --ready-flag NAME.
+  return true;
+}
+
 function parseArgs(argv) {
   const opts = {};
   if (argv.includes('--help') || argv.includes('-h')) return { help: true };
@@ -156,15 +178,9 @@ export async function runCli(argv = process.argv.slice(2)) {
   try {
     const page = await browser.newPage();
     await page.goto(opts.url, { waitUntil: 'domcontentloaded', timeout: opts.timeoutMs ?? 30000 });
-    await page.waitForFunction(({ handle, flag }) => {
-      const viewer = globalThis[handle];
-      const scene = viewer?.scene;
-      const root = viewer?.explodeRoot?.traverse ? viewer.explodeRoot
-        : viewer?.modelRoot?.traverse ? viewer.modelRoot : scene;
-      let found = false;
-      root?.traverse?.(node => { if (node.isMesh) found = true; });
-      return found && (!flag || globalThis[flag] === true);
-    }, { handle: opts.viewerHandle || '__IMG2THREEJS_VIEWER__', flag: opts.readyFlag }, { timeout: opts.timeoutMs ?? 30000 });
+    await page.waitForFunction(captureReady,
+      { handle: opts.viewerHandle || '__IMG2THREEJS_VIEWER__', flag: opts.readyFlag },
+      { timeout: opts.timeoutMs ?? 30000 });
     const report = await page.evaluate(collectMeshGeometry, opts);
     if (report.incomplete) {
       const diagnostics = `${opts.out}.incomplete.json`;
