@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { chromium } from 'playwright-core';
 
@@ -12,6 +12,10 @@ const out = path.resolve(process.argv[2] || '');
 if (!process.argv[2]) throw new Error('usage: node real_browser_capture.mjs OUT_DIR');
 const manifest = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8'));
 if (manifest.status !== 'prepared-not-rendered') throw new Error('manifest must be prepared, not scored');
+// Variants live in RUNNER_TEMP; their generated TypeScript must resolve the
+// isolated package install beside this script, not search RUNNER_TEMP.
+const nodeModules = path.join(path.dirname(fileURLToPath(import.meta.url)), 'node_modules');
+if (!fs.existsSync(path.join(nodeModules, 'three'))) throw new Error('isolated Three.js install missing');
 const chrome = process.env.CHROME_BIN || '/usr/bin/google-chrome';
 if (!fs.existsSync(chrome)) throw new Error('Chromium/Chrome executable not found: ' + chrome);
 const browser = await chromium.launch({
@@ -28,6 +32,7 @@ try {
     const folder = path.join(out, variant.name);
     await build({
       entryPoints: [path.join(folder, 'viewer.ts')],
+      nodePaths: [nodeModules],
       outfile: path.join(folder, 'bundle.js'),
       bundle: true,
       platform: 'browser',
