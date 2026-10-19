@@ -150,6 +150,11 @@ function placeObstacle() {
 }
 function evaluate() {
   const id = collider.value;
+  const evaluationStart = performance.now();
+  // The UI uses a bounded, responsive budget. Uncertainty must be surfaced,
+  // not hidden by unlimited synchronous collision checks.
+  const maxChecksPerTarget = 512;
+  const maxDepth = 12;
   const segments = Math.max(1, Math.ceil(Math.abs(values[id]) / 5));
   const angles = Array.from({length:segments + 1}, (_, i) =>
     values[id] * i / segments);
@@ -159,7 +164,7 @@ function evaluate() {
     const sampled = sampleFold(runtime.hinges[id], runtime.meshes[id],
       target.mesh, angles);
     const adaptive = certifyFoldSweep(runtime.hinges[id], runtime.meshes[id],
-      target.mesh, 0, values[id], {maxDepth:16, maxChecks:4096});
+      target.mesh, 0, values[id], {maxDepth, maxChecks:maxChecksPerTarget});
     return {
       id:target.id, status:adaptive.status, collision:adaptive.collision,
       sampledCollisions:sampled.collisionSamples,
@@ -192,8 +197,10 @@ function evaluate() {
     'Green: sampled separation · Red: sampled overlap (' +
     hits + '/' + angles.length +
     '). Gaps between samples are not ruled out by this strip.';
+  const evaluationMs = Number((performance.now() - evaluationStart).toFixed(2));
   lastEvaluation = {
-    component:id, targetDegrees:values[id], status,
+    component:id, targetDegrees:values[id], status, evaluationMs,
+    maxChecksPerTarget, maxDepth,
     targets:results.map(({sampled, ...item}) => item),
     sampledCollisions:hits, sampledAngles:angles.length,
   };
@@ -211,7 +218,7 @@ function evaluate() {
   setStatus(status,
     status === 'collision' ? 'Collision detected' :
       status === 'certified-clear' ? 'Certified clear*' : 'Unresolved',
-    detail);
+    detail + ' (' + evaluationMs.toFixed(1) + ' ms)');
   return lastEvaluation;
 }
 function getStatus() {
