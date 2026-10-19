@@ -110,12 +110,21 @@ try {
     {'back-flap':22,'front-flap':-65,'left-flap':-24,'right-flap':32});
   await page.screenshot({path:join(output,'lab-photo-pose.png')});
   await page.locator('#rest').click();
+  await page.evaluate(()=>window.__hingeLab.setFold('back-flap',180));
+  await page.locator('#check').click();
+  const floorCollision = await page.evaluate(()=>window.__hingeLab.getStatus().lastEvaluation);
+  assert.equal(floorCollision?.status,'collision','finite-thickness carton floor must re-block 180-degree fold');
+  assert.equal(floorCollision?.targets?.[0]?.id,'carton floor');
+  assert.equal(floorCollision?.targets?.[0]?.status,'collision');
+  assert.ok(floorCollision?.targets?.[0]?.collision?.overlap>0);
+  await page.screenshot({path:join(output,'lab-floor-collision.png')});
+  await page.locator('#rest').click();
   await page.locator('#obstacle-enabled').check();
   await page.evaluate(()=>window.__hingeLab.setFold('back-flap',90));
   await page.locator('#check').click();
   const hit = await page.evaluate(()=>window.__hingeLab.getStatus());
   assert.equal(hit.lastEvaluation?.status,'collision');
-  assert.ok(hit.lastEvaluation?.collision?.overlap>0);
+  assert.ok(hit.lastEvaluation?.targets?.some(x=>x.status==='collision'&&x.collision?.overlap>0));
   const positiveBars = await page.locator('#collision-timeline span[data-hit="true"]').count();
   assert.ok(positiveBars > 0, 'positive sweep must show sampled penetrations');
   assert.ok(hit.lastEvaluation?.sampledAngles > 1);
@@ -175,10 +184,11 @@ try {
   assert.deepEqual(errors,[],'runtime browser errors');
   console.log('HINGE_LAB_PASS:',JSON.stringify({
     library:'Three.js r180',panels:4,
-    interactions:['photo preset','reset','positive collision','reverse certified-clear',
+    interactions:['photo preset','reset','carton floor penetration warning',
+      'positive collision','reverse certified-clear',
       'right-flap collision','export/import pose JSON','reject malformed pose','mobile layout'],
     screenshotFiles:['lab-flat.png','lab-photo-pose.png',
-      'lab-collision.png','lab-mobile.png'],
+      'lab-collision.png','lab-floor-collision.png','lab-mobile.png'],
     offlineRequests:remote.length,
     output,referenceSha256:digest,
   }));
