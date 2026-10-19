@@ -31,7 +31,9 @@ jobs:
             https://upload.wikimedia.org/wikipedia/commons/e/eb/Box.agr.jpg \
             --output "$RUNNER_TEMP/box.agr.jpg"
           test "$(wc -c < "$RUNNER_TEMP/box.agr.jpg")" -gt 25000
-          sha256sum "$RUNNER_TEMP/box.agr.jpg"
+          printf '%s  %s\n' \
+            '385f42408d114bad1cfc06adf773a64b1902779c9a4515da07413fbac0a13530' \
+            "$RUNNER_TEMP/box.agr.jpg" | sha256sum -c -
       - name: Install pinned test-only Three.js/browser dependencies
         run: |
           npm install --no-save --no-package-lock --ignore-scripts \
