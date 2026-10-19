@@ -337,6 +337,14 @@ Dumps a running model's meshes as the JSON `self_intersection.py` reads. Vertice
 local geometry is fine, and local space would hide exactly that. Normals go through the
 inverse-transpose. Every mesh it declines to emit — instanced, over the triangle cap, filtered out —
 is listed with its reason, so a short mesh list cannot be mistaken for a clean one.
+The exporter prefers the showcase model root over studio/ground meshes and preserves mirrored
+triangle winding. It refuses to mark partial results as clean (`incomplete: true`, exit code 2)
+when an active mesh is unsupported (such as skinned or instanced), exceeds the triangle cap,
+or has invalid geometry. Hidden/explicitly filtered meshes are reported but are not errors.
+Browser access uses the preview project's own locally installed Playwright (resolved from the
+working directory or `IMG2THREEJS_SHOWCASE_ROOT`); the base skill adds no npm dependency.
+When Playwright or a browser is unavailable, report the missing gate rather than claiming a
+successful geometry review. Verify with `node --test runtime/scripts/export_mesh_geometry.test.mjs`.
 
 ### stage4_review/vertex_region_gate.py
 `stage4_review/vertex_region_gate.py --geometry meshes.json --palette palette.json [--expect expect.json] [--azimuth 0] [--color-tolerance T] [--max-unclassified N] [--out report.json] [--json]`
