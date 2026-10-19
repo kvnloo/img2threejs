@@ -15,7 +15,9 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "forge" / "stage4_review"))
 
-from make_comparison_sheet import InvalidPng, load_image, read_png  # noqa: E402
+from make_comparison_sheet import (  # noqa: E402
+    InvalidPng, MAX_PNG_INPUT_BYTES, MAX_PNG_PIXELS, load_image, read_png,
+)
 
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -89,6 +91,29 @@ class ComparisonSheetPngIntegrityTest(unittest.TestCase):
             with self.subTest(length=len(raw)):
                 with self.assertRaisesRegex(InvalidPng, "decoded length"):
                     self.read(png_bytes(scanlines=raw))
+
+    def test_declared_pixel_count_fails_before_inflation(self):
+        # 4000x3000 RGBA fits the scanline-byte bound yet would allocate
+        # 12 million Python pixel tuples. The smaller pixel cap rejects it
+        # even when the attacker supplies only a tiny compressed payload.
+        self.assertGreater(4000 * 3000, MAX_PNG_PIXELS)
+        with self.assertRaisesRegex(InvalidPng, "pixel count"):
+            self.read(png_bytes(width=4000, height=3000))
+
+    def test_oversized_sparse_png_is_refused_before_reading_into_memory(self):
+        # Sparse file: large logical size with negligible disk usage.
+        # An encoded-byte cap prevents reading hundreds of megabytes of
+        # arbitrary ancillary chunk data before any parser bounds apply.
+        with self.path.open("wb") as stream:
+            stream.write(PNG_SIGNATURE)
+            stream.truncate(MAX_PNG_INPUT_BYTES + 4096)
+        with self.assertRaisesRegex(InvalidPng, "encoded-byte limit"):
+            read_png(self.path)
+
+    def test_non_png_still_uses_existing_format_dispatch(self):
+        self.path.write_bytes(b"not-a-png")
+        with self.assertRaisesRegex(ValueError, "not a PNG"):
+            read_png(self.path)
 
     def test_decompression_limit_checked_before_allocating_pixels(self):
         with self.assertRaisesRegex(InvalidPng, "limit"):
