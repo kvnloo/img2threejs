@@ -65,6 +65,54 @@ self-intersection, arbitrary primitive support, deformable sheets, or
 collision-free motion of the photographed carton. This is a *test-only
 negative control*, not a production physics feature.
 
+## Adaptive conservative interval check
+
+The optional [test-only checker](../forge/tests/hinge_sweep_collision.mjs)
+`certifyFoldSweep()` improves on fixed 5-degree samples. It returns exactly
+one of three states:
+
+- `collision`: a tested pose intersects the static obstacle.
+- `certified-clear`: every inspected angle interval has a conservative
+  separation certificate.
+- `unresolved`: available angular resolution or the evaluation budget
+  cannot prove the interval clear. **Unresolved is not a pass.**
+
+For a rigid box and a fixed obstacle, the maximum radial distance `R` of
+any box vertex to the hinge axis is bounded by the perpendicular distance of
+the box center to the axis, plus each oriented half-extent projected onto
+the plane perpendicular to that axis:
+
+```text
+R <= |perpendicular(center - hingeOrigin)|
+     + sum(halfExtent[i] * sqrt(1 - dot(boxAxis[i], hingeAxis)^2))
+
+maximum vertex displacement from an interval midpoint
+    <= R * abs(intervalEnd - intervalStart) / 2   [radians]
+
+if SAT midpoint separation gap > displacementBound + epsilon:
+    certify this interval clear
+else:
+    check the two half intervals, up to a bounded depth/check budget
+```
+
+The second inequality uses arc length to overestimate chord displacement.
+It remains conservative regardless of the direction of the moving face.
+The along-hinge-axis length of a box does **not** increase the sweep radius.
+The algorithm checks endpoints and middle angles, restores the authored
+hinge angle, and never treats insufficient resolution as a safe verdict.
+
+[Continuous interval research CI](https://github.com/kvnloo/img2threejs/actions/workflows/hinge-reference-photo.yml)
+includes adversarial controls: a narrow collision precisely at 2.5 degrees
+which endpoint-only 0/5-degree sampling misses, a clear sweep, an unresolved
+shallow-budget case, and a long box oriented along the hinge axis.
+
+**Domain restrictions:** box geometry only; static obstacle external to
+the hinge subtree; no skinned deformation; no sheared/nonuniformly scaled
+hinge-parent world frame; one rotating joint at a time. Numerical tolerances
+and ray/mesh physics beyond the supported box case are outside the
+certificate. Full arbitrary-mesh continuous collision detection remains
+unsolved, and the study's existing photographic IoU result is unchanged.
+
 ## Reproduce and review
 
 ```sh
