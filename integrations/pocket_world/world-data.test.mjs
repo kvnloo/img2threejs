@@ -20,6 +20,8 @@ test('voxelizer uses pixel colors, smooths brightness and honors alpha', () => {
   rgba.set([250, 0, 0, 0], 0);
   const data = voxelize(rgba, 4);
   assert.equal(data.visible[0], 0);
+  assert.equal(data.colors[0], 0, 'hidden source RGB must be discarded');
+  assert.equal(data.heights[0], 0, 'hidden source brightness must not survive');
   assert.equal(data.colors[1], 0x3264c8);
   assert.ok(data.heights[1] > 0 && data.heights[1] < 255);
   assert.equal(validateWorld(data), data);
@@ -204,13 +206,78 @@ test('world receipts round-trip numeric terrain and relief without original imag
   assert.equal(receipt, serializeWorld(data, 2.2));
   assert.doesNotMatch(receipt, /data:image|https?:|base64/i);
   const restored = deserializeWorld(receipt);
-  assert.deepEqual(restored.data, data);
+  const publicWorld = structuredClone(data);
+  publicWorld.colors[3] = 0;
+  publicWorld.heights[3] = 0;
+  assert.deepEqual(restored.data, publicWorld);
+  assert.notEqual(data.colors[3], 0, 'serialization must not mutate the source world');
   assert.equal(restored.relief, 2.2);
   const preview = previewWorldPixels(restored.data);
   assert.equal(preview.length, 28 * 28 * 4);
   assert.equal(preview[3 * 4 + 3], 0);
   assert.equal(preview[2 * 4 + 3], 255);
   assert.equal(preview[4 * 4], (data.colors[4] >>> 16) & 255);
+});
+
+test('transparent RGB and brightness cannot leak through voxelization or previews', () => {
+  const a = new Uint8ClampedArray(8 * 8 * 4);
+  for (let i = 0; i < 64; i++) a.set([12, 45, 67, 255], i * 4);
+  a.set([255, 0, 190, 0], 0);
+  const b = new Uint8ClampedArray(a);
+  b.set([0, 240, 1, 0], 0);
+  const first = voxelize(a, 8);
+  const second = voxelize(b, 8);
+  assert.deepEqual(first, second, 'invisible source data must not affect any terrain field');
+  assert.equal(first.colors[0], 0);
+  assert.equal(first.heights[0], 0);
+  const altered = structuredClone(first);
+  altered.colors[0] = 0x123456;
+  altered.heights[0] = 255;
+  const preview = previewWorldPixels({ ...altered, size: 28,
+    colors: Array(28 * 28).fill(0x123456), heights: Array(28 * 28).fill(255),
+    visible: Array(28 * 28).fill(0),
+  });
+  assert.deepEqual([...preview.slice(0, 4)], [0, 0, 0, 0]);
+});
+
+test('saving and importing legacy worlds discard arbitrary hidden pixel evidence', () => {
+  const world = voxelize(demoPixels('forest'));
+  world.visible[7] = 0;
+  world.colors[7] = 0xfedcba;
+  world.heights[7] = 252;
+  const before = structuredClone(world);
+  const encoded = JSON.parse(serializeWorld(world, 1.2));
+  assert.equal(encoded.world.colors[7], 0);
+  assert.equal(encoded.world.heights[7], 0);
+  assert.deepEqual(world, before, 'saving does not change the live terrain');
+  // v1 receipts authored by older versions carried RGB under zero alpha.
+  // Preserve their compatibility while removing the hidden payload on load.
+  encoded.world.colors[7] = 0xabcdef;
+  encoded.world.heights[7] = 188;
+  const restored = deserializeWorld(JSON.stringify(encoded));
+  assert.equal(restored.data.colors[7], 0);
+  assert.equal(restored.data.heights[7], 0);
+  assert.equal(restored.data.visible[7], 0);
+  assert.equal(restored.data.colors[8], world.colors[8]);
+  assert.equal(JSON.parse(serializeWorld(restored.data)).world.colors[7], 0);
+});
+
+test('v2 adventure passports retain visible bookmarks while sanitizing hidden terrain', () => {
+  const world = voxelize(demoPixels('cosmic'));
+  world.visible[12] = 0;
+  world.colors[12] = 0x112233;
+  world.heights[12] = 199;
+  const adventure = {
+    scoutCell: 421,
+    beaconCells: [5, 70, 243, 601, 740],
+    collectedCells: [70, 601],
+  };
+  const receipt = serializeWorld(world, 1.8, adventure);
+  assert.equal(JSON.parse(receipt).world.colors[12], 0);
+  const restored = deserializeWorld(receipt);
+  assert.deepEqual(restored.adventure, adventure);
+  assert.equal(restored.data.colors[12], 0);
+  assert.equal(restored.data.heights[12], 0);
 });
 
 test('world receipts fail closed on malformed schema, relief, dimensions and size', () => {
