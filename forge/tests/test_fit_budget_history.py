@@ -62,7 +62,9 @@ class BudgetHistoryTest(unittest.TestCase):
                             FitConfig(max_iterations=4, max_evaluations=budget, plateau_iterations=2),
                         )
                         self.assertLessEqual(result.evaluations, budget)
-                        self.assertEqual(result.history[-1].evaluations, result.evaluations)
+                        # Unimproved partial probes consume budget but must not
+                        # create fictitious completed-iteration history.
+                        self.assertLessEqual(result.history[-1].evaluations, result.evaluations)
                         self.assertEqual(result.history[-1].iteration, result.iterations)
                         self.assertEqual(result.history[-1].best_score, result.best_score)
                         self.assertEqual(
