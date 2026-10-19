@@ -135,6 +135,7 @@ class MaterialPipelineTest(unittest.TestCase):
             "regions": [{
                 "componentId": "garment",
                 "regionId": "cream-leather",
+                "interiorCrop": True,
                 "sourceImage": str(interior),
                 "bbox": {"x": 0, "y": 0, "width": 160, "height": 160},
                 "materialId": "leather.matte",
@@ -144,12 +145,54 @@ class MaterialPipelineTest(unittest.TestCase):
         }), encoding="utf-8")
         analysis = analyze_manifest(manifest, self.tmp / "interior-analysis")
         report = analysis["regions"][0]["pbrReport"]
+        self.assertTrue(analysis["regions"][0]["interiorCrop"])
         self.assertEqual(report["diagnostics"]["mask"]["maskMode"], "interior-crop")
         self.assertEqual(report["diagnostics"]["mask"]["foregroundCoverage"], 1.0)
         dominant = report["palette"][0]
         self.assertGreater(int(dominant[1:3], 16), 80)
         self.assertGreater(int(dominant[3:5], 16), 80)
         self.assertGreater(int(dominant[5:7], 16), 80)
+
+    def test_manifest_bbox_with_background_is_not_treated_as_interior(self) -> None:
+        mixed = self.tmp / "mixed-region.png"
+        write_png(
+            mixed,
+            160,
+            160,
+            lambda x, y: (25, 50, 105) if 24 <= x < 136 and 24 <= y < 136
+            else (250, 250, 250),
+        )
+        manifest = self.tmp / "mixed-region.json"
+        manifest.write_text(json.dumps({
+            "referenceId": "mixed-crop",
+            "regions": [{
+                "componentId": "panel",
+                "regionId": "panel-paint",
+                "sourceImage": str(mixed),
+                "bbox": {"x": 0, "y": 0, "width": 160, "height": 160},
+                "materialId": "coating.painted-metal",
+            }],
+        }), encoding="utf-8")
+        analysis = analyze_manifest(manifest, self.tmp / "mixed-analysis")
+        region = analysis["regions"][0]
+        self.assertFalse(region["interiorCrop"])
+        mask = region["pbrReport"]["diagnostics"]["mask"]
+        self.assertEqual(mask["maskMode"], "corner-background")
+        self.assertLess(mask["foregroundCoverage"], 0.75)
+
+    def test_manifest_rejects_non_boolean_interior_crop(self) -> None:
+        manifest = self.tmp / "invalid-interior-flag.json"
+        manifest.write_text(json.dumps({
+            "regions": [{
+                "componentId": "panel",
+                "regionId": "paint",
+                "interiorCrop": "yes",
+                "sourceImage": str(self.reference),
+                "bbox": {"x": 64, "y": 64, "width": 384, "height": 384},
+            }],
+        }), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "interiorCrop must be a boolean"):
+            analyze_manifest(manifest, self.tmp / "invalid-interior-data")
 
     def test_low_confidence_analysis_cannot_enter_without_override(self) -> None:
         analysis = {
