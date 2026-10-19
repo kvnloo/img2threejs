@@ -253,20 +253,53 @@ export function nextBeaconRoute(data, scoutCell, beaconCells, collectedCells = [
       collectedCells.some(i => !beaconCells.includes(i))) throw new RangeError('Invalid beacon targets');
   if (scoutCell < 0) return null;
   const collected = new Set(collectedCells);
-  let best = null;
-  for (const target of beaconCells) {
-    if (collected.has(target)) continue;
-    const path = findTilePath(data, scoutCell, target);
-    if (!path.length) continue;
-    let cost = 0;
-    for (let i = 1; i < path.length; i++) {
-      cost += 1 + Math.abs(data.heights[path[i]] - data.heights[path[i - 1]]) / 255 * 1.5;
+  const remaining = new Set(beaconCells.filter(target => !collected.has(target)));
+  if (!remaining.size) return null;
+  // One Dijkstra traversal finds the cheapest reachable treasure, rather than
+  // running five independent A* searches over the same terrain and scout start.
+  // Exact slope costs and tie-breaking match findTilePath/previous compass.
+  const size = data.size, count = size * size;
+  const cost = new Float64Array(count).fill(Infinity);
+  const previous = new Int32Array(count).fill(-1);
+  const settled = new Uint8Array(count);
+  const frontier = [];
+  cost[scoutCell] = 0;
+  heapPush(frontier, { index: scoutCell, score: 0, cost: 0 });
+  let bestTarget = -1, bestCost = Infinity;
+  while (frontier.length) {
+    const entry = heapPop(frontier);
+    const current = entry.index;
+    if (settled[current] || entry.cost !== cost[current]) continue;
+    // Finish all reachable ties within tolerance before selecting by tile ID.
+    if (bestTarget >= 0 && entry.cost > bestCost + 1e-9) break;
+    if (remaining.has(current)) {
+      if (bestTarget < 0 || entry.cost < bestCost - 1e-9 ||
+          (Math.abs(entry.cost - bestCost) < 1e-9 && current < bestTarget)) {
+        bestTarget = current;
+        bestCost = entry.cost;
+      }
+      remaining.delete(current);
+      if (!remaining.size) break;
     }
-    if (!best || cost < best.cost - 1e-9 || (Math.abs(cost - best.cost) < 1e-9 && target < best.target)) {
-      best = { target, path, steps: path.length - 1, cost };
+    settled[current] = 1;
+    const x = current % size, y = Math.floor(current / size);
+    const neighbors = [y > 0 ? current - size : -1, x < size - 1 ? current + 1 : -1,
+      y < size - 1 ? current + size : -1, x > 0 ? current - 1 : -1];
+    for (const next of neighbors) {
+      if (next < 0 || settled[next] || !data.visible[next]) continue;
+      const candidate = cost[current] + 1 + Math.abs(data.heights[current] - data.heights[next]) / 255 * 1.5;
+      if (candidate < cost[next]) {
+        cost[next] = candidate;
+        previous[next] = current;
+        heapPush(frontier, { index: next, score: candidate, cost: candidate });
+      }
     }
   }
-  return best;
+  if (bestTarget < 0) return null;
+  const path = [];
+  for (let i = bestTarget; i !== -1; i = previous[i]) path.push(i);
+  path.reverse();
+  return { target: bestTarget, path, steps: path.length - 1, cost: bestCost };
 }
 
 /** Legacy v1 terrain stays readable; new v2 receipts optionally preserve the adventure. */
