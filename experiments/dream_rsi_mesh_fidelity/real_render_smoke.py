@@ -31,6 +31,20 @@ PARAMETERS = {
     "c1-minus": [0.78, 0.62],
     "c1-plus": [0.78, 0.90],
 }
+# Separate pre-declared calibration neighborhood. The original remains frozen
+# and retained, including its native evaluator low-confidence failures.
+CALIBRATED_PARAMETERS = {
+    "target": [1.0, 1.0],
+    "root": [0.90, 0.94],
+    "c0-minus": [0.80, 0.94],
+    "c0-plus": [1.00, 0.94],
+    "c1-minus": [0.90, 0.88],
+    "c1-plus": [0.90, 1.00],
+}
+NEIGHBORHOODS = {
+    "original": PARAMETERS,
+    "calibrated": CALIBRATED_PARAMETERS,
+}
 VIEWER = """import * as THREE from 'three';
 import { createTradeItHardCaseModel } from './model.ts';
 const scene = new THREE.Scene();
@@ -69,7 +83,8 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def prepare(out: Path) -> None:
+def prepare(out: Path, neighborhood: str = "original") -> None:
+    parameters = NEIGHBORHOODS[neighborhood]
     if not FIXTURE.exists() or not GENERATOR.exists():
         raise RuntimeError("canonical source fixture/generator missing")
     out.mkdir(parents=True, exist_ok=True)
@@ -77,7 +92,7 @@ def prepare(out: Path) -> None:
     if fixture.get("targetName") != "TradeIt Hard Case":
         raise RuntimeError("frozen fixture identity changed: refuse cross-fixture benchmark")
     generated = []
-    for variant, (sx, sz) in PARAMETERS.items():
+    for variant, (sx, sz) in parameters.items():
         spec = json.loads(json.dumps(fixture))
         if spec["componentTree"][0].get("id") != "root":
             raise RuntimeError("frozen fixture component order changed")
@@ -110,6 +125,7 @@ def prepare(out: Path) -> None:
                "render": "headless Chromium + three.js (not a numeric stand-in)",
                "camera": CAMERA, "size": IMAGE_SIZE,
                "gitSha": actual_head,
+               "neighborhood": neighborhood, "parameters": parameters,
                "variants": generated, "measuredFidelity": None}
     (out / "manifest.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
 
@@ -122,6 +138,12 @@ def score(out: Path) -> None:
         raise RuntimeError("unexpected or already-scored manifest")
     if sha256(FIXTURE) != manifest.get("fixtureSha256"):
         raise RuntimeError("source fixture hash drift")
+    neighborhood = manifest.get("neighborhood")
+    if neighborhood not in NEIGHBORHOODS or manifest.get("parameters") != NEIGHBORHOODS[neighborhood]:
+        raise RuntimeError("unknown or altered candidate neighborhood")
+    neighborhood_values = NEIGHBORHOODS[neighborhood]
+    if [item.get("name") for item in manifest.get("variants", [])] != list(parameters):
+        raise RuntimeError("candidate list drifted from committed neighborhood")
     reference = out / "target/render.png"
     if not reference.is_file():
         raise RuntimeError("missing true browser-rendered target")
@@ -161,10 +183,10 @@ def score(out: Path) -> None:
 
     by_vector = {
         tuple(round(float(value), 2) for value in vector): name
-        for name, vector in PARAMETERS.items()
+        for name, vector in neighborhood_values.items()
         if name != "target"
     }
-    if len(by_vector) != len(PARAMETERS) - 1:
+    if len(by_vector) != len(neighborhood_values) - 1:
         raise RuntimeError("duplicate rounded real-browser fit candidates")
     paired_fits: dict[str, dict[str, object]] = {}
     for label, order, expected in (
@@ -178,15 +200,24 @@ def score(out: Path) -> None:
             name = by_vector.get(key)
             if name is None or any(
                 abs(value - authored) > 1e-9
-                for value, authored in zip(parameters, PARAMETERS[name])
+                for value, authored in zip(parameters, neighborhood_values[name])
             ):
                 raise RuntimeError(f"fit requested unrendered candidate: {key}")
             attempted.append(name)
             return out / name / "render.png"
 
+        root_vector = neighborhood_values["root"]
+        steps = (
+            neighborhood_values["c0-plus"][0] - root_vector[0],
+            neighborhood_values["c1-plus"][1] - root_vector[1],
+        )
+        if not all(0 < step < 1 for step in steps):
+            raise RuntimeError("invalid frozen neighborhood probe step")
+        bounds = tuple((value - 2 * step, value + 2 * step)
+                       for value, step in zip(root_vector, steps))
         actual_fit = fit_against_divine_eye(
-            PARAMETERS["root"],
-            ((0.50, 1.06), (0.48, 1.04)),
+            root_vector,
+            bounds,
             render_observed,
             reference,
             evaluate,
@@ -220,6 +251,7 @@ def score(out: Path) -> None:
         "kind": "real-chromium-image-paired-native-fit-preflight",
         "sourceGitSha": manifest["gitSha"],
         "fixtureSha256": manifest["fixtureSha256"],
+        "neighborhood": neighborhood,
         "renderMode": "pre-rendered verified Chromium screenshots (shared candidate pool)",
         "evaluator": "native Divine Eye, re-evaluated per fitter call",
         "evaluationsPerOrder": 3,
@@ -246,14 +278,14 @@ def score(out: Path) -> None:
         )
 
     world = World(
-        id="tradeit-case-native-threejs-single-root",
+        id=f"tradeit-case-native-threejs-{neighborhood}-single-root",
         root_id="root",
         nodes=(
             observed_node("root", None, None, None, None),
-            observed_node("c0-minus", "root", 0, -1, 0.14),
-            observed_node("c0-plus", "root", 0, +1, 0.14),
-            observed_node("c1-minus", "root", 1, -1, 0.14),
-            observed_node("c1-plus", "root", 1, +1, 0.14),
+            observed_node("c0-minus", "root", 0, -1, steps[0]),
+            observed_node("c0-plus", "root", 0, +1, steps[0]),
+            observed_node("c1-minus", "root", 1, -1, steps[1]),
+            observed_node("c1-plus", "root", 1, +1, steps[1]),
         ),
     )
     world.index()  # fail closed on malformed node parents/scores
@@ -264,6 +296,7 @@ def score(out: Path) -> None:
         "kind": "observed-browser-world-no-learned-policy",
         "sourceGitSha": manifest["gitSha"],
         "fixtureSha256": manifest["fixtureSha256"],
+        "neighborhood": neighborhood,
         "world": asdict(world),
         "renderSha256ByNode": {key: scored[key]["imageSha256"]
                                for key in ("root", "c0-minus", "c0-plus", "c1-minus", "c1-plus")},
@@ -288,9 +321,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("phase", choices=["prepare", "score"])
     ap.add_argument("out", type=Path)
+    ap.add_argument("--neighborhood", choices=tuple(NEIGHBORHOODS), default="original")
     args = ap.parse_args()
     if args.phase == "prepare":
-        prepare(args.out.resolve())
+        prepare(args.out.resolve(), args.neighborhood)
     else:
         score(args.out.resolve())
 
