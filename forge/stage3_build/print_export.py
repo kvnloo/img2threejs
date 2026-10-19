@@ -31,8 +31,10 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import struct
 import sys
+import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -276,6 +278,28 @@ def write_obj(path: Path, vertices: list[Vec], triangles: list[tuple[int, int, i
             stream.write(f"f {a + 1} {b + 1} {c + 1}\n")
 
 
+def write_export_atomically(
+    destination: Path,
+    writer,
+    vertices: list[Vec],
+    triangles: list[tuple[int, int, int]],
+    *,
+    name: str,
+) -> None:
+    """Publish only a complete export; preserve an old file when staging fails."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+    )
+    os.close(descriptor)
+    staging = Path(temporary)
+    try:
+        writer(staging, vertices, triangles, name=name)
+        staging.replace(destination)
+    finally:
+        staging.unlink(missing_ok=True)
+
+
 def build_export(meshes: list[dict[str, Any]], *, weld: float = DEFAULT_WELD,
                  longest_edge_mm: float | None = None) -> dict[str, Any]:
     merged = merge_meshes(meshes, weld=weld)
@@ -346,9 +370,15 @@ def main(argv: list[str] | None = None) -> int:
     report["output"] = str(args.out) if written else None
     report["format"] = fmt
     if written:
-        args.out.parent.mkdir(parents=True, exist_ok=True)
         writer = write_stl if fmt == "stl" else write_obj
-        writer(args.out, result["vertices"], result["triangles"], name=args.meshes.stem)
+        try:
+            write_export_atomically(
+                args.out, writer, result["vertices"], result["triangles"], name=args.meshes.stem
+            )
+        except (OSError, ValueError, OverflowError, struct.error) as error:
+            # A truncated STL/OBJ must never replace an existing print artifact.
+            print(f"print export write error: {error}", file=sys.stderr)
+            return 2
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
