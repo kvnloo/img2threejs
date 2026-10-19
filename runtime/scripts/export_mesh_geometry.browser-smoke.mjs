@@ -168,6 +168,26 @@ try {
     const png = join(screenshots, 'actual-webgl.png');
     await page.locator('canvas').screenshot({path: png});
     assert.ok((await stat(png)).size > 1000, 'WebGL screenshot unexpectedly small');
+    // An initialized WebGL context can still render only a blank/studio canvas.
+    // Require visible subject-colored pixels in the actual rendered framebuffer.
+    const visibleSubjectPixels = await page.evaluate(() => {
+      const source = document.querySelector('canvas');
+      const mirror = document.createElement('canvas');
+      mirror.width = source.width;
+      mirror.height = source.height;
+      const ctx = mirror.getContext('2d', {willReadFrequently: true});
+      ctx.drawImage(source, 0, 0);
+      const rgba = ctx.getImageData(0, 0, mirror.width, mirror.height).data;
+      let green = 0;
+      for (let i = 0; i < rgba.length; i += 4) {
+        if (rgba[i + 1] > 80 && rgba[i + 1] > rgba[i] * 1.13 && rgba[i + 1] > rgba[i + 2] * 1.25) {
+          green++;
+        }
+      }
+      return green;
+    });
+    assert.ok(visibleSubjectPixels > 80,
+      `WebGL screenshot contains no visible green subject; matching pixels: ${visibleSubjectPixels}`);
   } finally { await browser.close(); }
 
   // Fail closed even when a successful artifact existed before an incomplete run.
