@@ -338,7 +338,8 @@ def write_obj(path: Path, vertices: list[Vec], triangles: list[tuple[int, int, i
         stream.write(f"# img2threejs print export: {name}\n")
         stream.write(f"o {name}\n")
         for x, y, z in vertices:
-            stream.write(f"v {x:.6f} {y:.6f} {z:.6f}\n")
+            # Six decimal places can collapse submicron geometry into zero-area faces.
+            stream.write(f"v {x:.17g} {y:.17g} {z:.17g}\n")
         for a, b, c in triangles:
             stream.write(f"f {a + 1} {b + 1} {c + 1}\n")
 
@@ -419,6 +420,15 @@ def main(argv: list[str] | None = None) -> int:
     fmt = args.format or args.out.suffix.lower().lstrip(".")
     if fmt not in FORMATS:
         parser.error(f"cannot infer format from {args.out.name!r}; pass --format stl|obj")
+    # Do not overwrite source geometry or replace a printable STL/OBJ with the
+    # optional JSON report. resolve() also catches relative and symlink aliases.
+    source_path = args.meshes.expanduser().resolve()
+    output_path = args.out.expanduser().resolve()
+    report_path = args.report.expanduser().resolve() if args.report else None
+    if output_path == source_path or (report_path is not None and
+                                       report_path in (source_path, output_path)):
+        print("print export error: input, --out and --report must use distinct paths", file=sys.stderr)
+        return 2
     if args.out.exists() and not args.force:
         parser.error(f"{args.out} already exists; use --force to overwrite")
     try:

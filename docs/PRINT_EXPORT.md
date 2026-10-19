@@ -97,3 +97,12 @@ Legacy inputs without receipt metadata remain supported.
   even if every edge appears exactly twice. Disjoint closed solids remain allowed.
   Pass `--allow-open` to export unprintable topology deliberately, but the CLI still
   exits `1` and reports `printable: false`.
+
+### Output safety
+
+Use distinct resolved paths for source `meshes.json`, STL/OBJ output, and
+optional JSON report. Overlapping paths, including relative/symlink aliases,
+are rejected instead of overwriting a valid geometry artifact with report
+JSON. OBJ vertices retain round-trip float precision to avoid rounding small
+features to zero. STL stores float32; use `--longest-edge-mm` to scale unusually
+tiny source geometry for printing.

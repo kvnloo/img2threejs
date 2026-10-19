@@ -262,6 +262,44 @@ class Cli(unittest.TestCase):
         self.assertEqual(sum(line.startswith("f ") for line in lines), 12)
         self.assertIn("f 1 3 2", lines)
 
+    def test_obj_retains_submicron_vertex_detail(self):
+        src = self.write([cube(size=2.5e-7)])
+        out = self.tmp / "tiny.obj"
+        code, stdout, stderr = run_cli(src, "--out", out, "--weld", "1e-9")
+        self.assertEqual(code, 0, stdout + stderr)
+        points = [
+            [float(value) for value in line.split()[1:]]
+            for line in out.read_text().splitlines() if line.startswith("v ")
+        ]
+        self.assertEqual(len(points), 8)
+        width = max(point[0] for point in points) - min(point[0] for point in points)
+        self.assertAlmostEqual(width, 2.5e-7, places=15)
+
+    def test_report_cannot_replace_stl_with_json(self):
+        source = self.write([cube()])
+        output = self.tmp / "model.stl"
+        code, _, stderr = run_cli(source, "--out", output, "--report", output)
+        self.assertEqual(code, 2)
+        self.assertIn("distinct paths", stderr)
+        self.assertFalse(output.exists())
+
+    def test_report_relative_alias_cannot_replace_input(self):
+        source = self.write([cube()])
+        before = source.read_bytes()
+        alias = self.tmp / "nonexistent" / ".." / source.name
+        code, _, stderr = run_cli(source, "--out", self.tmp / "model.stl", "--report", alias)
+        self.assertEqual(code, 2)
+        self.assertIn("distinct paths", stderr)
+        self.assertEqual(source.read_bytes(), before)
+
+    def test_force_cannot_write_export_over_input(self):
+        source = self.write([cube()])
+        before = source.read_bytes()
+        code, _, stderr = run_cli(source, "--out", source, "--format", "stl", "--force")
+        self.assertEqual(code, 2)
+        self.assertIn("distinct paths", stderr)
+        self.assertEqual(source.read_bytes(), before)
+
     def test_open_mesh_is_refused_without_allow_open(self):
         src = self.write([cube(faces=CUBE_FACES[2:])])
         out = self.tmp / "open.stl"
