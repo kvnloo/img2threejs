@@ -220,6 +220,9 @@ try {
   assert.ok(metrics.pageWidth<=metrics.viewport+2,
     'mobile layout overflows horizontally: '+JSON.stringify(metrics));
   assert.equal(metrics.visible,true);
+  assert.equal(await mobile.locator('.hint .mobile-hint').isVisible(),true,
+    'mobile hint must point to fold sliders below the canvas');
+  assert.equal(await mobile.locator('.hint .desktop-hint').isVisible(),false);
   await mobile.screenshot({path:join(output,'lab-mobile.png'),fullPage:true});
   assert.deepEqual(remote,[],'offline lab requested remote resources');
   assert.deepEqual(errors,[],'runtime browser errors');
