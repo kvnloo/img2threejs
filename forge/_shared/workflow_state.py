@@ -395,6 +395,28 @@ def sync_from_spec(state: dict[str, Any], spec: dict[str, Any], current_pass: st
         and previous_pass != current_pass
         and bool(_pending(_entries(state, "pass")))
     )
+    # Advancing one verified pass must not silently skip another. Even if the
+    # currently open checklist is complete, one set of receipts is not evidence
+    # for multiple passes. Explicit buildPasses supplies the authoritative order.
+    configured_passes = spec.get("buildPasses")
+    if isinstance(configured_passes, list) and configured_passes:
+        pass_ids = [
+            row["id"] for row in configured_passes
+            if isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"].strip()
+        ]
+        if pass_ids and not previous_pass and current_pass != pass_ids[0]:
+            raise WorkflowStateError(
+                f"spec starts at {current_pass!r} but checklist has not opened "
+                f"the first pass {pass_ids[0]!r}; restore the recorded state"
+            )
+        if not transition_deferred and previous_pass in pass_ids and current_pass != previous_pass:
+            index = pass_ids.index(previous_pass) + 1
+            expected = pass_ids[index] if index < len(pass_ids) else "complete"
+            if current_pass != expected:
+                raise WorkflowStateError(
+                    f"spec skipped pass boundary after {previous_pass!r}: "
+                    f"expected {expected!r}, got {current_pass!r}"
+                )
     if not transition_deferred:
         set_current_pass(state, current_pass)
     history = spec.get("reviewHistory", [])
