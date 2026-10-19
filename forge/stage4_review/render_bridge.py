@@ -369,7 +369,7 @@ def validate_manifest(path: Path, require_complete: bool = False) -> dict[str, A
                     elif expected_hash != sha256(baseline_path):
                         errors.append(f"GLB reference baseline hash changed: {baseline_path}")
                 if baseline.get("consoleErrors") != []:
-                    errors.append(f"browser errors or unverified console receipt for GLB baseline: {capture_id}")
+                    errors.append(f"browser console errors or unverified console receipt for GLB baseline: {capture_id}")
                 errors.extend(
                     validate_pass_records(
                         path,
@@ -405,7 +405,7 @@ def validate_manifest(path: Path, require_complete: bool = False) -> dict[str, A
         elif expected_hash != sha256(screenshot):
             errors.append(f"screenshot hash changed: {screenshot}")
         if capture.get("consoleErrors") != []:
-            errors.append(f"browser errors or unverified console receipt for: {capture_id}")
+            errors.append(f"browser console errors or unverified console receipt recorded for: {capture_id}")
         errors.extend(
             validate_pass_records(
                 path,
