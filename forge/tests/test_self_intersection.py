@@ -466,6 +466,41 @@ class CommandLine(unittest.TestCase):
                 code, _ = self._run([str(path)])
                 self.assertEqual(code, 2)
 
+    def test_browser_receipt_must_declare_explicit_complete_evidence(self) -> None:
+        clean = {"name": "clean", "vertices": self.vertices, "indices": self.indices}
+        for index, meta in enumerate((
+            {"schemaVersion": 1, "coordinateSpace": "world"},
+            {"coordinateSpace": "world"},
+            {"skippedMeshes": []},
+            {"skipped": [{"name": "ground", "reason": "hidden"}]},
+        )):
+            with self.subTest(meta=meta):
+                path = self._write(f"missing-coverage-{index}.json", {"meshes": [clean], **meta})
+                code, _ = self._run([str(path)])
+                self.assertEqual(code, 2, "missing complete receipt must not certify captured scene")
+
+        # Unadorned historical geometry inputs are not browser-exporter
+        # coverage receipts and retain their existing supported behavior.
+        legacy = self._write("legacy-raw-geometry.json", {"meshes": [clean]})
+        code, output = self._run([str(legacy), "--json"])
+        self.assertEqual(code, 0, output)
+        self.assertEqual(json.loads(output)["meshCount"], 1)
+
+    def test_exporter_schema_version_is_strictly_v1(self) -> None:
+        clean = {"name": "clean", "vertices": self.vertices, "indices": self.indices}
+        for index, version in enumerate((0, 2, "1", 1.0, True, None)):
+            with self.subTest(schemaVersion=version):
+                payload = {"meshes": [clean], "schemaVersion": version,
+                           "coordinateSpace": "world", "incomplete": False}
+                path = self._write(f"wrong-schema-{index}.json", payload)
+                code, _ = self._run([str(path)])
+                self.assertEqual(code, 2)
+        valid = self._write("verified-schema-v1.json",
+                            {"meshes": [clean], "schemaVersion": 1,
+                             "coordinateSpace": "world", "incomplete": False})
+        code, _ = self._run([str(valid)])
+        self.assertEqual(code, 0)
+
     def test_world_space_receipt_with_intentionally_hidden_geometry_passes(self) -> None:
         clean = {"name": "clean", "vertices": self.vertices, "indices": self.indices}
         path = self._write("verified-world.json", {
