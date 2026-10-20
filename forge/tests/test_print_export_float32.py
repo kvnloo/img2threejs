@@ -4,6 +4,8 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import math
+import struct
 import sys
 import tempfile
 import unittest
@@ -161,6 +163,59 @@ class Float32GeometryGateTest(unittest.TestCase):
             stl = Path(directory) / "surviving-height.stl"
             print_export.write_stl(stl, result["vertices"], result["triangles"])
             self.assertEqual(stl.stat().st_size, 84 + 4 * 50)
+
+    def test_stl_rejects_face_winding_reversal_after_float32_rounding(self):
+        # These three source points form a clockwise, nonzero-area triangle.
+        # All rounded points remain distinct with nonzero area, but at x/y
+        # near 1000 the stored float32 triangle becomes counterclockwise.
+        vertices = [
+            (1000.00010798837, 999.9999936490749, 0.0),
+            (999.999942614087, 999.9999363445476, 0.0),
+            (999.9998271900251, 999.999898148074, 0.0),
+        ]
+        def signed_area_xy(points):
+            a, b, c = points
+            return ((b[0] - a[0]) * (c[1] - a[1]) -
+                    (b[1] - a[1]) * (c[0] - a[0]))
+        quantized = [
+            tuple(struct.unpack("<f", struct.pack("<f", x))[0] for x in vertex)
+            for vertex in vertices
+        ]
+        self.assertLess(signed_area_xy(vertices), 0)
+        self.assertGreater(signed_area_xy(quantized), 0)
+        with tempfile.TemporaryDirectory() as directory:
+            stl = Path(directory) / "reversed.stl"
+            with self.assertRaisesRegex(print_export.PrintExportError, "reverses winding"):
+                print_export.write_stl(stl, vertices, [(0, 1, 2)])
+            self.assertFalse(stl.exists())
+
+    def test_serialized_facet_normal_matches_rounded_stl_vertices(self):
+        # Quantization changes this triangle's slope appreciably without
+        # destroying its orientation. The STL normal must match the *stored*
+        # vertices, not the more precise authored triangle.
+        vertices = [
+            (1000.0, 1000.0, 1000.0),
+            (1000.00013, 1000.0, 1000.0),
+            (1000.00001, 1000.00013, 1000.00008),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            stl = Path(directory) / "rounded-normal.stl"
+            print_export.write_stl(stl, vertices, [(0, 1, 2)])
+            payload = stl.read_bytes()
+            self.assertEqual(len(payload), 84 + 50)
+            self.assertEqual(struct.unpack_from("<I", payload, 80)[0], 1)
+            facet = struct.unpack_from("<12f", payload, 84)
+        written_normal = facet[:3]
+        a, b, c = [facet[i:i + 3] for i in (3, 6, 9)]
+        u = tuple(b[i] - a[i] for i in range(3))
+        v = tuple(c[i] - a[i] for i in range(3))
+        cross = (u[1] * v[2] - u[2] * v[1],
+                 u[2] * v[0] - u[0] * v[2],
+                 u[0] * v[1] - u[1] * v[0])
+        expected = tuple(x / math.hypot(*cross) for x in cross)
+        for component, measured in zip(expected, written_normal):
+            self.assertAlmostEqual(component, measured, places=6)
+        self.assertAlmostEqual(math.hypot(*written_normal), 1.0, places=6)
 
     def test_normal_unit_tetrahedron_still_serializes(self):
         model = print_export.build_export([tetra()])
