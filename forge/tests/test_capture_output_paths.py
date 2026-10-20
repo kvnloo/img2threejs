@@ -107,6 +107,44 @@ class CaptureOutputPathSafetyTest(unittest.TestCase):
         self.manifest["captures"][0]["path"] = str(screenshot)
         self.assert_rejected_before_browser("aliases protected reference")
 
+    def test_hardlink_alias_to_reference_is_rejected_before_browser(self):
+        # Path.resolve() does not detect hardlinks: screenshot and reference
+        # have different names but the same inode. Refuse before any writes.
+        target = self.root / "hardlink-screenshot.png"
+        try:
+            target.hardlink_to(self.reference)
+        except (OSError, NotImplementedError):
+            self.skipTest("hardlink creation unavailable")
+        before = self.reference.read_bytes()
+        self.manifest["captures"][0]["path"] = str(target)
+        self.assert_rejected_before_browser("aliases protected reference")
+        self.assertEqual(self.reference.read_bytes(), before)
+
+    def test_two_existing_hardlinked_capture_paths_are_rejected(self):
+        first = self.root / "first-existing.png"
+        second = self.root / "second-existing.png"
+        write_png(first)
+        try:
+            second.hardlink_to(first)
+        except (OSError, NotImplementedError):
+            self.skipTest("hardlink creation unavailable")
+        self.manifest["captures"][0]["path"] = str(first)
+        self.manifest["captures"][1]["path"] = str(second)
+        self.assert_rejected_before_browser("output aliases procedural capture")
+        self.assertTrue(first.samefile(second))
+
+    def test_hardlink_to_manifest_is_rejected_before_checkpoint_update(self):
+        write_manifest(self.manifest_path, self.manifest)
+        target = self.root / "manifest-as-image.png"
+        try:
+            target.hardlink_to(self.manifest_path)
+        except (OSError, NotImplementedError):
+            self.skipTest("hardlink creation unavailable")
+        before = self.manifest_path.read_bytes()
+        self.manifest["captures"][0]["path"] = str(target)
+        self.assert_rejected_before_browser("aliases protected render manifest")
+        self.assertEqual(self.manifest_path.read_bytes(), before)
+
     def test_distinct_external_output_path_is_allowed(self):
         other = self.root.parent / (self.root.name + "-external-output.png")
         self.manifest["captures"][0]["path"] = str(other)
