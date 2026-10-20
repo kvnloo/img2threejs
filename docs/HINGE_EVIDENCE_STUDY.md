@@ -147,6 +147,53 @@ obstacles, or numerical tolerances. Dense sampling can miss very short
 collisions too. A safety-critical consumer must still treat unsupported
 shapes and unresolved intervals as unsupported/unknown.
 
+## Equal-budget deterministic camera framing
+
+The first photo comparison used an uncalibrated fixed orthographic camera,
+so two different pivot schemes were measured at an arbitrary common
+pan/zoom. The camera itself was an important confounder.
+
+A follow-up [headless Chromium camera-fitting experiment](https://github.com/kvnloo/img2threejs/actions/runs/39371859530)
+holds **all geometry, fold angles, lighting and segmentation constant**
+within each model. A deterministic coordinate descent varies **only**
+the orthographic image-plane pan (dx/dy) and zoom, using the same search
+steps and bounds for each model. No AI, model downloads, photogrammetry
+or feature/texture reconstruction are involved.
+
+| Same photo / fixed-frame IoU | Unfitted | Fitted | Held-out tiles |
+| --- | ---: | ---: | ---: |
+| Correct parent-local hinges | 0.602342 | **0.886611** | **0.885300** |
+| Center-pivot counterfactual | 0.611218 | 0.824392 | 0.823011 |
+
+Both fits used **25 unique evaluations** (budget ceiling **37**) of the
+same four-stage, three-axis coordinate-descent algorithm. Parameters:
+hinged `(dx=-0.06, dy=+0.30, zoom=1.27)`; center-pivot
+`(dx=-0.06, dy=+0.24, zoom=1.21)`.
+
+To guard against a trivial per-pixel fitting artifact, only alternating
+24-pixel checkerboard tiles from the *same image* contribute to the
+optimization objective. Complementary tiles report the held-out score;
+neither score is used to change geometry. **These tiles are spatially
+correlated and are not an independent validation scene.** Camera fitting
+on the same original photograph necessarily risks overfitting; results
+must not be described as general reference-fidelity improvement.
+
+The better hinge IoU after equal registration is useful evidence that
+pivot choice matters *for this manually authored example*, alongside
+the exact seam-continuity and collision tests. It does not prove
+automatic image-to-3D reconstruction quality or photoreal likeness.
+The experiment does not search camera rotation, perspective,
+reference landmarks, mesh shape, fold angles, scene lighting or color
+thresholds. The repository already provides a separate landmark
+correspondence camera solver under `forge/stage1_intake/`; this study
+does **not** replace or duplicate that contract.
+
+The isolated [Hinge Lab](../integrations/hinge_lab/README.md) also has
+a clearly labeled, optional **Photo-framed view** using the measured
+hinged-camera pan/zoom preset; desktop/mobile presentation can vary
+with viewport aspect and with its intentionally different lighting.
+Interactive screenshots are *not* additional quantitative matches.
+
 ## Reproduce and review
 
 ```sh
