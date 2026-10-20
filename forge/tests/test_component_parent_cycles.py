@@ -86,6 +86,74 @@ class ComponentParentCycleTests(unittest.TestCase):
         self.assertEqual(resolved[0]["id"], f"n{length - 1}")
         self.assertEqual(resolved[-1]["id"], "n0")
 
+    def test_seeded_acyclic_dags_match_original_recursive_order(self) -> None:
+        # Differential regression against the old recursion on VALID small
+        # DAGs. It is safe as an oracle here because parents are acyclic and
+        # fewer than 50 deep; invalid cycles are tested separately above.
+        from random import Random
+
+        rng = Random(0xC1C1E)
+
+        def original_order(components: list[dict]) -> list[str]:
+            by_id = {str(item["id"]): item for item in components}
+            visited: set[str] = set()
+            emitted: list[str] = []
+
+            def visit(item: dict) -> None:
+                component_id = str(item["id"])
+                if component_id in visited:
+                    return
+                parent = item.get("parent")
+                if parent in by_id:
+                    visit(by_id[parent])
+                emitted.append(component_id)
+                visited.add(component_id)
+
+            for item in components:
+                if item.get("level") == "macro":
+                    visit(item)
+            if not emitted and components:
+                emitted.append(str(components[0]["id"]))
+            return emitted
+
+        for trial in range(100):
+            nodes: list[dict] = []
+            count = rng.randrange(2, 49)
+            for index in range(count):
+                parent = (
+                    f"n{rng.randrange(index)}"
+                    if index and rng.randrange(4) != 0 else None
+                )
+                nodes.append({
+                    "id": f"n{index}", "parent": parent,
+                    "level": rng.choice(("macro", "macro", "meso", "micro")),
+                })
+            rng.shuffle(nodes)
+            result = filter_components_for_pass({}, nodes, "blockout")
+            result_ids = [str(item["id"]) for item in result]
+            self.assertEqual(
+                result_ids, original_order(nodes),
+                f"valid DAG case {trial}: parent-first output order changed",
+            )
+            positions = {component_id: index
+                         for index, component_id in enumerate(result_ids)}
+            for node in result:
+                parent = node.get("parent")
+                if parent in positions:
+                    self.assertLess(
+                        positions[parent], positions[node["id"]],
+                        f"case {trial}: parent emitted after child",
+                    )
+
+    def test_multiple_disconnected_parent_cycles_each_report_once(self) -> None:
+        spec = fixture()
+        first, second = spec["componentTree"]
+        first["parent"] = first["id"]
+        second["parent"] = second["id"]
+        errors, _warnings = validate_spec(spec)
+        cycles = [item for item in errors if "parent cycle" in item]
+        self.assertEqual(len(cycles), 2, cycles)
+
     def test_order_for_existing_parent_first_specs_is_unchanged(self) -> None:
         spec = fixture()
         resolved = filter_components_for_pass(spec, spec["componentTree"], "blockout")
