@@ -214,9 +214,9 @@ def _validated_runtime(runtime: object) -> tuple[tuple[int, int], float]:
         if (
             isinstance(value, bool)
             or not isinstance(value, (int, float))
-            or not math.isfinite(value)
             or value < 1
             or value > 16384
+            or not math.isfinite(value)
             or int(value) != value
         ):
             raise ValueError("runtime.viewport must contain positive integral dimensions <= 16384")
@@ -224,7 +224,7 @@ def _validated_runtime(runtime: object) -> tuple[tuple[int, int], float]:
     dpr = runtime.get("devicePixelRatio", 1)
     if (
         isinstance(dpr, bool) or not isinstance(dpr, (int, float))
-        or not math.isfinite(dpr) or not 0 < dpr <= 8
+        or not 0 < dpr <= 8 or not math.isfinite(dpr)
     ):
         raise ValueError("runtime.devicePixelRatio must be a finite positive number <= 8")
     if dimensions[0] * dimensions[1] * dpr * dpr > 64_000_000:
