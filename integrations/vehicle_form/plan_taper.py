@@ -26,9 +26,14 @@ MIN_LATERAL_SPAN_COVERAGE = 0.90
 
 
 def _number(value: Any, label: str, *, positive: bool = False) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise PlanTaperInputError(f"{label} must be finite and numeric")
-    val = float(value)
+    try:
+        val = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise PlanTaperInputError(f"{label} must be finite and numeric") from exc
+    if not math.isfinite(val):
+        raise PlanTaperInputError(f"{label} must be finite and numeric")
     if positive and val <= 0:
         raise PlanTaperInputError(f"{label} must be positive")
     return val
@@ -274,6 +279,10 @@ def evaluate(geometry: Any, table: Any, *, mesh_name: str) -> dict[str, Any]:
             if not math.isfinite(displacement):
                 raise PlanTaperInputError(f"non-finite lateral center offset at station {row['id']!r}")
             row["normalizedCenterError"] = abs(displacement) / reference_max
+            if not math.isfinite(row["normalizedCenterError"]):
+                raise PlanTaperInputError(
+                    f"non-finite normalized lateral center error at station {row['id']!r}"
+                )
             if row["normalizedCenterError"] > center_tol + 1e-12:
                 errors.append(
                     f"station {row['id']!r}: normalized center error "
