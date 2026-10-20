@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Three.js capture recovery fixture</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; overflow: hidden; background: #111b29; }
+  canvas { display: block; }
+</style>
+<script type="module">
+import * as THREE from '/three/build/three.module.js';
+
+// Only fault injection changes between attempts; the scene remains identical.
+const faults = await fetch('/faults.json', { cache: 'no-store' }).then(r => r.json());
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#111b29');
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.append(renderer.domElement);
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.01, 100);
+scene.add(new THREE.HemisphereLight(0xddeeff, 0x182437, 2.6));
+const light = new THREE.DirectionalLight(0xffffff, 3);
+light.position.set(3, 5, 4);
+scene.add(light);
+
+const ground = new THREE.Mesh(
+  new THREE.CylinderGeometry(2.3, 2.3, 0.18, 48),
+  new THREE.MeshStandardMaterial({ color: '#263c51', roughness: 0.85 }),
+);
+ground.position.y = -0.12;
+scene.add(ground);
+const box = new THREE.Mesh(
+  new THREE.BoxGeometry(0.85, 1.5, 0.85),
+  new THREE.MeshStandardMaterial({ color: '#ed7253', roughness: 0.45 }),
+);
+box.position.set(-0.9, 0.73, 0.1);
+box.rotation.y = 0.28;
+scene.add(box);
+const sphere = new THREE.Mesh(
+  new THREE.SphereGeometry(0.6, 32, 24),
+  new THREE.MeshStandardMaterial({ color: '#b8e450', roughness: 0.3 }),
+);
+sphere.position.set(0.45, 0.6, 0.65);
+scene.add(sphere);
+const ring = new THREE.Mesh(
+  new THREE.TorusGeometry(0.65, 0.17, 16, 48),
+  new THREE.MeshStandardMaterial({ color: '#50b5f0', roughness: 0.28, metalness: 0.15 }),
+);
+ring.position.set(0.75, 0.95, -0.65);
+ring.rotation.y = -0.2;
+scene.add(ring);
+
+window.__IMG2THREEJS_CAPTURE__ = {
+  async setCamera(spec) {
+    if (faults.hangCaptureId === spec.id) await new Promise(() => {});
+    const azimuth = THREE.MathUtils.degToRad(spec.azimuthDegrees || 0);
+    camera.position.set(6 * Math.sin(azimuth), 3.2, 6 * Math.cos(azimuth));
+    camera.lookAt(0, 0.6, 0);
+    renderer.render(scene, camera);
+    if (faults.dropReadyOnCapture) window.__IMG2THREEJS_READY__ = false;
+  },
+};
+await window.__IMG2THREEJS_CAPTURE__.setCamera({ id: 'initial', azimuthDegrees: 0 });
+window.__IMG2THREEJS_READY__ = faults.ready !== false;
+if (faults.consoleError) console.error(faults.consoleError);
+if (faults.pageError) setTimeout(() => { throw new Error(faults.pageError); }, 0);
+</script>
+</html>
