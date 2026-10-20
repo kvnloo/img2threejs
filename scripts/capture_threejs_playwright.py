@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -158,7 +159,11 @@ def _invalidate_capture(target: dict) -> None:
 
 def _validate_output_destinations(manifest_file: Path, manifest: dict) -> None:
     """Prevent capture output paths from overwriting inputs or other shots."""
-    protected: dict[Path, str] = {manifest_file.resolve(): "render manifest"}
+    protected: dict[Path, str] = {
+        manifest_file.resolve(): "render manifest",
+        # write_manifest() publishes via this exact sibling temporary path.
+        manifest_file.with_suffix(manifest_file.suffix + ".tmp").resolve(): "manifest checkpoint",
+    }
     for name in ("reference", "renderProfile"):
         source = manifest.get(name)
         if isinstance(source, dict) and isinstance(source.get("path"), str) and source["path"].strip():
@@ -197,6 +202,36 @@ def _validate_output_destinations(manifest_file: Path, manifest: dict) -> None:
                 destinations[dest] = f"{label} {part}"
 
 
+def _validated_runtime(runtime: object) -> tuple[tuple[int, int], float]:
+    """Validate viewport and DPR before browser allocation or receipt changes."""
+    if not isinstance(runtime, dict):
+        raise ValueError("manifest runtime must be an object")
+    viewport = runtime.get("viewport", [620, 1000])
+    if not isinstance(viewport, (list, tuple)) or len(viewport) != 2:
+        raise ValueError("runtime.viewport must contain two dimensions")
+    dimensions = []
+    for value in viewport:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 1
+            or value > 16384
+            or int(value) != value
+        ):
+            raise ValueError("runtime.viewport must contain positive integral dimensions <= 16384")
+        dimensions.append(int(value))
+    dpr = runtime.get("devicePixelRatio", 1)
+    if (
+        isinstance(dpr, bool) or not isinstance(dpr, (int, float))
+        or not math.isfinite(dpr) or not 0 < dpr <= 8
+    ):
+        raise ValueError("runtime.devicePixelRatio must be a finite positive number <= 8")
+    if dimensions[0] * dimensions[1] * dpr * dpr > 64_000_000:
+        raise ValueError("runtime capture would exceed 64 million device pixels")
+    return (dimensions[0], dimensions[1]), float(dpr)
+
+
 def _evaluate_with_timeout(page, expression: str, argument, timeout_ms: int):
     """Bound async page hooks; Playwright's default timeout does not bound evaluate."""
     return page.evaluate(
@@ -233,8 +268,7 @@ def capture(
         raise ValueError(f"unknown capture mode: {mode}")
     manifest = read_manifest(manifest_path_value)
     runtime = manifest.get("runtime", {})
-    viewport = runtime.get("viewport", [620, 1000])
-    dpr = float(runtime.get("devicePixelRatio", 1))
+    viewport, dpr = _validated_runtime(runtime)
     url = str(runtime.get("url", ""))
     if not url:
         raise ValueError("manifest runtime.url is missing")
