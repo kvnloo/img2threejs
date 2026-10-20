@@ -77,7 +77,10 @@ def _record_is_reusable(manifest_path_value: Path, record: dict, signature: str,
         or record.get("readySignal") is not True
         or record.get("consoleErrors") != []
         or not isinstance(receipt, dict)
-        or receipt.get("version") != 1
+        # True == 1 and 1.0 == 1 in Python, but these are not the versioned
+        # integer receipt produced by our browser adapter.
+        or type(receipt.get("version")) is not int
+        or receipt["version"] != 1
         or receipt.get("inputSignature") != signature
         or receipt.get("complete") is not True
         or not isinstance(record.get("path"), str)
