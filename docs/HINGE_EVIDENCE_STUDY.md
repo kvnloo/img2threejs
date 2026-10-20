@@ -178,6 +178,18 @@ correlated and are not an independent validation scene.** Camera fitting
 on the same original photograph necessarily risks overfitting; results
 must not be described as general reference-fidelity improvement.
 
+The sensitivity test also reruns the fixed-camera IoU calculation on
+**nine locked warm-segmentation thresholds** around the original
+(red-minus-green in `{8,13,18}` and red-minus-blue in `{15,22,29}`).
+It does **not** refit the camera for each threshold. The resulting
+[sensitivity CI](https://github.com/kvnloo/img2threejs/actions/runs/39372800831)
+passes eight camera/segmentation unit tests plus the existing 14 rigid
+collision tests. Across this small threshold grid, hinged IoU ranges
+**0.886144–0.886611** and center-pivot IoU ranges
+**0.822808–0.824392**; the local fitted ordering is unchanged in
+all nine cases. This is evidence of **limited segmentation stability
+on the same one image**, not broader scene robustness.
+
 The better hinge IoU after equal registration is useful evidence that
 pivot choice matters *for this manually authored example*, alongside
 the exact seam-continuity and collision tests. It does not prove
