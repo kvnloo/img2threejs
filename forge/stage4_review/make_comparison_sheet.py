@@ -71,6 +71,7 @@ def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
     saw_ihdr = saw_idat = saw_iend = False
     idat_closed = False
     palette_seen = False
+    palette_entries = 0
     transparent_key: tuple[int, ...] | None = None
     transparency_seen = False
     while cursor < len(data):
@@ -115,11 +116,21 @@ def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
         elif chunk_type == b"PLTE":
             if saw_idat or palette_seen or color_type in (0, 4):
                 raise InvalidPng("PNG PLTE must be unique, precede IDAT, and not be grayscale")
+            if length == 0 or length % 3 or length > 768:
+                raise InvalidPng("PNG PLTE must contain 1 to 256 complete RGB entries")
+            palette_entries = length // 3
+            if color_type == 3 and palette_entries > (1 << bit_depth):
+                raise InvalidPng("PNG indexed palette exceeds bit-depth entries")
             palette_seen = True
         elif chunk_type == b"tRNS":
             if saw_idat or transparency_seen or color_type in (4, 6):
                 raise InvalidPng("PNG tRNS must be unique, precede IDAT, and not accompany alpha")
             transparency_seen = True
+            if color_type == 3:
+                if not palette_seen:
+                    raise InvalidPng("PNG indexed tRNS requires a preceding PLTE")
+                if length == 0 or length > palette_entries:
+                    raise InvalidPng("PNG indexed tRNS exceeds palette entries")
             if color_type in (0, 2):
                 expected = 2 if color_type == 0 else 6
                 if length != expected:
