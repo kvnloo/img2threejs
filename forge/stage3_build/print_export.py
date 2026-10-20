@@ -378,8 +378,8 @@ def scale_to_longest_edge(vertices: list[Vec], longest_edge: float) -> tuple[lis
 
 def assert_stl_float32_geometry(
     vertices: list[Vec], triangles: list[tuple[int, int, int]]
-) -> None:
-    """Refuse float32 rounding that changes face geometry or vertex topology."""
+) -> list[Vec]:
+    """Return quantized vertices only if float32 preserves geometry and orientation."""
     rounded: list[Vec] = []
     # A small gap between separately watertight solids may vanish after STL
     # quantization without collapsing any individual triangle. That changes
@@ -409,6 +409,17 @@ def assert_stl_float32_geometry(
                 f"triangle {number} collapses at STL float32 precision; "
                 "scale model with --longest-edge-mm"
             )
+        # Nondegenerate triangles can still *reverse* direction when an
+        # almost-collinear face is rounded. The STL facet normal and inside/
+        # outside contract would then contradict the original mesh topology.
+        a, b, c = triangle
+        source_normal = _cross(_sub(vertices[b], vertices[a]), _sub(vertices[c], vertices[a]))
+        rounded_normal = _cross(_sub(rounded[b], rounded[a]), _sub(rounded[c], rounded[a]))
+        if math.fsum(u * v for u, v in zip(source_normal, rounded_normal)) <= 0.0:
+            raise PrintExportError(
+                f"triangle {number} reverses winding at STL float32 precision; "
+                "recenter or rescale model before exporting"
+            )
     # A thin closed tetrahedron can become coplanar in float32 while each of
     # its four faces remains nondegenerate and every vertex remains distinct.
     # Check closed-shell volume *after* quantization as well as face area.
@@ -423,6 +434,7 @@ def assert_stl_float32_geometry(
                     f"shell {index} loses its enclosed volume at STL float32 precision; "
                     "recenter or rescale model before exporting"
                 )
+    return rounded
 
 
 def _safe_export_name(value: str) -> str:
@@ -438,16 +450,18 @@ def _safe_export_name(value: str) -> str:
 
 
 def write_stl(path: Path, vertices: list[Vec], triangles: list[tuple[int, int, int]], *, name: str = "img2threejs") -> None:
-    assert_stl_float32_geometry(vertices, triangles)
+    quantized = assert_stl_float32_geometry(vertices, triangles)
     safe_name = _safe_export_name(name)
     header = f"img2threejs print export: {safe_name}".encode("ascii", "replace")[:80].ljust(80, b"\0")
     with path.open("wb") as stream:
         stream.write(header)
         stream.write(struct.pack("<I", len(triangles)))
         for triangle in triangles:
-            stream.write(struct.pack("<3f", *_normal(vertices, triangle)))
+            # Serialize both the facet normal and its vertices from *exactly*
+            # the same float32 points, not an idealized double-precision face.
+            stream.write(struct.pack("<3f", *_normal(quantized, triangle)))
             for index in triangle:
-                stream.write(struct.pack("<3f", *vertices[index]))
+                stream.write(struct.pack("<3f", *quantized[index]))
             stream.write(b"\0\0")
 
 
