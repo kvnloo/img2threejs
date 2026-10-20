@@ -279,6 +279,7 @@ function rebuildWorld(nextData, preserveAdventure = false, restoredAdventure = n
   data = nextData;
   if (world) {
     scene.remove(world);
+    world.dispose(); // Instance buffers are not owned by the geometry.
     world.geometry.dispose();
     world.material.dispose();
   }
@@ -534,7 +535,7 @@ canvas.addEventListener('pointerup', event => {
     }
     return;
   }
-  const hit = raycaster.intersectObjects(beacons, false)[0];
+  const hit = raycaster.intersectObjects(beacons.filter(beacon => beacon.visible), false)[0];
   if (hit?.object?.visible) {
     collectBeacon(hit.object);
     return;

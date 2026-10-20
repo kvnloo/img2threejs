@@ -23,6 +23,7 @@ assert.equal(threePackage.version, '0.169.0', 'browser smoke must match pinned T
 const observer = `
 globalThis.__pocketSmoke = {
   snapshot: () => ({scoutCell, scoutDestination, collected, relief}),
+  frame: () => renderer.info.render.frame,
   tapTarget: () => {
     const rect = canvas.getBoundingClientRect();
     const picker = new THREE.Raycaster();
@@ -92,6 +93,34 @@ let browser;
 try {
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({viewport: {width: 1100, height: 740}, acceptDownloads: true});
+  // Count real buffer allocations before the app initializes. Geometry counts
+  // alone miss InstancedMesh's separately owned matrix/color buffers.
+  await page.addInitScript(() => {
+    const live = new Set();
+    const instrumented = new WeakSet();
+    let created = 0, deleted = 0;
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (...args) {
+      const context = getContext.apply(this, args);
+      if (this.id === 'viewport' && context &&
+          (args[0] === 'webgl' || args[0] === 'webgl2') && !instrumented.has(context)) {
+        instrumented.add(context);
+        const createBuffer = context.createBuffer;
+        const deleteBuffer = context.deleteBuffer;
+        context.createBuffer = function () {
+          const buffer = createBuffer.call(this);
+          if (buffer) { live.add(buffer); created++; }
+          return buffer;
+        };
+        context.deleteBuffer = function (buffer) {
+          if (live.delete(buffer)) deleted++;
+          return deleteBuffer.call(this, buffer);
+        };
+      }
+      return context;
+    };
+    globalThis.__pocketBuffers = () => ({created, deleted, live:live.size});
+  });
   const errors = [];
   page.on('pageerror', error => errors.push(String(error)));
   await page.goto(url, {waitUntil:'domcontentloaded'});
@@ -125,6 +154,20 @@ try {
     return bright;
   }, screenshot.toString('base64'));
   assert.ok(visible > 250, `Expected visible procedural island pixels, found only ${visible}`);
+
+  const bufferBaseline = await page.evaluate(() => globalThis.__pocketBuffers());
+  assert.ok(bufferBaseline.live > 0, 'WebGL buffer instrumentation did not observe allocations');
+  const bufferSamples = [];
+  for (let iteration = 0; iteration < 12; iteration++) {
+    const previousFrame = await page.evaluate(() => globalThis.__pocketSmoke.frame());
+    await page.locator('#remix').click();
+    await page.waitForFunction(frame => globalThis.__pocketSmoke.frame() > frame + 1, previousFrame);
+    const sample = await page.evaluate(() => globalThis.__pocketBuffers());
+    bufferSamples.push(sample);
+    assert.equal(sample.live, bufferBaseline.live, `GPU buffers grew after remix ${iteration + 1}`);
+  }
+  assert.ok(bufferSamples.at(-1).deleted > bufferBaseline.deleted,
+    'rebuild stress did not exercise GPU resource deletion');
 
   await page.locator('#night').click();
   assert.equal(await page.locator('#night').getAttribute('aria-pressed'), 'true');
@@ -196,9 +239,10 @@ try {
   await writeFile(join(shotDir, 'verification.json'), JSON.stringify({
     webgl, brightSubjectPixels: visible, collected: progress, receiptVersion: receipt.version,
     errorCount: errors.length,
+    gpuBuffers: {baseline:bufferBaseline, afterRemixes:bufferSamples},
     mobileEmulation: {touchTarget:target.cell, pinchPreservedAdventure:true, landscapeStart, landscapeCollected:mobileState.collected},
   }, null, 2));
-  console.log(`PASS real WebGL r169, ${visible} visible island pixels, beacons ${progress}, JSON v2 restored, mobile touch/pinch/landscape passed`);
+  console.log(`PASS real WebGL r169, ${visible} visible island pixels, beacons ${progress}, JSON v2 restored, stable GPU buffers across 12 remixes, mobile touch/pinch/landscape passed`);
 } finally {
   if (browser) await browser.close();
   await new Promise(resolveClose => server.close(resolveClose));

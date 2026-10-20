@@ -22,9 +22,10 @@ class InstancedMesh extends Mesh {
   setColorAt(i,color){this.colors[i]=color.hex;}
   setMatrixAt(i,matrix){this.matrices[i]=matrix;}
   computeBoundingSphere(){}
+  dispose(){this.disposed=true;}
 }
-class Geometry {constructor(...args){this.args=args;}dispose(){} setAttribute(name,attr){this[name]=attr;} }
-class Material {constructor(opts){this.options=opts;}dispose(){} }
+class Geometry {constructor(...args){this.args=args;}dispose(){this.disposed=true;} setAttribute(name,attr){this[name]=attr;} }
+class Material {constructor(opts){this.options=opts;}dispose(){this.disposed=true;} }
 class Light extends Node {constructor(a,b){super();this.color=a;this.intensity=b;} }
 class FogExp2 {constructor(color,density){this.color=new Color(color);this.density=density;} }
 class Points extends Mesh {}
@@ -34,7 +35,13 @@ class Renderer {
 }
 class Raycaster {
   setFromCamera(){}
-  intersectObjects(nodes){if(window.__pickBeacon!==undefined){const o=nodes[window.__pickBeacon];return o&&o.visible?[{object:o}]:[];}return []}
+  intersectObjects(nodes){
+    if(window.__pickBeaconObjects){
+      return window.__pickBeaconObjects.filter(object=>nodes.includes(object)).map(object=>({object}));
+    }
+    const object=nodes[window.__pickBeacon];
+    return object?[{object}]:[];
+  }
   intersectObject(){return window.__pickTile!==undefined?[{instanceId:window.__pickTile}]:[]}
 }
 class OrbitControls {

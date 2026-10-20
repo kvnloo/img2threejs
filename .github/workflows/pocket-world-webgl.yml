@@ -52,6 +52,15 @@ jobs:
           npm init -y >/dev/null
           npm install --no-audit --no-fund --no-save playwright@1.56.0 three@0.169.0 esbuild@0.25.12
           npx playwright install --with-deps chromium
+      - name: Run interaction regressions with mocked Three.js
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/pocket-world-dom-deps"
+          "$RUNNER_TEMP/pocket-world-dom-deps/bin/pip" install playwright==1.56.0 Pillow==11.3.0
+          mkdir -p "$RUNNER_TEMP/pocket-world-webgl-smoke"
+          "$RUNNER_TEMP/pocket-world-dom-deps/bin/python" -u integrations/pocket_world/tests/dom_smoke.py \
+            | tee "$RUNNER_TEMP/pocket-world-webgl-smoke/interaction-tests.log"
       - name: Run real Three.js renderer and adventure smoke
         env:
           IMG2THREEJS_BROWSER_DEPS_ROOT: ${{ runner.temp }}/pocket-world-browser-deps

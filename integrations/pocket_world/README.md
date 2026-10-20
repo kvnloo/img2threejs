@@ -34,10 +34,12 @@ turning, rather than cutting diagonally across invisible cells.
 The scout uses stable binary-heap A*. The compass uses one slope-aware Dijkstra
 search and reuses its route. Equal-cost targets prefer the lower tile ID. Neither
 planner invents a route over invisible cells. Brightness is an artistic height
-proxy, not measured elevation. Direct beacon taps also collect treasure.
+proxy, not measured elevation. Direct beacon taps also collect treasure; collected
+beacons no longer intercept hits on visible ones.
 
 To build a bridge, select two visible anchors. Only transparent cells are filled;
 existing visible colors and heights are preserved. Up to 12 edits can be undone.
+Replaced terrain releases its instance buffers, geometry and material.
 Surviving beacons retain their identities and progress, and new beacon slots are
 filled when bridges expand a sparse island. Undo relocates a scout whose tile
 vanished. New imports, remixes and edits supersede older asynchronous imports.
@@ -75,10 +77,12 @@ recognized by Playwright. This suite uses mocked Three.js to test uploads,
 bookmarks, movement, gestures, bridge/undo and downloads. It is **not WebGL proof**.
 
 `.github/workflows/pocket-world-webgl.yml` runs the data suite on Node 18 and 22
-before installing isolated, pinned Three.js/Playwright/esbuild dependencies.
+before installing isolated, pinned browser-test dependencies and running the
+mocked interaction suite.
 `tests/real_webgl_smoke.mjs` runs the actual app and OrbitControls, checks rendered
-pixels and adventure round trips, and exercises touch, pinch and landscape in
-mobile emulation. Screenshots and machine-readable receipts are CI artifacts.
+pixels and adventure round trips, checks stable GPU buffer counts across 12
+remixes, and exercises touch, pinch and landscape in mobile emulation. Screenshots
+and machine-readable receipts are CI artifacts.
 Read-only observers exist only in the test bundle, not the shipped preview.
 
 Browser smoke does not establish source-photo reconstruction fidelity or physical

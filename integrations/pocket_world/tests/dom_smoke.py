@@ -20,7 +20,7 @@ return {GRID_SIZE,demoPixels,voxelize,nearestVisibleTile,findTilePath,buildBridg
 const THREE=window.__THREE;
 const OrbitControls=window.__OrbitControls;
 """+app+"""
-window.__pocketTest={state:()=>({cells:cells.length,beacons:beacons.length,collected,scoutCell,scoutDestination,scoutVisible:scout.visible,scoutY:scout.position.y, dataSize:data.size}),
+window.__pocketTest={terrain:()=>world,pickBeacons:indices=>{window.__pickBeaconObjects=indices.map(i=>beacons[i]);},state:()=>({cells:cells.length,beacons:beacons.length,collected,scoutCell,scoutDestination,scoutVisible:scout.visible,scoutY:scout.position.y, dataSize:data.size}),
     bridge:cell=>bridgeClick(cell),validPassport:()=>{try{serializeWorld(data,relief,saveAdventure());return true}catch{return false}},reset:cell=>resetScout(cell),navigation:()=>({scoutCell,scoutDestination,scoutFraction,queue:[...scoutQueue],x:scout.position.x,z:scout.position.z}),send: cell=>routeScout(cell),step:(dt)=>animateScout(dt,false),path:(a,b)=>findTilePath(data,a,b),beaconCells:()=>beacons.map(b=>b.userData.cell),indexOf:cell=>cells.indexOf(cell),preview:()=>$('reference').getContext('2d').getImageData(0,0,28,28).data.length
 };
 """
@@ -42,7 +42,11 @@ with sync_playwright() as p:
     state=page.evaluate('window.__pocketTest.state()')
     check('init visible 28x28 world',state['cells']==784 and state['beacons']==5 and state['scoutVisible'])
     check('preview RGBA',page.evaluate('window.__pocketTest.preview()')==28*28*4)
+    page.evaluate('window.__oldTerrain=window.__pocketTest.terrain()')
     page.locator('#remix').click()
+    check('replaced terrain releases instance buffers, geometry and material',
+          page.evaluate('window.__oldTerrain.disposed===true && window.__oldTerrain.geometry.disposed===true && window.__oldTerrain.material.disposed===true'))
+    page.evaluate('delete window.__oldTerrain')
     check('remix label', page.locator('#source-label').inner_text()=='Emerald valley')
     page.locator('#night').click()
     check('night mode aria state',page.locator('#night').get_attribute('aria-pressed')=='true')
@@ -300,6 +304,20 @@ with sync_playwright() as p:
     page.locator('#undo-bridge').click()
     check('undo restores the sparse-world beacon count and valid passport',
           page.evaluate('window.__pocketTest.state().beacons')==2 and page.evaluate('window.__pocketTest.validPassport()'))
+    # Three.js raycasts invisible objects too: hidden collected beacons must not
+    # occlude a still-visible beacon further along the ray.
+    page.locator('#remix').click()
+    page.evaluate('window.__pocketTest.pickBeacons([0])')
+    page.mouse.click(500, 320)
+    check('direct beacon tap still collects one beacon',page.evaluate('window.__pocketTest.state().collected')==1)
+    page.evaluate('window.__pocketTest.pickBeacons([0,1])')
+    page.mouse.click(500, 320)
+    check('collected beacon cannot occlude a visible beacon',page.evaluate('window.__pocketTest.state().collected')==2)
+    collected_before=page.evaluate('window.__pocketTest.state().collected')
+    page.evaluate('window.__pocketTest.pickBeacons([0,1])')
+    page.mouse.click(500, 320)
+    check('collected beacon hits cannot count twice',page.evaluate('window.__pocketTest.state().collected')==collected_before)
+    page.evaluate('delete window.__pickBeaconObjects')
     check('no JS uncaught exceptions', not errs)
     print('RESULT',sum(1 for _,ok in checks if ok),'/',len(checks),'errors',errs)
     browser.close()
