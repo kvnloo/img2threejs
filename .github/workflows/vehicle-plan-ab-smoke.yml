@@ -5,6 +5,7 @@ on:
     paths:
       - 'integrations/vehicle_form/**'
       - 'forge/tests/test_vehicle_plan_taper.py'
+      - 'forge/tests/test_vehicle_centerline.py'
       - '.github/workflows/vehicle-plan-ab-smoke.yml'
   workflow_dispatch:
 
@@ -46,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           node --test integrations/vehicle_form/vehicle_reference_pixels.test.mjs
-          python3 -m unittest forge.tests.test_vehicle_plan_taper
+          python3 -m unittest forge.tests.test_vehicle_plan_taper forge.tests.test_vehicle_centerline
       - name: Verify real Chromium pixels to exported world meshes to plan-taper verdict
         shell: bash
         env:
