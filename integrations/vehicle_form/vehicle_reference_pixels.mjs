@@ -58,7 +58,15 @@ export function widthFromPixelColumn(rgba, {height = VIEW.height, top = VIEW.top
     }
   }
   if (matches < 2) throw new Error('reference column contains no measurable body silhouette');
-  return {width: (finish - start + 1) * (top - bottom) / height, bodyPixels: matches};
+  const worldUnitsPerPixel = (top - bottom) / height;
+  // In this locked top camera, screen-up points toward world -Z:
+  // vertical pixel row increases in the +Z direction. Use pixel centers,
+  // not min/max world vertices, so reference alignment is image-derived.
+  const centerZ = ((start + finish + 1) / 2 - height / 2) * worldUnitsPerPixel;
+  return {
+    width: (finish - start + 1) * worldUnitsPerPixel,
+    centerZ, bodyPixels: matches,
+  };
 }
 
 /** This table is derived from browser-rendered reference pixels, not truth widths. */
@@ -73,10 +81,14 @@ export function referenceTableFromColumns(rgbaColumns, source, view = VIEW) {
     reference: {kind: 'measured-top-view', source},
     maxNormalizedWidthError: 0.08,
     maxTaperLoss: 0.12,
+    maxNormalizedCenterError: 0.08,
     stations: STATIONS.map((station, i) => {
       const x = worldX(station.localX);
       const width = widthFromPixelColumn(rgbaColumns[i], view);
-      return {id: station.id, x, referenceWidth: width.width, referencePixelColumn: referencePixelColumn(i, view), referenceBodyPixelCount: width.bodyPixels};
+      return {id: station.id, x, referenceWidth: width.width,
+        referenceCenterZ: width.centerZ,
+        referencePixelColumn: referencePixelColumn(i, view),
+        referenceBodyPixelCount: width.bodyPixels};
     }),
   };
 }
