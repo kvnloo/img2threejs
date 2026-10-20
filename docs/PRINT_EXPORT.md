@@ -126,6 +126,10 @@ never insert additional OBJ vertex/face commands through a filename.
   for example, a small gap near a world X coordinate of 1001 may vanish,
   creating coincident faces in the slicer. The exporter also refuses **new
   vertex collisions after float32 rounding**, before publishing any STL.
+  A valid source triangle can even reverse its winding during float32
+  rounding while staying nondegenerate. Such faces are refused, and for
+  accepted triangles the written STL facet normals are recomputed from
+  the **stored** quantized vertices, not mismatched source-space positions.
   For very small meshes, set `--weld` below the smallest meaningful
   source-space feature **and** use `--longest-edge-mm` to rescale them; the
   weld occurs before rescaling. For distant world origins, recenter the source
