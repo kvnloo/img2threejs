@@ -51,6 +51,12 @@ class CaptureOutputPathSafetyTest(unittest.TestCase):
         self.manifest["captures"][0]["path"] = str(self.manifest_path)
         self.assert_rejected_before_browser("aliases protected render manifest")
 
+    def test_manifest_checkpoint_temp_file_is_not_a_screenshot(self):
+        checkpoint = self.manifest_path.with_suffix(self.manifest_path.suffix + ".tmp")
+        self.manifest["captures"][0]["path"] = str(checkpoint)
+        self.assert_rejected_before_browser("aliases protected manifest checkpoint")
+        self.assertFalse(checkpoint.exists())
+
     def test_unselected_orbit_must_not_share_hero_output(self):
         hero, orbit = self.manifest["captures"][:2]
         orbit["path"] = hero["path"]
