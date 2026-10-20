@@ -9,7 +9,6 @@ import {
 const $ = id => document.getElementById(id);
 const canvas = $('viewport');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, preserveDrawingBuffer: false });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.35;
@@ -70,6 +69,7 @@ let collected = 0;
 let night = false;
 let themeIndex = 0;
 const themes = [['sunset', 'Sunset coast'], ['forest', 'Emerald valley'], ['cosmic', 'Nebula bloom']];
+const RASTER_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/avif', 'image/gif', 'image/bmp', 'image/heic', 'image/heif']);
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const helper = new THREE.Object3D();
@@ -94,6 +94,15 @@ const scoutHalo = new THREE.Mesh(
 scoutHalo.rotation.x = Math.PI / 2;
 scout.add(scoutBody, scoutHalo);
 scene.add(scout);
+// A small persistent keyboard cursor; no per-world geometry allocations.
+const cursor = new THREE.Mesh(
+  new THREE.TorusGeometry(.43, .035, 6, 24),
+  new THREE.MeshBasicMaterial({ color: 0xf2fcda }),
+);
+cursor.rotation.x = Math.PI / 2;
+cursor.visible = false;
+scene.add(cursor);
+let cursorCell = -1;
 let scoutCell = -1;
 let scoutDestination = -1;
 let scoutQueue = [];
@@ -146,6 +155,14 @@ function scoutTilePosition(cell, target = new THREE.Vector3()) {
   const h = tileHeight(data.heights[cell], relief);
   const [x, , z] = positionOf(cell, h);
   return target.set(x, h + .46, z);
+}
+
+function selectCursor(cell) {
+  if (!data || cell < 0 || cell >= data.visible.length) return;
+  cursorCell = cell;
+  const [x, , z] = positionOf(cell, 0);
+  cursor.position.set(x, data.visible[cell] ? tileHeight(data.heights[cell], relief) + .14 : .1, z);
+  cursor.visible = document.activeElement === canvas;
 }
 
 function resetScout(preferredCell = -1) {
@@ -299,6 +316,7 @@ function rebuildWorld(nextData, preserveAdventure = false, restoredAdventure = n
   redrawTiles();
   resetBeacons(old);
   resetScout(old?.scoutCell);
+  selectCursor(cursorCell < 0 ? (scoutCell < 0 ? Math.floor(data.visible.length / 2) : scoutCell) : cursorCell);
 }
 
 function setBridgeMode(active) {
@@ -388,8 +406,8 @@ $('upload').addEventListener('change', async event => {
   const file = event.target.files?.[0];
   event.target.value = '';
   if (!file) return;
-  if (!file.type.startsWith('image/') || file.size > 12 * 1024 * 1024) {
-    announce('Choose an image smaller than 12 MB.');
+  if (!RASTER_IMAGE_TYPES.has(file.type) || file.size > 12 * 1024 * 1024) {
+    announce('Choose a raster image (PNG, JPEG, WebP, HEIC) under 12 MB.');
     return;
   }
   try {
@@ -438,6 +456,7 @@ $('relief').addEventListener('input', event => {
     scoutTilePosition(scoutDestination, scoutTo);
     scoutFraction = 0;
   }
+  if (cursorCell >= 0) selectCursor(cursorCell);
 });
 
 $('night').addEventListener('click', event => {
@@ -553,8 +572,48 @@ for (const type of ['pointercancel', 'lostpointercapture']) {
 }
 window.addEventListener('blur', () => { down = null; });
 
+canvas.addEventListener('focus', () => {
+  selectCursor(cursorCell < 0 ? (scoutCell < 0 ? Math.floor(GRID_SIZE * GRID_SIZE / 2) : scoutCell) : cursorCell);
+});
+canvas.addEventListener('blur', () => { cursor.visible = false; });
+canvas.addEventListener('keydown', event => {
+  const moves = { ArrowUp: -GRID_SIZE, ArrowDown: GRID_SIZE, ArrowLeft: -1, ArrowRight: 1,
+    w: -GRID_SIZE, s: GRID_SIZE, a: -1, d: 1 };
+  if (Object.hasOwn(moves, event.key)) {
+    event.preventDefault();
+    const current = cursorCell < 0 ? Math.floor(GRID_SIZE * GRID_SIZE / 2) : cursorCell;
+    const x = current % GRID_SIZE, y = Math.floor(current / GRID_SIZE);
+    const delta = moves[event.key];
+    if ((delta === -1 && x === 0) || (delta === 1 && x === GRID_SIZE - 1) ||
+        (delta === -GRID_SIZE && y === 0) || (delta === GRID_SIZE && y === GRID_SIZE - 1)) return;
+    selectCursor(current + delta);
+    $('scout-status').textContent = data.visible[cursorCell]
+      ? 'Tile selected · Enter to visit or set a bridge anchor'
+      : 'Water selected · move to a solid tile';
+    return;
+  }
+  if (event.key === 'Escape' && bridgeMode) {
+    event.preventDefault();
+    setBridgeMode(false);
+  }
+  if ((event.key === 'Enter' || event.key === ' ') && !event.repeat) {
+    event.preventDefault();
+    if (cursorCell < 0 || !data.visible[cursorCell]) { announce('Choose a solid tile first.'); return; }
+    if (bridgeMode) bridgeClick(cursorCell);
+    else {
+      const [x, , z] = positionOf(cursorCell, 0);
+      addRipple(x, z);
+      routeScout(cursorCell);
+    }
+  }
+});
+
+// Bound drawing-buffer pixels, not just DPR: 4K/high-DPI screens otherwise
+// allocate much larger color/depth buffers than this small voxel game needs.
+const MAX_RENDER_PIXELS = 4_000_000;
 function resize() {
-  const w = window.innerWidth, h = window.innerHeight;
+  const w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75, Math.sqrt(MAX_RENDER_PIXELS / (w * h))));
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h, false);

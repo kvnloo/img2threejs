@@ -31,7 +31,9 @@ class FogExp2 {constructor(color,density){this.color=new Color(color);this.densi
 class Points extends Mesh {}
 class Renderer {
   constructor({canvas}){this.domElement=canvas;}
-  setPixelRatio(){}setSize(){}render(){window._frameCount=(window._frameCount||0)+1;}
+  setPixelRatio(ratio){window.__mockRenderDpr=ratio;}
+  setSize(width,height){window.__mockRenderSize={width,height};}
+  render(){window._frameCount=(window._frameCount||0)+1;}
 }
 class Raycaster {
   setFromCamera(){}

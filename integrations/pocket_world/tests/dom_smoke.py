@@ -21,7 +21,7 @@ const THREE=window.__THREE;
 const OrbitControls=window.__OrbitControls;
 """+app+"""
 window.__pocketTest={terrain:()=>world,pickBeacons:indices=>{window.__pickBeaconObjects=indices.map(i=>beacons[i]);},state:()=>({cells:cells.length,beacons:beacons.length,collected,scoutCell,scoutDestination,scoutVisible:scout.visible,scoutY:scout.position.y, dataSize:data.size}),
-    bridge:cell=>bridgeClick(cell),validPassport:()=>{try{serializeWorld(data,relief,saveAdventure());return true}catch{return false}},reset:cell=>resetScout(cell),navigation:()=>({scoutCell,scoutDestination,scoutFraction,queue:[...scoutQueue],x:scout.position.x,z:scout.position.z}),send: cell=>routeScout(cell),step:(dt)=>animateScout(dt,false),path:(a,b)=>findTilePath(data,a,b),beaconCells:()=>beacons.map(b=>b.userData.cell),indexOf:cell=>cells.indexOf(cell),preview:()=>$('reference').getContext('2d').getImageData(0,0,28,28).data.length
+    cursor:()=>typeof cursorCell === 'number' ? {cell:cursorCell,visible:cursor.visible,y:cursor.position.y} : {cell:-1,visible:false,y:0},moveCursor:cell=>typeof selectCursor === 'function' && selectCursor(cell),bridge:cell=>bridgeClick(cell),validPassport:()=>{try{serializeWorld(data,relief,saveAdventure());return true}catch{return false}},reset:cell=>resetScout(cell),navigation:()=>({scoutCell,scoutDestination,scoutFraction,queue:[...scoutQueue],x:scout.position.x,z:scout.position.z}),send: cell=>routeScout(cell),step:(dt)=>animateScout(dt,false),path:(a,b)=>findTilePath(data,a,b),beaconCells:()=>beacons.map(b=>b.userData.cell),indexOf:cell=>cells.indexOf(cell),preview:()=>$('reference').getContext('2d').getImageData(0,0,28,28).data.length
 };
 """
 
@@ -318,6 +318,61 @@ with sync_playwright() as p:
     page.mouse.click(500, 320)
     check('collected beacon hits cannot count twice',page.evaluate('window.__pocketTest.state().collected')==collected_before)
     page.evaluate('delete window.__pickBeaconObjects')
+    # Keyboard control is a real alternative to tapping the 3D canvas.
+    page.locator('#remix').click()
+    page.locator('#viewport').focus()
+    initial=page.evaluate('window.__pocketTest.cursor()')
+    check('keyboard canvas is focusable and has a visible tile selector',
+          initial['visible'] and initial['cell']>=0 and page.locator('#viewport').get_attribute('tabindex')=='0')
+    page.keyboard.press('ArrowRight')
+    selected=page.evaluate('window.__pocketTest.cursor()')
+    check('keyboard arrow moves cursor one neighboring tile',selected['cell']==initial['cell']+1)
+    page.keyboard.press('Enter')
+    navigation=page.evaluate('window.__pocketTest.navigation()')
+    check('keyboard Enter routes the scout to selected tile',navigation['scoutDestination']>=0 or navigation['scoutCell']==selected['cell'])
+    page.locator('#bridge').click()
+    page.locator('#viewport').focus()
+    page.keyboard.press('Escape')
+    check('keyboard Escape exits bridge mode',page.locator('#bridge').get_attribute('aria-pressed')=='false')
+    page.locator('#remix').click()
+    # Rendering should stay bounded on desktop/high-DPI viewport sizes without
+    # changing the actual world or path data.
+    page.set_viewport_size({'width':3200,'height':2000})
+    page.wait_for_timeout(40)
+    budget=page.evaluate('({dpr:window.__mockRenderDpr,size:window.__mockRenderSize})')
+    check('large viewport drawing buffers obey 4MP budget',
+          budget['size']=={'width':3200,'height':2000} and
+          budget['dpr']**2 * 3200 * 2000 <= 4_000_001 and budget['dpr']>0)
+    page.set_viewport_size({'width':1100,'height':740})
+    page.wait_for_function('() => Math.abs(window.__mockRenderDpr - 1) < 1e-9', timeout=3000)
+    check('ordinary viewport uses native 1x DPR',abs(page.evaluate('window.__mockRenderDpr')-1)<1e-9)
+    # Keyboard bridges: the cursor can traverse water, but Enter must require
+    # solid anchors. Keep navigation separate from the pointer path.
+    page.locator('#load').set_input_files({
+        'name':'keyboard-sparse.json', 'mimeType':'application/json',
+        'buffer':json.dumps(sparse).encode(),
+    })
+    page.wait_for_function('() => window.__pocketTest.state().cells === 2')
+    page.locator('#bridge').click()
+    page.locator('#viewport').focus()
+    page.evaluate('window.__pocketTest.moveCursor(10)')
+    page.keyboard.press('Enter')
+    for _ in range(7): page.keyboard.press('ArrowRight')
+    check('keyboard cursor crosses invisible water',page.evaluate('window.__pocketTest.cursor().cell')==17)
+    page.keyboard.press('Enter')
+    check('keyboard bridge joins isolated tiles and preserves a valid save',
+          page.evaluate('window.__pocketTest.state().cells')==8 and page.evaluate('window.__pocketTest.validPassport()'))
+    page.locator('#bridge').click()
+    page.locator('#remix').click()
+    # SVG is not treated as an inert raster: reject it before the bitmap decoder.
+    page.evaluate('() => {window.__beforeSvgWorld=window.__pocketTest.state().cells;window.__svgDecodeCalls=0;window.__oldBitmap=window.createImageBitmap;window.createImageBitmap=async (...args)=>{window.__svgDecodeCalls++;return window.__oldBitmap(...args)}}')
+    page.locator('#upload').set_input_files({
+        'name':'remote.svg', 'mimeType':'image/svg+xml',
+        'buffer':b'<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50"><image href="https://invalid.example/test.png"/></svg>',
+    })
+    check('active SVG images are rejected before decoder or remote-reference work',
+          page.evaluate('window.__pocketTest.state().cells===window.__beforeSvgWorld && window.__svgDecodeCalls===0'))
+    page.evaluate('window.createImageBitmap=window.__oldBitmap;delete window.__oldBitmap')
     check('no JS uncaught exceptions', not errs)
     print('RESULT',sum(1 for _,ok in checks if ok),'/',len(checks),'errors',errs)
     browser.close()

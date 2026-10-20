@@ -190,6 +190,31 @@ try {
   await page.locator('#load').setInputFiles({ name:'pocket-world.json', mimeType:'application/json', buffer: json });
   await page.waitForFunction(() => document.querySelector('#source-label')?.textContent === 'Restored world');
   assert.equal(await page.locator('#count').textContent(), progress);
+  // Real keyboard input must drive the unmocked scene, not just an DOM shim.
+  const viewport = page.locator('#viewport');
+  assert.equal(await viewport.getAttribute('tabindex'), '0', '3D world is not keyboard focusable');
+  await viewport.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  const keyboardMessage = await page.locator('#scout-status').textContent();
+  assert.match(keyboardMessage, /Scout hiking|Scout arrived/, 'keyboard Enter did not trigger scout navigation');
+  await page.locator('#bridge').click();
+  await viewport.focus();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#bridge').getAttribute('aria-pressed'), 'false');
+  // Drawing-buffer sizes stay bounded even when a large CSS viewport is used.
+  await page.setViewportSize({width: 3000, height: 1800});
+  await page.waitForFunction(() => {
+    const c = document.querySelector('#viewport');
+    return c.width * c.height <= 4_010_000;
+  });
+  const boundedPixels = await page.evaluate(() => {
+    const c = document.getElementById('viewport');
+    return c.width * c.height;
+  });
+  assert.ok(boundedPixels <= 4_010_000, `oversized drawing buffer: ${boundedPixels}`);
+  await page.setViewportSize({width: 1100, height: 740});
+
   // Touch emulation uses the actual app, OrbitControls and browser capture.
   // It is not a claim of physical Android/iOS device performance.
   const mobile = await browser.newPage({

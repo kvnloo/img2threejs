@@ -27,7 +27,10 @@ colors are embedded numbers, with no remote asset dependency.
 
 Drag to orbit, scroll or pinch to zoom, and tap terrain to guide the scout. Only a
 single primary contact counts as a tap; right-button gestures, pinches, cancelled
-contacts and drags do not collect treasure or edit terrain. The compass selects a
+contacts and drags do not collect treasure or edit terrain. Keyboard-only users can
+Tab to the viewport, move a visible tile selector with arrows or WASD, press Enter
+to walk or set a bridge anchor, and press Escape to exit bridge mode.
+The compass selects a
 reachable, uncollected beacon. Retargeting finishes the current grid edge before
 turning, rather than cutting diagonally across invisible cells.
 
@@ -53,7 +56,8 @@ from 0 to 3; invalid or oversized receipts are rejected before world replacement
 Invisible source RGB and derived heights are zeroed during sampling, save, load
 and preview. Older receipts containing hidden colors remain readable, but those
 fields are normalized without modifying visible tiles or the original file.
-Images are center-cropped and downsampled. Limits: 12 MB per image, 36 megapixels
+Raster images are center-cropped and downsampled; SVG is intentionally refused
+so an untrusted vector image cannot request linked remote resources. Limits: 12 MB per image, 36 megapixels
 after decoding, and 128 KB per JSON receipt. Reduced-motion settings remove scout
 hopping; this is not a claim of physical-device performance.
 
