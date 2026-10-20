@@ -269,8 +269,8 @@ def capture(
     manifest = read_manifest(manifest_path_value)
     runtime = manifest.get("runtime", {})
     viewport, dpr = _validated_runtime(runtime)
-    url = str(runtime.get("url", ""))
-    if not url:
+    url = runtime.get("url")
+    if not isinstance(url, str) or not url.strip():
         raise ValueError("manifest runtime.url is missing")
     reference = manifest.get("reference", {})
     fidelity_v2 = manifest.get("fidelityTrack") == "glb-mediated-v2"
