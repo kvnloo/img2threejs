@@ -341,6 +341,39 @@ class CaptureRecoveryTest(unittest.TestCase):
                 self.edit(lambda manifest: change(manifest["captures"][0]))
                 self.assertEqual(self.run_capture(ids=["hero"], resume=True)["captured"], ["hero"])
 
+    def test_resume_requires_exact_integer_receipt_schema_version(self):
+        # Python treats JSON boolean true and numeric 1.0 as equal to 1.
+        # Neither proves that the versioned adapter actually wrote v1 evidence.
+        for version in (True, 1.0, "1", 0, 2, None):
+            with self.subTest(version=version):
+                self.make_manifest()
+                self.run_capture(ids=["hero"])
+                manifest = self.saved()
+                manifest["captures"][0]["captureReceipt"]["version"] = version
+                write_manifest(self.manifest_path, manifest)
+                page = FakePage()
+                result = self.run_capture(page, ids=["hero"], resume=True)
+                self.assertEqual(result["captured"], ["hero"])
+                self.assertEqual(result["skipped"], [])
+                self.assertEqual(
+                    self.saved()["captures"][0]["captureReceipt"]["version"], 1
+                )
+                self.assertEqual(len(page.screenshots), 1)
+
+    def test_resume_rejects_boolean_version_in_diagnostic_pass(self):
+        self.make_manifest(glb=True, v2=True)
+        self.run_capture(ids=["hero"], mode="procedural")
+        manifest = self.saved()
+        manifest["captures"][0]["passes"]["depth"]["captureReceipt"]["version"] = True
+        write_manifest(self.manifest_path, manifest)
+        page = FakePage()
+        result = self.run_capture(page, ids=["hero"], mode="procedural", resume=True)
+        self.assertEqual(result["captured"], ["hero"])
+        self.assertEqual(result["skipped"], [])
+        self.assertEqual(
+            self.saved()["captures"][0]["passes"]["depth"]["captureReceipt"]["version"], 1
+        )
+
     def test_resume_reprobes_image_receipt_even_when_saved_hash_matches(self):
         # This catches stale or forged metadata in a persisted receipt. An
         # intact hash is not evidence that its saved width/type describe bytes.
