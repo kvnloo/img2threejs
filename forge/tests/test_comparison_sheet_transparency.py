@@ -92,20 +92,20 @@ class PngTransparencyEvidenceTest(unittest.TestCase):
 
     def test_rgba_may_carry_valid_optional_palette(self):
         part = chunk(b"PLTE", bytes((1, 2, 3)))
-        source = png_bytes(color_type=6, scanlines=b"\\x00\\x01\\x02\\x03\\x04", before_idat=part)
+        source = png_bytes(color_type=6, scanlines=b"\x00\x01\x02\x03\x04", before_idat=part)
         self.assertEqual(self.decode(source)[2], [(1, 2, 3, 4)])
 
     def test_indexed_transparency_requires_palette_first(self):
         part = chunk(b"tRNS", bytes((0,)))
         with self.assertRaisesRegex(InvalidPng, "preceding PLTE"):
-            self.decode(png_bytes(color_type=3, scanlines=b"\\x00\\x00", before_idat=part))
+            self.decode(png_bytes(color_type=3, scanlines=b"\x00\x00", before_idat=part))
 
     def test_indexed_transparency_must_fit_palette(self):
         palette = chunk(b"PLTE", bytes((1, 2, 3)))
         transparency = chunk(b"tRNS", bytes((0, 255)))
         with self.assertRaisesRegex(InvalidPng, "exceeds palette entries"):
             self.decode(png_bytes(
-                color_type=3, scanlines=b"\\x00\\x00", before_idat=palette + transparency,
+                color_type=3, scanlines=b"\x00\x00", before_idat=palette + transparency,
             ))
 
     def test_valid_indexed_metadata_reaches_unsupported_format_fallback(self):
@@ -113,7 +113,7 @@ class PngTransparencyEvidenceTest(unittest.TestCase):
         transparency = chunk(b"tRNS", bytes((0,)))
         with self.assertRaisesRegex(ValueError, "unsupported PNG color type"):
             self.decode(png_bytes(
-                color_type=3, scanlines=b"\\x00\\x00", before_idat=palette + transparency,
+                color_type=3, scanlines=b"\x00\x00", before_idat=palette + transparency,
             ))
 
 
