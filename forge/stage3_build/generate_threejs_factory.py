@@ -200,14 +200,32 @@ def filter_components_for_pass(spec: dict[str, Any], components: list[dict[str, 
     component_by_id = {str(item.get("id")): item for item in components if item.get("id") is not None}
 
     def include_component(component: dict[str, Any]) -> None:
-        component_id = str(component.get("id") or "")
-        if not component_id or component_id in included_ids:
-            return
-        parent_id = component.get("parent")
-        if parent_id is not None and str(parent_id) in component_by_id:
-            include_component(component_by_id[str(parent_id)])
-        included.append(component)
-        included_ids.add(component_id)
+        # Walk the parent chain iteratively. Forward references are valid, but
+        # the old recursion never marked an active node before visiting its
+        # parent: a two-node cycle produced RecursionError and sufficiently
+        # deep (otherwise valid) chains also exhausted the Python stack.
+        pending: list[dict[str, Any]] = []
+        seen_in_chain: dict[str, int] = {}
+        current = component
+        while True:
+            component_id = str(current.get("id") or "")
+            if not component_id or component_id in included_ids:
+                break
+            if component_id in seen_in_chain:
+                cycle = pending[seen_in_chain[component_id]:]
+                ids_in_cycle = [str(item["id"]) for item in cycle] + [component_id]
+                raise ValueError("componentTree parent cycle: " + " -> ".join(ids_in_cycle))
+            seen_in_chain[component_id] = len(pending)
+            pending.append(current)
+            parent_id = current.get("parent")
+            if parent_id is None or str(parent_id) not in component_by_id:
+                break
+            current = component_by_id[str(parent_id)]
+        for item in reversed(pending):
+            item_id = str(item["id"])
+            if item_id not in included_ids:
+                included.append(item)
+                included_ids.add(item_id)
 
     for component in components:
         component_id = str(component.get("id") or "")
