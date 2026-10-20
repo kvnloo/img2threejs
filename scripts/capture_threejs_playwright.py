@@ -199,6 +199,19 @@ def _validate_output_destinations(manifest_file: Path, manifest: dict) -> None:
                     raise ValueError(f"{label}: {part} output aliases {destinations[dest]}")
                 if dest.is_dir():
                     raise ValueError(f"{label}: {part} output is a directory")
+                # resolve() catches symlinks, but not hard links: two distinct
+                # pathnames can still point at the same underlying file. A
+                # screenshot written through that inode could overwrite the
+                # reference/manifest or another verified camera receipt.
+                if dest.is_file():
+                    for protected_file, protected_label in protected.items():
+                        if protected_file.is_file() and dest.samefile(protected_file):
+                            raise ValueError(
+                                f"{label}: {part} output aliases protected {protected_label}"
+                            )
+                    for output_file, output_label in destinations.items():
+                        if output_file.is_file() and dest.samefile(output_file):
+                            raise ValueError(f"{label}: {part} output aliases {output_label}")
                 destinations[dest] = f"{label} {part}"
 
 
