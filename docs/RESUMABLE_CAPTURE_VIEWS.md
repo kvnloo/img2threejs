@@ -37,6 +37,11 @@ available. It does not cover optional diagnostic render passes, calibrated
 camera equivalence, landmark alignment or AI-vision fidelity gates;
 `fullReviewPassed` is deliberately always false.
 
+Before planning or crediting saved shots, the command also requires manifest
+`schemaVersion: 1` and a nonempty string `runtime.url`. An unsupported
+schema or missing runtime cannot yield a false `captureShotsComplete` verdict.
+The real Playwright adapter separately checks viewport/DPR resource bounds.
+
 The command exits zero for a valid manifest even with pending work; malformed
 manifests fail with exit code 2. No external downloads or Playwright dependency
 are introduced.
