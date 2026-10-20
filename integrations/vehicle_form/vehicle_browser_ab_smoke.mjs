@@ -32,6 +32,7 @@ function preview(mode) {
   const profile = mode === 'stadium' ? STADIUM_PROFILE : REFERENCE_PROFILE;
   const partial = mode === 'partial';
   const railsOnly = mode === 'rails';
+  const lateralShift = mode === 'shifted' ? 0.30 : 0;
   return `<!doctype html><html><head><meta charset="utf-8"><title>Vehicle plan-taper test</title>
   <style>html,body{background:#122031;margin:0;width:100%;height:100%;overflow:hidden}</style></head><body>
   <script type="module">
@@ -70,7 +71,7 @@ function preview(mode) {
   const modelRoot = new THREE.Group();
   scene.add(modelRoot);
   const shifted = new THREE.Group();
-  shifted.position.set(${MODEL_X_OFFSET},.2,0);
+  shifted.position.set(${MODEL_X_OFFSET},.2,${lateralShift});
   shifted.scale.set(${MODEL_X_SCALE},1,1.4);
   shifted.add(body);
   modelRoot.add(shifted);
@@ -114,7 +115,7 @@ function preview(mode) {
 const server = createServer(async(req,res) => {
   const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
   try {
-    if (['/reference','/matching','/stadium','/rails','/partial'].includes(pathname)) {
+    if (['/reference','/matching','/stadium','/rails','/shifted','/partial'].includes(pathname)) {
       res.writeHead(200, {'content-type':'text/html; charset=utf-8'});
       res.end(preview(pathname.slice(1)));
     } else if(pathname === '/three/three.module.js') {
@@ -178,14 +179,18 @@ try {
   const matchingImage=await capture(page,'matching','matching-top.png');
   const stadiumImage=await capture(page,'stadium','stadium-top.png');
   const railsImage=await capture(page,'rails','rails-top.png');
+  const shiftedImage=await capture(page,'shifted','shifted-top.png');
   const matchingGeometry=join(output,'matching-meshes.json');
   const stadiumGeometry=join(output,'stadium-meshes.json');
   const railsGeometry=join(output,'rails-meshes.json');
+  const shiftedGeometry=join(output,'shifted-meshes.json');
   assert.equal(await runCli(['--url',origin+'/matching','--out',matchingGeometry,
     '--ready-flag','__IMG2THREEJS_READY__']),0);
   assert.equal(await runCli(['--url',origin+'/stadium','--out',stadiumGeometry,
     '--ready-flag','__IMG2THREEJS_READY__']),0);
   assert.equal(await runCli(['--url',origin+'/rails','--out',railsGeometry,
+    '--ready-flag','__IMG2THREEJS_READY__']),0);
+  assert.equal(await runCli(['--url',origin+'/shifted','--out',shiftedGeometry,
     '--ready-flag','__IMG2THREEJS_READY__']),0);
   const evidence=JSON.parse(await readFile(matchingGeometry,'utf8'));
   assert.equal(evidence.incomplete,false);
@@ -197,18 +202,30 @@ try {
   const match=gate(matchingGeometry,sectionPath);
   const flat=gate(stadiumGeometry,sectionPath);
   const rails=gate(railsGeometry,sectionPath);
+  const shifted=gate(shiftedGeometry,sectionPath);
   await writeFile(join(output,'matching-gate.json'),match.stdout||'{}');
   await writeFile(join(output,'stadium-gate.json'),flat.stdout||'{}');
+  await writeFile(join(output,'shifted-gate.json'),shifted.stdout||'{}');
   await writeFile(join(output,'rails-gate.json'),JSON.stringify({
     verdict:'unmeasurable',exitCode:rails.status,errorCategory:'insufficient-lateral-coverage',
   },null,2)+'\n');
   assert.equal(match.status,0,`matching shape should pass: ${match.stderr} ${match.stdout}`);
   assert.equal(flat.status,1,`stadium shape must fail: ${flat.stderr} ${flat.stdout}`);
   assert.equal(rails.status,2,`side-only rails must be refused: ${rails.stderr} ${rails.stdout}`);
+  assert.equal(shifted.status,1,`width-identical but sideways body must fail centerline: ${shifted.stderr} ${shifted.stdout}`);
   assert.match(rails.stderr,/surface-backed lateral coverage/);
   assert.doesNotMatch(rails.stdout,/"passed"\s*:\s*true/);
   const matchedReport=JSON.parse(match.stdout),flatReport=JSON.parse(flat.stdout);
+  const shiftedReport=JSON.parse(shifted.stdout);
   assert.equal(matchedReport.passed,true);
+  assert.equal(matchedReport.centerlineCompared,true);
+  assert.equal(shiftedReport.centerlineCompared,true);
+  assert.equal(shiftedReport.passed,false);
+  assert.ok(shiftedReport.failures.some(f=>/center error/.test(f)),
+    'shifted body must fail measured center alignment');
+  assert.ok(shiftedReport.stations.every((row,i)=>
+    Math.abs(row.normalizedWidthError-matchedReport.stations[i].normalizedWidthError)<1e-8),
+    'shifted control must preserve the same measured width profile');
   assert.equal(flatReport.passed,false);
   assert.ok(flatReport.failures.some(f=>/taper|station/.test(f)), 'missing plan-form regression diagnostic');
 
@@ -224,15 +241,16 @@ try {
   assert.equal(partialReport.incomplete,true);
   assert.equal(gate(incomplete,sectionPath).status,2);
 
-  const images=await Promise.all([sourceImage,matchingImage,stadiumImage,railsImage].map(p=>readFile(p)));
-  const cards=['Synthetic reference pixels','Matched reconstruction · PASS',
-    'Constant-width body · FAIL','Side-only rails · UNMEASURABLE'];
-  const collage=await browser.newPage({viewport:{width:1630,height:565},deviceScaleFactor:1});
+  const images=await Promise.all([sourceImage,matchingImage,stadiumImage,railsImage,shiftedImage].map(p=>readFile(p)));
+  const cards=['Synthetic reference pixels','Matched body · PASS',
+    'Constant-width · FAIL','Side rails · UNMEASURABLE',
+    'Shifted body · CENTER FAIL'];
+  const collage=await browser.newPage({viewport:{width:1640,height:565},deviceScaleFactor:1});
   await collage.setContent(`<!doctype html><html><head><style>
     body{background:#09131d;color:#eaf5ef;font:16px system-ui;margin:0;padding:25px}
     h1{font-size:24px;margin:0 0 8px}p{font-size:13px;color:#9cb2c4;margin:0 0 20px}
-    main{display:flex;gap:15px}.card{width:380px}.card h2{font-size:15px;margin:0 0 8px}
-    img{width:380px;height:190px;object-fit:cover;border-radius:7px;border:1px solid #314759}
+    main{display:flex;gap:14px}.card{width:300px}.card h2{font-size:14px;margin:0 0 8px}
+    img{width:300px;height:190px;object-fit:cover;border-radius:7px;border:1px solid #314759}
     .note{font-size:12px;color:#9cb2c4;margin-top:14px}
   </style></head><body><h1>Vehicle plan-taper | Browser A/B evidence</h1>
   <p>Reference station widths measured from actual Chromium / Three.js top-view pixels. Geometry widths measured by triangle-plane intersections.</p>
@@ -242,7 +260,9 @@ try {
   await collage.close();
   console.log(JSON.stringify({result:'pass',matching:matchedReport.passed,stadiumRejected:!flatReport.passed,
     railsRejectedAsIncompleteShape:rails.status===2,
-    measuredPixels:table.stations.map(s=>({id:s.id,pixels:s.referenceBodyPixelCount,width:s.referenceWidth})),
+    shiftedRejectedAsCenterline:shifted.status===1,
+    measuredPixels:table.stations.map(s=>({id:s.id,pixels:s.referenceBodyPixelCount,
+      width:s.referenceWidth,centerZ:s.referenceCenterZ})),
     maxMatchingWidthError:Math.max(...matchedReport.stations.map(s=>s.normalizedWidthError)),
     rejectedFailures:flatReport.failures,output,referenceImageHash:sourceHash},null,2));
   await page.close();
