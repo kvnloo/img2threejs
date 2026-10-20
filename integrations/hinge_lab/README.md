@@ -20,6 +20,15 @@ notices, and four browser-tested screenshots.
 There is no CDN, account, live network, remote model loading or backend. The
 build fetches the licensed reference photo, then bundles it locally.
 
+The **Photo-framed view** control switches to the pan/zoom configuration
+measured by deterministic one-photo silhouette fitting (orthographic
+`dx=-0.06`, `dy=0.3`, `zoom=1.27`). It also applies the same manually
+authored fold angles used in the original A/B. **Return to orbit view**
+restores the perspective camera. Switching is reversible and neither
+camera changes the procedural mesh. The viewer's lighting/materials and
+canvas size differ from the controlled A/B test; its live preview is not
+a fresh IoU measurement.
+
 Use the four fold sliders to rotate the emitted scene's real hinge joints.
 **Flatten all** resets to zero, and **Photo pose** applies a manually authored
 reference-like pose. Drag or touch the canvas to orbit the model.

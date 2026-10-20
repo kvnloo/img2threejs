@@ -37,9 +37,23 @@ const renderer = new THREE.WebGLRenderer({
 });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-const camera = new THREE.PerspectiveCamera(44, 1, 0.01, 120);
-camera.position.set(3.65, 3.25, 4.8);
-camera.lookAt(0, 0, 0);
+const orbitCamera = new THREE.PerspectiveCamera(44, 1, 0.01, 120);
+orbitCamera.position.set(3.65, 3.25, 4.8);
+orbitCamera.lookAt(0, 0, 0);
+// Matched only the photograph's 2D silhouette by pan and orthographic zoom.
+// Measurements and equal-budget center-pivot control are in
+// docs/HINGE_EVIDENCE_STUDY.md. This is not a reconstructed 3D camera.
+const photoCamera = new THREE.OrthographicCamera(-2.4, 2.4, 1.9, -1.9, 0.01, 100);
+photoCamera.position.set(0, 8.5, 1.9);
+photoCamera.lookAt(0, 0, 0);
+const fitRight = new THREE.Vector3(1, 0, 0).applyQuaternion(photoCamera.quaternion);
+const fitUp = new THREE.Vector3(0, 1, 0).applyQuaternion(photoCamera.quaternion);
+const photoTarget = fitRight.multiplyScalar(-0.06).addScaledVector(fitUp, 0.3);
+photoCamera.position.add(photoTarget);
+photoCamera.zoom = 1.27;
+photoCamera.updateProjectionMatrix();
+let camera = orbitCamera;
+let cameraMode = 'orbit';
 const controls = new OrbitControls(camera, stage);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
@@ -99,9 +113,37 @@ function fitCanvas() {
   if (width !== previousWidth || height !== previousHeight) {
     previousWidth = width; previousHeight = height;
     renderer.setSize(width, height, false);
-    camera.aspect = width / height;
+    if (camera.isOrthographicCamera) {
+      // Preserve the original 960x760 fitting frustum on other viewports,
+      // expanding it rather than cutting off the reference composition.
+      const refAspect = 960 / 760;
+      const actualAspect = width / height;
+      const halfHeight = 1.9 * Math.max(1, refAspect / actualAspect);
+      camera.top = halfHeight;
+      camera.bottom = -halfHeight;
+      camera.left = -halfHeight * actualAspect;
+      camera.right = halfHeight * actualAspect;
+    } else camera.aspect = width / height;
     camera.updateProjectionMatrix();
   }
+}
+const photoFramingButton = document.getElementById('photo-framing');
+function setViewMode(next) {
+  if (!['orbit', 'photo-framed'].includes(next)) {
+    throw new RangeError('unknown camera mode');
+  }
+  cameraMode = next;
+  camera = next === 'photo-framed' ? photoCamera : orbitCamera;
+  controls.object = camera;
+  controls.target.copy(next === 'photo-framed' ? photoTarget : new THREE.Vector3());
+  controls.update();
+  photoFramingButton.setAttribute('aria-pressed', String(next === 'photo-framed'));
+  photoFramingButton.textContent = next === 'photo-framed' ? 'Return to orbit view' : 'Photo-framed view';
+  previousWidth = 0;
+  previousHeight = 0;
+  fitCanvas();
+  if (next === 'photo-framed') applyAll(referencePose);
+  scheduleRender();
 }
 function applyPose() {
   for (const id of ids) {
@@ -275,6 +317,9 @@ function getStatus() {
     obstaclePosition:obstacle.position.toArray(),
     obstacleVisible:obstacle.visible,
     lastEvaluation,
+    cameraMode,
+    cameraType:camera.type,
+    cameraZoom:camera.zoom,
     drawCalls:renderer.info.render.calls,
     triangles:renderer.info.render.triangles,
     renderCount,
@@ -324,6 +369,8 @@ for (const id of ids) {
 }
 document.getElementById('rest').addEventListener('click', () => applyAll({}));
 document.getElementById('pose').addEventListener('click', () => applyAll(referencePose));
+photoFramingButton.addEventListener('click', () =>
+  setViewMode(cameraMode === 'orbit' ? 'photo-framed' : 'orbit'));
 playButton.addEventListener('click', animateFolds);
 document.getElementById('check').addEventListener('click', evaluate);
 checkbox.addEventListener('change', placeObstacle);
@@ -374,7 +421,7 @@ window.addEventListener('resize', scheduleRender);
 applyAll({});
 render();
 window.__hingeLab = {
-  getStatus, setFold, evaluate, animateFolds, stopAnimation, setObstacle(enabled, id) {
+  getStatus, setFold, evaluate, animateFolds, stopAnimation, setViewMode, setObstacle(enabled, id) {
     if (id !== undefined) {
       if (!ids.includes(id)) throw new RangeError('unknown panel');
       collider.value = id;

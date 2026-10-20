@@ -43,6 +43,10 @@ try {
   });
   await page.locator('#pose').click();
   assert.equal(await page.evaluate(()=>window.__hingeLab.getStatus().angles['front-flap']),-65);
+  await page.locator('#photo-framing').click();
+  assert.equal(await page.evaluate(()=>window.__hingeLab.getStatus().cameraType),'OrthographicCamera');
+  await page.locator('#photo-framing').click();
+  assert.equal(await page.evaluate(()=>window.__hingeLab.getStatus().cameraType),'PerspectiveCamera');
   await page.locator('#rest').click();
   await page.evaluate(()=>window.__hingeLab.setFold('back-flap',180));
   await page.locator('#check').click();

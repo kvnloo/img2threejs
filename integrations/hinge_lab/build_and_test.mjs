@@ -125,6 +125,17 @@ try {
   assert.deepEqual(await page.evaluate(()=>window.__hingeLab.getStatus().angles),
     {'back-flap':22,'front-flap':-65,'left-flap':-24,'right-flap':32});
   await page.screenshot({path:join(output,'lab-photo-pose.png')});
+  await page.locator('#photo-framing').click();
+  const framed = await page.evaluate(()=>window.__hingeLab.getStatus());
+  assert.equal(framed.cameraMode,'photo-framed');
+  assert.equal(framed.cameraType,'OrthographicCamera');
+  assert.equal(framed.cameraZoom,1.27);
+  assert.equal(await page.locator('#photo-framing').getAttribute('aria-pressed'),'true');
+  assert.equal(framed.angles['back-flap'],22);
+  await page.screenshot({path:join(output,'lab-photo-framed.png')});
+  await page.locator('#photo-framing').click();
+  assert.equal(await page.evaluate(()=>window.__hingeLab.getStatus().cameraMode),'orbit');
+  assert.equal(await page.evaluate(()=>window.__hingeLab.getStatus().cameraType),'PerspectiveCamera');
   await page.locator('#rest').click();
   await page.locator('#play').click();
   assert.equal(await page.locator('#play').getAttribute('aria-pressed'),'true');
@@ -230,9 +241,10 @@ try {
     library:'Three.js r180',panels:4,
     interactions:['photo preset','reset','carton floor penetration warning',
       'visual animation, interrupt and reduced-motion fallback',
+      'photo-fitted orthographic pan/zoom and orbit toggle',
       'positive collision','reverse obstacle clearance with independent floor verdict',
       'right-flap collision','export/import pose JSON','reject malformed pose','mobile layout'],
-    screenshotFiles:['lab-flat.png','lab-photo-pose.png',
+    screenshotFiles:['lab-flat.png','lab-photo-pose.png','lab-photo-framed.png',
       'lab-collision.png','lab-floor-collision.png','lab-mobile.png'],
     offlineRequests:remote.length,
     output,referenceSha256:digest,
