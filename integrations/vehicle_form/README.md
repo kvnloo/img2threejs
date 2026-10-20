@@ -80,17 +80,20 @@ A separate, opt-in CI job exercises **actual Three.js/WebGL pixels**, rather tha
 feeding hand-constructed triangle arrays to the gate:
 
 1. Render a procedurally assembled vehicle reference from a locked orthographic top camera.
-2. Measure nose, front-fender, door, rear-hip and tail widths **from the PNG framebuffer**, recording the screenshot SHA-256 and each sampled pixel column.
-3. Render three candidate bodies: the matching varying-width profile, a wrong constant-width/stadium profile, and a **side-rails-only** body with correct width extrema but no connecting roof or underside.
+2. Measure nose, front-fender, door, rear-hip and tail widths **and lateral centers** directly **from the PNG framebuffer**, recording the screenshot SHA-256 and each sampled pixel column. The locked orthographic camera maps pixel rows to world Z, so center values do not come from manually authored model coordinates.
+3. Render four candidate bodies: the matching varying-width profile, a wrong constant-width/stadium profile, a **side-rails-only** body with correct width extrema but no connecting roof or underside, and a **translated body** with the correct width profile but incorrect lateral position.
 4. Export each candidate through the *pinned downstream* real-browser mesh exporter from [fork PR #35](https://github.com/kvnloo/img2threejs/pull/35), excluding studio geometry via an explicit model root.
-5. Require the pixel-measured reference to accept the connected body, reject the stadium profile as a shape mismatch (exit 1), and reject the rails-only shape as **unmeasurable surface coverage** (exit 2). Fail closed on a partial exporter retry and record its diagnostic separately.
+5. Require the pixel-measured reference to accept the connected body, reject the stadium profile as a shape mismatch (exit 1), reject the rails-only shape as **unmeasurable surface coverage** (exit 2), and reject the sideways-translated body for **centerline error** (exit 1), despite identical width measurements. Fail closed on a partial exporter retry and record its diagnostic separately.
 
 The GitHub Actions workflow is `.github/workflows/vehicle-plan-ab-smoke.yml`.
 It uses `node --test integrations/vehicle_form/vehicle_reference_pixels.test.mjs` plus
 `node integrations/vehicle_form/vehicle_browser_ab_smoke.mjs`, with optional Playwright
 and Three.js installed into a temporary directory, not the generic core. The workflow
 pins an exact exporter commit and retains rendered reference/candidate screenshots,
-`vehicle-ab-comparison.png`, input sections, mesh receipts and both gate reports.
+`vehicle-ab-comparison.png`, input sections, mesh receipts and all candidate gate reports.
+The optional local HTML viewer still compares the original match/stadium pair;
+the fourth sideways-displaced screenshot and centerline gate receipt are archived
+alongside it, not misrepresented as a separately visualized 3D inspector.
 
 **Scope:** This is synthetic-browser integration and geometry/pixel consistency evidence,
 not a photograph of the 1960s Ferrari from the original issue, not recovered 3D depth,
