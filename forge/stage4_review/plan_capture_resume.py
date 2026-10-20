@@ -55,6 +55,15 @@ def receipt_error(manifest_file: Path, record: Any) -> str | None:
 def resume_plan(manifest_file: Path) -> dict[str, Any]:
     manifest_file = manifest_file.expanduser().resolve()
     manifest = read_manifest(manifest_file)
+    if manifest.get("schemaVersion") != 1:
+        raise ValueError("unsupported render manifest schemaVersion")
+    runtime = manifest.get("runtime")
+    if (
+        not isinstance(runtime, dict)
+        or not isinstance(runtime.get("url"), str)
+        or not runtime["url"].strip()
+    ):
+        raise ValueError("render manifest requires runtime.url")
     reference = manifest.get("reference")
     if not isinstance(reference, dict) or reference.get("kind") not in ("image", "glb"):
         raise ValueError("reference.kind must be image or glb")
