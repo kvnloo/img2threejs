@@ -21,6 +21,16 @@ test('pixel threshold returns actual silhouette thickness in orthographic world 
   const measured = widthFromPixelColumn(column(100, 179));
   assert.ok(Math.abs(measured.width - 0.8) < 1e-12);
   assert.equal(measured.bodyPixels, 80);
+  assert.ok(Math.abs(measured.centerZ + 1.0) < 1e-12,
+    'pixel-centered column must reconstruct world Z in the locked up=-Z camera');
+});
+
+test('reference pixel columns distinguish equal-width sideways shifts', () => {
+  const aligned = widthFromPixelColumn(column(220, 259));
+  const shifted = widthFromPixelColumn(column(245, 284));
+  assert.equal(aligned.width, shifted.width);
+  assert.ok(Math.abs(aligned.centerZ) < 1e-12);
+  assert.ok(Math.abs(shifted.centerZ - 0.25) < 1e-12);
 });
 
 test('empty or bad image evidence fails closed', () => {
@@ -36,6 +46,9 @@ test('reference tables are measured from pixel columns and require provenance', 
   assert.deepEqual(report.stations.map(r => Math.round(r.referenceWidth*100)), [60, 100, 80, 100, 50]);
   assert.equal(report.stations.length, 5);
   assert.equal(report.reference.kind, 'measured-top-view');
+  assert.equal(report.maxNormalizedCenterError, 0.08);
+  assert.deepEqual(report.stations.map(r => Math.round(r.referenceCenterZ * 100)),
+    [-110, -90, -100, -90, -115]);
   assert.throws(() => referenceTableFromColumns(pixels, ''), /provenance/);
   assert.throws(() => referenceTableFromColumns(pixels.slice(1), 'fixture'), /every vehicle station/);
 });
