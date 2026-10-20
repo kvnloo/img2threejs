@@ -146,6 +146,17 @@ jobs:
             fi
             mkdir -p "$base/$world"
             cp "$entry/observations.json" "$base/$world/observations.json"
+            # Copy only the exact preregistered image/spec evidence, not the
+            # model's browser dependencies or other untrusted artifact files.
+            # This lets registered_policy.py compare real bytes to each of
+            # the six PNG/spec hashes before freezing any learned order.
+            for candidate in target root c0-minus c0-plus c1-minus c1-plus; do
+              test -f "$entry/$candidate/render.png"
+              test -f "$entry/$candidate/spec.json"
+              mkdir -p "$base/$world/$candidate"
+              cp "$entry/$candidate/render.png" "$base/$world/$candidate/render.png"
+              cp "$entry/$candidate/spec.json" "$base/$world/$candidate/spec.json"
+            done
           done
       - name: Learn only from twelve approved training worlds, validate six without relearning, freeze hash
         run: |
