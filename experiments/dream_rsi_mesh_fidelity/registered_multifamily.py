@@ -118,6 +118,12 @@ def spec_for_family(world: dict[str, Any], vector: list[float]) -> dict[str, Any
     )
     if not isinstance(blockout, dict) or blockout.get("componentRefs") != ["root"]:
         raise ValueError("source blockout must reference only the preregistered root")
+    # The source photo described a multi-part equipment case whose strict
+    # quality contract requires at least two *macro* components. V2 is a
+    # single-primitive synthetic geometry benchmark; its truthful minimum
+    # is one macro. Do not weaken the Divine Eye acceptance/hard gates,
+    # change image budgets, or touch the registered target/reference.
+    source["qualityContract"]["minimumSpecDepth"]["macroComponents"] = 1
     family, profile = world["family"], world["profileId"]
     source["targetName"] = f"Rsi {family.replace('-', ' ')} V1"
     source["targetId"] = f"rsi-{family}-v1"
