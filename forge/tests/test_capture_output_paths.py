@@ -134,15 +134,18 @@ class CaptureOutputPathSafetyTest(unittest.TestCase):
         self.assertTrue(first.samefile(second))
 
     def test_hardlink_to_manifest_is_rejected_before_checkpoint_update(self):
-        write_manifest(self.manifest_path, self.manifest)
         target = self.root / "manifest-as-image.png"
+        self.manifest["captures"][0]["path"] = str(target)
+        write_manifest(self.manifest_path, self.manifest)
         try:
             target.hardlink_to(self.manifest_path)
         except (OSError, NotImplementedError):
             self.skipTest("hardlink creation unavailable")
         before = self.manifest_path.read_bytes()
-        self.manifest["captures"][0]["path"] = str(target)
-        self.assert_rejected_before_browser("aliases protected render manifest")
+        # Do not rewrite the manifest before the preflight: its atomic writer
+        # would replace the inode and accidentally break the hardlink fixture.
+        with self.assertRaisesRegex(ValueError, "aliases protected render manifest"):
+            capture(self.manifest_path, ["hero"], False, 500, "procedural")
         self.assertEqual(self.manifest_path.read_bytes(), before)
 
     def test_distinct_external_output_path_is_allowed(self):
