@@ -124,6 +124,38 @@ class PolicyFreezeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "candidate geometry changed"):
             policy.freeze_policy(self.train, self.validation, self.root / "nope.json")
 
+    def test_missing_native_decision_fields_cannot_claim_training_approval(self):
+        # Core fitter has a legacy optional-action compatibility mode. The
+        # preregistered study instead requires complete native-review receipts,
+        # or an attacker could omit both fields to mark an unreviewed image clean.
+        for field, replacement in (
+            ("action", None), ("action", ""),
+            ("verdict", None), ("verdict", ""),
+        ):
+            with self.subTest(field=field, replacement=replacement):
+                self.populate()
+                path = next(self.train.rglob("observations.json"))
+                report = json.loads(path.read_text(encoding="utf-8"))
+                record = report["observed"]["c0-plus"]
+                if replacement is None:
+                    record.pop(field, None)
+                else:
+                    record[field] = replacement
+                path.write_text(json.dumps(report), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "native review action and verdict"):
+                    policy.freeze_policy(self.train, self.validation, self.root / "no-review.json")
+                self.assertFalse((self.root / "no-review.json").exists())
+
+    def test_unverified_validation_decisions_also_block_policy_freeze(self):
+        self.populate()
+        path = next(self.validation.rglob("observations.json"))
+        report = json.loads(path.read_text(encoding="utf-8"))
+        report["observed"]["root"].pop("verdict")
+        path.write_text(json.dumps(report), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "native review action and verdict"):
+            policy.freeze_policy(self.train, self.validation, self.root / "no-verdict.json")
+        self.assertFalse((self.root / "no-verdict.json").exists())
+
     def test_probe_only_candidate_does_not_influence_learning(self):
         self.populate()
         records, _ = policy.collect(self.train, "train", self.registry, self.digest)
