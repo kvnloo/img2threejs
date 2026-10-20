@@ -39,6 +39,8 @@ try {
     readFileSync(join(root, 'forge/tests/hinge_sweep_collision.mjs'), 'utf8'));
   writeFileSync(join(work, 'hinge_photo_frame_fit.mjs'),
     readFileSync(join(root, 'forge/tests/hinge_photo_frame_fit.mjs'), 'utf8'));
+  writeFileSync(join(work, 'hinge_photo_color_sensitivity.mjs'),
+    readFileSync(join(root, 'forge/tests/hinge_photo_color_sensitivity.mjs'), 'utf8'));
   await build({
     entryPoints: [join(work, 'client.mjs')], outfile: join(work, 'bundle.js'),
     bundle: true, platform: 'browser', format: 'esm', logLevel: 'warning',
@@ -105,6 +107,17 @@ try {
     await page.evaluate(() => window.__referenceStudy.resetFrame());
   }
   assert.deepEqual(errors, [], 'browser errors after deterministic camera fit');
+  const colorSensitivity = [];
+  for (const fit of framing) {
+    const study = await page.evaluate(({kind,fitted}) =>
+      window.__referenceStudy.testColorSensitivity(kind,fitted), fit);
+    assert.equal(study.rows.length,9);
+    assert.ok(study.rows.every(row=>Number.isFinite(row.iou)));
+    colorSensitivity.push(study);
+  }
+  console.log('HINGE_COLOR_SENSITIVITY:',JSON.stringify(colorSensitivity.map(x=>({
+    kind:x.kind,min:x.minIoU,max:x.maxIoU,scores:x.rows.map(row=>row.iou)
+  }))));
   console.log('HINGE_CAMERA_FIT:', JSON.stringify(framing.map(x=>({
     kind:x.kind, initial:x.baseline, fitted:x.fittedMetrics,
     params:x.fitted, evaluations:x.evaluations, budget:x.budget
@@ -164,7 +177,7 @@ try {
   const summary = {
     source, creator: 'Arnold Reinhold', license, credit,
     sha256: digest, photoMask, baseline: measurements[1], hinge: measurements[0],
-    generatedSweep, generatedFlaps, oblique, framing,
+    generatedSweep, generatedFlaps, oblique, framing, colorSensitivity,
     normalizedIoUDelta: Number((measurements[0].score - measurements[1].score).toFixed(6)),
     fixedFrameIoUDelta: Number((measurements[0].registeredScore - measurements[1].registeredScore).toFixed(6)),
     methodology: 'manual proxy, fixed camera/lighting/angles, warm-cardboard vs gray mask; record both original fixed-frame 960x760 IoU and independently bbox-normalized 256x256 silhouette IoU',

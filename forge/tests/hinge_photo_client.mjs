@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { createOpenFoldingCartonModel } from './factory.ts';
 import { certifyFoldSweep, sampleFold } from './hinge_sweep_collision.mjs';
 import { optimizeFraming } from './hinge_photo_frame_fit.mjs';
+import { measureThresholdSensitivity } from './hinge_photo_color_sensitivity.mjs';
 
 const root = createOpenFoldingCartonModel();
 const runtime = root.userData.sculptRuntime;
@@ -109,7 +110,7 @@ function iou(a, b) {
   return Number((both / either).toFixed(6));
 }
 
-let referenceMask = null, referenceBounds = null;
+let referenceMask = null, referenceBounds = null, referencePixels = null;
 async function loadReference() {
   const image = new Image();
   image.src = '/reference.jpg';
@@ -118,7 +119,8 @@ async function loadReference() {
   canvas.width = width; canvas.height = height;
   const context = canvas.getContext('2d', { willReadFrequently: true });
   context.drawImage(image, 0, 0, width, height);
-  referenceMask = maskFromImageData(context.getImageData(0, 0, width, height).data, true);
+  referencePixels = context.getImageData(0, 0, width, height).data;
+  referenceMask = maskFromImageData(referencePixels, true);
   referenceBounds = bounding(referenceMask);
   return referenceBounds;
 }
@@ -222,6 +224,22 @@ function fitCamera(kind) {
   }
 }
 
+/** Fixed-parameter sensitivity, no refitting for changed thresholds. */
+function testColorSensitivity(kind, params) {
+  if (!referencePixels) throw new Error('reference not loaded');
+  try {
+    applyFrame(params);
+    pose(kind);
+    renderer.render(scene,camera);
+    frameCtx.drawImage(renderer.domElement,0,0);
+    const pixels = frameCtx.getImageData(0,0,width,height).data;
+    const rows = measureThresholdSensitivity(referencePixels,pixels);
+    return { kind, rows, minIoU:Math.min(...rows.map(r=>r.iou)),
+      maxIoU:Math.max(...rows.map(r=>r.iou)) };
+  } finally {
+    resetFrame();
+  }
+}
 /** Test the *actual emitted* procedural box, not the handcrafted OBB test. */
 function testGeneratedFoldWithObstacle() {
   pose('rest');
@@ -328,5 +346,5 @@ function testGeneratedFlapFamily() {
   return result;
 }
 
-window.__referenceStudy = { loadReference, render, fitCamera, applyFrame, resetFrame, testGeneratedFoldWithObstacle, testGeneratedFlapFamily, renderObliqueCollision };
+window.__referenceStudy = { loadReference, render, fitCamera, testColorSensitivity, applyFrame, resetFrame, testGeneratedFoldWithObstacle, testGeneratedFlapFamily, renderObliqueCollision };
 window.__referenceStudyReady = true;
