@@ -26,6 +26,8 @@ try {
   ], { cwd: repo, stdio: 'inherit' });
 
   writeFileSync(entry, readFileSync(join(repo, 'forge/tests/hinge_runtime_client.mjs'), 'utf8'));
+  writeFileSync(join(temp,'hinge_runtime_property.mjs'),
+    readFileSync(join(repo,'forge/tests/hinge_runtime_property.mjs'),'utf8'));
   await build({ entryPoints: [entry], outfile: join(temp, 'bundle.js'),
     bundle: true, format: 'esm', platform: 'browser', logLevel: 'warning' });
   writeFileSync(join(temp, 'index.html'), '<!doctype html><html><head><meta charset="utf-8">' +
@@ -50,7 +52,12 @@ try {
   await page.goto('http://127.0.0.1:' + server.address().port + '/index.html', { waitUntil: 'load' });
   await page.waitForFunction(() => window.__hingeReady === true, null, { timeout: 45000 });
   const geometry = await page.evaluate(() => window.__hingeSmoke.testTransforms());
-  assert.equal(geometry.hinges, 3);
+  assert.equal(geometry.hinges, 5);
+  const properties=await page.evaluate(()=>window.__hingeSmoke.testPropertySweeps());
+  assert.equal(properties.cases,192);
+  assert.equal(properties.pointAssertions,2880);
+  assert.equal(properties.axisAssertions,960);
+  console.log('HINGE_PROPERTY_PASS:',JSON.stringify(properties));
   mkdirSync(screenshots, { recursive: true });
   for (const angle of [0, 45, 90]) {
     const stats = await page.evaluate(angle => window.__hingeSmoke.render(angle), angle);

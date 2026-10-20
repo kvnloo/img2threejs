@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createFoldingCartonModel } from './factory.ts';
+import { checkGeneratedHingeProperties } from './hinge_runtime_property.mjs';
 
 const root = createFoldingCartonModel();
 const runtime = root.userData.sculptRuntime;
@@ -85,6 +86,9 @@ function testTransforms() {
 
 window.__hingeSmoke = {
   testTransforms,
+  testPropertySweeps() {
+    return checkGeneratedHingeProperties(root, runtime, THREE);
+  },
   render(degrees) {
     runtime.meshes.diagonal.visible = false;
     runtime.hinges.lid.rotation.y = THREE.MathUtils.degToRad(degrees);

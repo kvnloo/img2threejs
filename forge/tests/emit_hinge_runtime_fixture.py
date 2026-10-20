@@ -61,6 +61,13 @@ def main():
             {'axisStart': [0.75, 0, 0], 'axisEnd': [0.75, 0, 1], 'restAngleDeg': 0}),
         box('diagonal', 'Diagonal', 'base', [0.8, -0.8, -0.2], [0.25, 0.25, 0.25],
             {'axisStart': [0.2, -0.7, -0.2], 'axisEnd': [1.2, 0.3, 0.8], 'restAngleDeg': 0}),
+        box('reverse', 'Reverse Axis', 'base', [-1.3, 0.3, 0.2], [0.28, 0.2, 0.35],
+            {'axisStart': [-0.4, 0.15, -0.1], 'axisEnd': [-0.4, -0.85, -0.1],
+             'restAngleDeg': -37}),
+        box('diag-child', 'Nested Diagonal', 'diagonal', [0.2, 0.3, -0.2],
+            [0.2, 0.16, 0.25],
+            {'axisStart': [0, 0.1, 0], 'axisEnd': [-0.25, 0.6, 0.3],
+             'restAngleDeg': 27}),
     ]
     # Force a clean codegen-only fixture; no claim of evidence-based fidelity.
     source = generate(spec, 'blockout')

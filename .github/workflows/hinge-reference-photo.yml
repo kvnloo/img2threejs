@@ -59,6 +59,10 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/hinge-photo-ab"
           node --test forge/tests/test_hinge_sweep_collision.mjs
+      - name: Check random nested axes on actual generated Three.js factory
+        env:
+          HINGE_SCREENSHOTS: ${{ runner.temp }}/hinge-property-screenshots
+        run: node forge/tests/hinge_runtime.mjs
       - name: Run real-photo A/B and mechanical seam assertions
         env:
           HINGE_REFERENCE_PHOTO: ${{ runner.temp }}/box.agr.jpg
@@ -75,6 +79,14 @@ jobs:
         run: |
           node integrations/hinge_lab/package_single_file.mjs
           node integrations/hinge_lab/test_single_file.mjs
+      - name: Upload hinge world-transform property screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hinge-property-screenshots
+          path: ${{ runner.temp }}/hinge-property-screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload credited comparison and measured raw results
         if: always()
         uses: actions/upload-artifact@v4
