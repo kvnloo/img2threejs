@@ -37,6 +37,8 @@ try {
     readFileSync(join(root, 'forge/tests/hinge_photo_client.mjs'), 'utf8'));
   writeFileSync(join(work, 'hinge_sweep_collision.mjs'),
     readFileSync(join(root, 'forge/tests/hinge_sweep_collision.mjs'), 'utf8'));
+  writeFileSync(join(work, 'hinge_photo_frame_fit.mjs'),
+    readFileSync(join(root, 'forge/tests/hinge_photo_frame_fit.mjs'), 'utf8'));
   await build({
     entryPoints: [join(work, 'client.mjs')], outfile: join(work, 'bundle.js'),
     bundle: true, platform: 'browser', format: 'esm', logLevel: 'warning',
@@ -84,6 +86,29 @@ try {
   assert.ok(measurements[0].seams.max < 0.0001, 'Correct hinge must keep all four seams attached');
   assert.ok(measurements[1].seams.max > 0.01, 'Center-pivot counterfactual must show displaced seams');
   assert.deepEqual(errors, [], 'browser errors');
+  const framing = [];
+  for (const kind of ['hinged', 'center-pivot']) {
+    const found = await page.evaluate(k => window.__referenceStudy.fitCamera(k), kind);
+    assert.equal(found.kind, kind);
+    assert.equal(found.attempts, 12);
+    assert.ok(found.evaluations <= found.budget, 'bounded camera search budget');
+    assert.ok(found.fittedMetrics.train + 1e-6 >= found.baseline.train);
+    assert.ok(Number.isFinite(found.fittedMetrics.holdout));
+    framing.push(found);
+    await page.evaluate(({kind,fitted})=>{
+      window.__referenceStudy.applyFrame(fitted);
+      window.__referenceStudy.render(kind);
+    }, found);
+    await page.locator('canvas').screenshot({
+      path: join(output, 'fitted-' + kind + '.png')
+    });
+    await page.evaluate(() => window.__referenceStudy.resetFrame());
+  }
+  assert.deepEqual(errors, [], 'browser errors after deterministic camera fit');
+  console.log('HINGE_CAMERA_FIT:', JSON.stringify(framing.map(x=>({
+    kind:x.kind, initial:x.baseline, fitted:x.fittedMetrics,
+    params:x.fitted, evaluations:x.evaluations, budget:x.budget
+  }))));
   const generatedSweep = await page.evaluate(() =>
     window.__referenceStudy.testGeneratedFoldWithObstacle());
   assert.equal(generatedSweep.generatedGeometryType, 'BoxGeometry');
@@ -139,7 +164,7 @@ try {
   const summary = {
     source, creator: 'Arnold Reinhold', license, credit,
     sha256: digest, photoMask, baseline: measurements[1], hinge: measurements[0],
-    generatedSweep, generatedFlaps, oblique,
+    generatedSweep, generatedFlaps, oblique, framing,
     normalizedIoUDelta: Number((measurements[0].score - measurements[1].score).toFixed(6)),
     fixedFrameIoUDelta: Number((measurements[0].registeredScore - measurements[1].registeredScore).toFixed(6)),
     methodology: 'manual proxy, fixed camera/lighting/angles, warm-cardboard vs gray mask; record both original fixed-frame 960x760 IoU and independently bbox-normalized 256x256 silhouette IoU',

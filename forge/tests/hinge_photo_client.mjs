@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createOpenFoldingCartonModel } from './factory.ts';
 import { certifyFoldSweep, sampleFold } from './hinge_sweep_collision.mjs';
+import { optimizeFraming } from './hinge_photo_frame_fit.mjs';
 
 const root = createOpenFoldingCartonModel();
 const runtime = root.userData.sculptRuntime;
@@ -147,6 +148,80 @@ function render(kind) {
   };
 }
 
+/** Deterministic mask-only framing study, not geometry or camera pose recovery.
+ * Pan in the initial camera's image plane, holding look direction constant,
+ * and adjust only the orthographic zoom. Same 37-score budget per variant.
+ */
+const baseCameraPosition = camera.position.clone();
+const baseCameraZoom = camera.zoom;
+const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+const cameraUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+const frameCanvas = document.createElement('canvas');
+frameCanvas.width = width;
+frameCanvas.height = height;
+const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true });
+function applyFrame(params) {
+  if (![params.dx, params.dy, params.zoom].every(Number.isFinite) ||
+      params.zoom <= 0 || params.zoom > 2) {
+    throw new RangeError('invalid camera fit');
+  }
+  camera.position.copy(baseCameraPosition)
+    .addScaledVector(cameraRight, params.dx)
+    .addScaledVector(cameraUp, params.dy);
+  camera.zoom = params.zoom;
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+}
+function resetFrame() {
+  applyFrame({ dx: 0, dy: 0, zoom: baseCameraZoom });
+}
+function maskedScores(mask) {
+  if (!referenceMask) throw new Error('reference JPEG must load before camera fitting');
+  const intersection = [0, 0], union = [0, 0];
+  const widthCells = Math.ceil(width / 24);
+  for (let y = 0; y < height; y++) {
+    const cellY = Math.floor(y / 24);
+    for (let x = 0; x < width; x++) {
+      const index = y * width + x;
+      const stratum = (Math.floor(x / 24) + cellY) & 1;
+      const ours = mask[index], reference = referenceMask[index];
+      if (ours && reference) intersection[stratum]++;
+      if (ours || reference) union[stratum]++;
+    }
+  }
+  const train = union[0] ? intersection[0] / union[0] : 0;
+  const holdout = union[1] ? intersection[1] / union[1] : 0;
+  const combined = (union[0] + union[1]) ?
+    (intersection[0] + intersection[1]) / (union[0] + union[1]) : 0;
+  return {
+    train: Number(train.toFixed(6)),
+    holdout: Number(holdout.toFixed(6)),
+    full: Number(combined.toFixed(6)),
+    foregroundPixels: mask.reduce((a, v) => a + v, 0),
+    split: '24px checkerboard (spatially correlated pixels, NOT independent validation)',
+  };
+}
+function fitCamera(kind) {
+  if (kind !== 'hinged' && kind !== 'center-pivot') {
+    throw new Error('unsupported photo-fitting variant');
+  }
+  const evaluator = params => {
+    applyFrame(params);
+    pose(kind);
+    renderer.render(scene, camera);
+    if (renderer.info.render.calls < 1) throw new Error('no WebGL draw calls');
+    frameCtx.drawImage(renderer.domElement, 0, 0);
+    const pixels = frameCtx.getImageData(0, 0, width, height).data;
+    return maskedScores(maskFromImageData(pixels));
+  };
+  try {
+    const result = optimizeFraming(evaluator);
+    return { kind, ...result, initialCamera: baseCameraPosition.toArray() };
+  } finally {
+    resetFrame();
+  }
+}
+
 /** Test the *actual emitted* procedural box, not the handcrafted OBB test. */
 function testGeneratedFoldWithObstacle() {
   pose('rest');
@@ -253,5 +328,5 @@ function testGeneratedFlapFamily() {
   return result;
 }
 
-window.__referenceStudy = { loadReference, render, testGeneratedFoldWithObstacle, testGeneratedFlapFamily, renderObliqueCollision };
+window.__referenceStudy = { loadReference, render, fitCamera, applyFrame, resetFrame, testGeneratedFoldWithObstacle, testGeneratedFlapFamily, renderObliqueCollision };
 window.__referenceStudyReady = true;

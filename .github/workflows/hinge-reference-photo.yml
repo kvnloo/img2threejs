@@ -31,6 +31,9 @@ jobs:
           node --check integrations/hinge_lab/build_and_test.mjs
           node --check integrations/hinge_lab/app.mjs
           node --check forge/tests/hinge_sweep_collision.mjs
+          node --check forge/tests/hinge_photo_frame_fit.mjs
+          node --check forge/tests/test_hinge_photo_frame_fit.mjs
+          node --test forge/tests/test_hinge_photo_frame_fit.mjs
           node --check forge/tests/hinge_photo_ab.mjs
       - name: Obtain credited reference photograph, not a mesh or art pack
         run: |
