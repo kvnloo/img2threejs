@@ -206,6 +206,30 @@ hinged-camera pan/zoom preset; desktop/mobile presentation can vary
 with viewport aspect and with its intentionally different lighting.
 Interactive screenshots are *not* additional quantitative matches.
 
+## Independent hierarchy-transform property oracle
+
+A new [actual-generated TypeScript/Three.js property harness](https://github.com/kvnloo/img2threejs/actions/runs/39375272367)
+adds **five** procedural hinges: two nested cardboard creases, one arbitrary
+3D diagonal, an axis directed **opposite Three.js +Y**, and a nested
+diagonal hinge with signed nonzero rest angle. The fixture is emitted by
+the real generator, typechecked with TypeScript, bundled and executed in
+Chromium rather than approximated by handwritten mesh code.
+
+Against an independent parent-frame rotate-about-line equation, a
+fixed-seed `0x118a517` sweep evaluates **192 cases** (64 per ancestor
+transform across three frames: identity, nonuniform scale, X reflection).
+Every case tests five hinges and three distinct child-local points.
+The browser accepted **2,880 world-position assertions** plus **960
+on-axis invariant assertions**, **3,840 checks in total**.
+The authored child-node local positions are also checked for drift and
+all test transforms are restored before screenshot rendering.
+
+This guards negative/reversed hinge directions, nested parent frames,
+arbitrary axes, mesh-node rotations, nonuniform and reflected ancestors,
+and explicit `restAngleDeg` initialization. It does **not** establish
+photographic fidelity, deformation, contact, or collision freedom. The
+standalone, reference-facing carton comparison remains a separate test.
+
 ## Reproduce and review
 
 ```sh
