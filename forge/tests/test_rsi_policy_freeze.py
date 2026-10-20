@@ -22,7 +22,8 @@ policy = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(policy)
 import registered_multifamily as base  # noqa: E402
 
-HASH = hashlib.sha256(b"synthetic-do-not-use-as-real-evidence").hexdigest()
+SYNTHETIC_BYTES = b"synthetic-do-not-use-as-real-evidence"
+HASH = hashlib.sha256(SYNTHETIC_BYTES).hexdigest()
 
 
 def fake_report(world: dict, digest: str, *, prefer: int = 1) -> dict:
@@ -70,6 +71,14 @@ class PolicyFreezeTest(unittest.TestCase):
                 world, self.digest,
                 prefer=train_prefer if world["split"] == "train" else validation_prefer,
             )), encoding="utf-8")
+            # These deliberately synthetic bytes are not browser evidence.
+            # They make the freezer's file-vs-receipt hash enforcement
+            # testable without Playwright, screenshots or expensive scoring.
+            for name in base.parameter_variants(world):
+                candidate = file.parent / name
+                candidate.mkdir()
+                for filename in ("render.png", "spec.json"):
+                    (candidate / filename).write_bytes(SYNTHETIC_BYTES)
 
     def test_train_then_validation_freezes_without_holdout(self):
         self.populate()
@@ -156,6 +165,45 @@ class PolicyFreezeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "native review action and verdict"):
             policy.freeze_policy(self.train, self.validation, self.root / "no-verdict.json")
         self.assertFalse((self.root / "no-verdict.json").exists())
+
+    def test_tampered_native_png_or_spec_cannot_train(self):
+        self.populate()
+        report = next(self.train.rglob("observations.json"))
+        folder = report.parent / "c0-plus"
+        for filename in ("render.png", "spec.json"):
+            file = folder / filename
+            with self.subTest(filename=filename):
+                file.write_bytes(SYNTHETIC_BYTES + b"tampered")
+                with self.assertRaisesRegex(ValueError, "evidence hash differs"):
+                    policy.freeze_policy(self.train, self.validation, self.root / "tampered.json")
+                self.assertFalse((self.root / "tampered.json").exists())
+                file.write_bytes(SYNTHETIC_BYTES)
+
+    def test_missing_or_symlinked_native_evidence_cannot_train(self):
+        self.populate()
+        report = next(self.train.rglob("observations.json"))
+        target = report.parent / "target" / "render.png"
+        target.unlink()
+        with self.assertRaisesRegex(ValueError, "missing or unsafe"):
+            policy.freeze_policy(self.train, self.validation, self.root / "no-target.json")
+        self.assertFalse((self.root / "no-target.json").exists())
+        try:
+            target.symlink_to(self.root / "outside")
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable")
+        with self.assertRaisesRegex(ValueError, "missing or unsafe"):
+            policy.freeze_policy(self.train, self.validation, self.root / "alias.json")
+        self.assertFalse((self.root / "alias.json").exists())
+
+    def test_reference_hash_must_match_actual_target_png(self):
+        self.populate()
+        report = next(self.validation.rglob("observations.json"))
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        payload["referencePngSha256"] = "0" * 64
+        report.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "reference PNG hash disagrees"):
+            policy.freeze_policy(self.train, self.validation, self.root / "wrong-reference.json")
+        self.assertFalse((self.root / "wrong-reference.json").exists())
 
     def test_probe_only_candidate_does_not_influence_learning(self):
         self.populate()
