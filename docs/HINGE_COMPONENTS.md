@@ -52,15 +52,20 @@ valid final angle may still drive a panel through its neighbor. Character
 skin/bone deformation and visual fidelity are not established by the
 generator-only tests.
 
-Validation:
+Validation in this **four-file core branch** uses only Python stdlib:
+
 ```sh
+python3 -m unittest discover -s forge/tests -p 'test_component_hinges.py'
 python3 -m unittest discover -s forge/tests -p 'test_*.py'
-npm install --no-save --no-package-lock --ignore-scripts \
-  three@0.180.0 @types/three@0.180.0 \
-  typescript@5.9.3 esbuild@0.25.12 playwright@1.56.1
-npx --no-install playwright install --with-deps chromium
-HINGE_SCREENSHOTS=/tmp/hinge-screenshots node forge/tests/hinge_runtime.mjs
 ```
+
+The optional TypeScript, Chromium and screenshot harness deliberately lives
+on the **separate downstream research branch**, not in this core patch.
+To rerun it, check out
+[`study/hinge-real-photo-ab-20261019`](https://github.com/kvnloo/img2threejs/tree/study/hinge-real-photo-ab-20261019)
+in an isolated working tree and follow the
+[research workflow](https://github.com/kvnloo/img2threejs/blob/study/hinge-real-photo-ab-20261019/.github/workflows/hinge-reference-photo.yml).
+Do not invoke `forge/tests/hinge_runtime.mjs` from this core-only checkout.
 
 An [opt-in downstream WebGL acceptance harness](https://github.com/kvnloo/img2threejs/tree/study/hinge-real-photo-ab-20261019/forge/tests)
 compiles the actual generated TypeScript, verifies nested parent-frame
