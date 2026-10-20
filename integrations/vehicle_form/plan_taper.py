@@ -116,7 +116,7 @@ def _triangles(mesh: dict[str, Any]) -> tuple[list[tuple[float, float, float]], 
     return vertices, triangles, ignored_degenerate
 
 
-def _validate_sections(payload: Any) -> tuple[list[dict[str, Any]], float, float]:
+def _validate_sections(payload: Any) -> tuple[list[dict[str, Any]], float, float, float | None]:
     if not isinstance(payload, dict) or payload.get("schemaVersion") != 1:
         raise PlanTaperInputError("section table needs schemaVersion: 1")
     if payload.get("axis") != "x" or payload.get("lateralAxis") != "z":
@@ -131,6 +131,9 @@ def _validate_sections(payload: Any) -> tuple[list[dict[str, Any]], float, float
         raise PlanTaperInputError("at most 32 reference stations are supported")
     stations = []
     ids = set()
+    center_enabled = any(isinstance(row, dict) and "referenceCenterZ" in row for row in raw_stations)
+    if center_enabled and not all(isinstance(row, dict) and "referenceCenterZ" in row for row in raw_stations):
+        raise PlanTaperInputError("referenceCenterZ must be measured at every station or omitted entirely")
     for i, row in enumerate(raw_stations):
         if not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"].strip():
             raise PlanTaperInputError(f"stations[{i}] needs a nonempty id")
@@ -141,12 +144,26 @@ def _validate_sections(payload: Any) -> tuple[list[dict[str, Any]], float, float
         width = _number(row.get("referenceWidth"), f"stations[{i}].referenceWidth", positive=True)
         if stations and x <= stations[-1]["x"]:
             raise PlanTaperInputError("stations must be ordered by strictly increasing x")
-        stations.append({"id": row["id"], "x": x, "referenceWidth": width})
+        station = {"id": row["id"], "x": x, "referenceWidth": width}
+        if center_enabled:
+            station["referenceCenterZ"] = _number(
+                row["referenceCenterZ"], f"stations[{i}].referenceCenterZ"
+            )
+        stations.append(station)
     width_tolerance = _number(payload.get("maxNormalizedWidthError", 0.08), "maxNormalizedWidthError")
     taper_tolerance = _number(payload.get("maxTaperLoss", 0.12), "maxTaperLoss")
     if not 0 <= width_tolerance < 1 or not 0 <= taper_tolerance < 1:
         raise PlanTaperInputError("tolerances must be in [0, 1)")
-    return stations, width_tolerance, taper_tolerance
+    center_tolerance = None
+    if center_enabled:
+        center_tolerance = _number(
+            payload.get("maxNormalizedCenterError", 0.08), "maxNormalizedCenterError"
+        )
+        if not 0 <= center_tolerance < 1:
+            raise PlanTaperInputError("maxNormalizedCenterError must be in [0, 1)")
+    elif "maxNormalizedCenterError" in payload:
+        raise PlanTaperInputError("maxNormalizedCenterError requires referenceCenterZ at every station")
+    return stations, width_tolerance, taper_tolerance, center_tolerance
 
 
 def _section_width(
@@ -154,8 +171,8 @@ def _section_width(
     triangles: list[tuple[int, int, int]],
     x: float,
     epsilon: float,
-) -> tuple[float, int, float]:
-    """Measure section width AND the fraction backed by intersected surface.
+) -> tuple[float, float, int, float]:
+    """Measure section width, centerline, and the fraction backed by surface.
 
     A pair of thin, disconnected side rails can have the correct min/max Z at
     every station and still be missing the entire body between them. Require
@@ -191,6 +208,11 @@ def _section_width(
         raise PlanTaperInputError(f"non-finite lateral section width at x={x:g}")
     if width <= epsilon:
         raise PlanTaperInputError(f"no measurable cross-body section at x={x:g}")
+    # Use the minimum plus half the width rather than (min + max)/2,
+    # which can overflow for large positive but finite world coordinates.
+    center = min(z_hits) + width / 2
+    if not math.isfinite(center):
+        raise PlanTaperInputError(f"non-finite lateral section center at x={x:g}")
 
     if not intervals:
         raise PlanTaperInputError(f"no surface-backed lateral span at x={x:g}")
@@ -213,14 +235,14 @@ def _section_width(
             f"insufficient surface-backed lateral coverage at x={x:g}: "
             f"{coverage:.3f} < {MIN_LATERAL_SPAN_COVERAGE:.3f}"
         )
-    return width, len(z_hits), coverage
+    return width, center, len(z_hits), coverage
 
 
 def evaluate(geometry: Any, table: Any, *, mesh_name: str) -> dict[str, Any]:
     """Compare normalized width profiles; return honest geometry coverage and failures."""
     if not isinstance(mesh_name, str) or not mesh_name.strip():
         raise PlanTaperInputError("mesh_name must be nonempty")
-    stations, width_tol, taper_tol = _validate_sections(table)
+    stations, width_tol, taper_tol, center_tol = _validate_sections(table)
     vertices, triangles, ignored_degenerate = _triangles(_mesh_from_export(geometry, mesh_name))
     xs = [vertex[0] for vertex in vertices]
     scale = max(xs) - min(xs)
@@ -231,9 +253,13 @@ def evaluate(geometry: Any, table: Any, *, mesh_name: str) -> dict[str, Any]:
     epsilon = max(1e-12, scale * 1e-9)
     measured = []
     for station in stations:
-        width, intersections, coverage = _section_width(vertices, triangles, station["x"], epsilon)
-        measured.append({**station, "measuredWidth": width, "intersectionCount": intersections,
-                         "lateralCoverageFraction": coverage})
+        width, center, intersections, coverage = _section_width(
+            vertices, triangles, station["x"], epsilon
+        )
+        measured.append({
+            **station, "measuredWidth": width, "measuredCenterZ": center,
+            "intersectionCount": intersections, "lateralCoverageFraction": coverage
+        })
     reference_max = max(s["referenceWidth"] for s in measured)
     measured_max = max(s["measuredWidth"] for s in measured)
     errors: list[str] = []
@@ -243,6 +269,16 @@ def evaluate(geometry: Any, table: Any, *, mesh_name: str) -> dict[str, Any]:
         row["normalizedWidthError"] = abs(row["normalizedReferenceWidth"] - row["normalizedMeasuredWidth"])
         if row["normalizedWidthError"] > width_tol + 1e-12:
             errors.append(f"station {row['id']!r}: normalized width error {row['normalizedWidthError']:.3f} > {width_tol:.3f}")
+        if center_tol is not None:
+            displacement = row["measuredCenterZ"] - row["referenceCenterZ"]
+            if not math.isfinite(displacement):
+                raise PlanTaperInputError(f"non-finite lateral center offset at station {row['id']!r}")
+            row["normalizedCenterError"] = abs(displacement) / reference_max
+            if row["normalizedCenterError"] > center_tol + 1e-12:
+                errors.append(
+                    f"station {row['id']!r}: normalized center error "
+                    f"{row['normalizedCenterError']:.3f} > {center_tol:.3f}"
+                )
     reference_taper = max(s["normalizedReferenceWidth"] for s in measured) - min(s["normalizedReferenceWidth"] for s in measured)
     measured_taper = max(s["normalizedMeasuredWidth"] for s in measured) - min(s["normalizedMeasuredWidth"] for s in measured)
     if reference_taper - measured_taper > taper_tol + 1e-12:
@@ -251,7 +287,9 @@ def evaluate(geometry: Any, table: Any, *, mesh_name: str) -> dict[str, Any]:
             "triangleCount": len(triangles), "degenerateTrianglesIgnored": ignored_degenerate,
             "referenceTaper": reference_taper,
             "measuredTaper": measured_taper, "maxNormalizedWidthError": width_tol,
-            "maxTaperLoss": taper_tol, "stations": measured, "failures": errors,
+            "maxTaperLoss": taper_tol, "maxNormalizedCenterError": center_tol,
+            "centerlineCompared": center_tol is not None,
+            "stations": measured, "failures": errors,
             "reference": table["reference"]}
 
 
