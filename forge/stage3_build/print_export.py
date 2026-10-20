@@ -379,9 +379,15 @@ def scale_to_longest_edge(vertices: list[Vec], longest_edge: float) -> tuple[lis
 def assert_stl_float32_geometry(
     vertices: list[Vec], triangles: list[tuple[int, int, int]]
 ) -> None:
-    """Reject triangles that become degenerate after binary STL float32 rounding."""
+    """Refuse float32 rounding that changes face geometry or vertex topology."""
     rounded: list[Vec] = []
-    for vertex in vertices:
+    # A small gap between separately watertight solids may vanish after STL
+    # quantization without collapsing any individual triangle. That changes
+    # the printed edge/vertex topology even though the source passed the gate.
+    # The upstream weld has already consolidated intended shared coordinates,
+    # so new equality between distinct vertices is evidence of lost detail.
+    occupied: dict[Vec, int] = {}
+    for index, vertex in enumerate(vertices):
         try:
             point = tuple(struct.unpack("<f", struct.pack("<f", value))[0] for value in vertex)
         except (OverflowError, struct.error) as error:
@@ -390,6 +396,12 @@ def assert_stl_float32_geometry(
             ) from error
         if not all(math.isfinite(value) for value in point):
             raise PrintExportError("STL coordinates must remain finite after float32 conversion")
+        earlier = occupied.setdefault(point, index)
+        if earlier != index:
+            raise PrintExportError(
+                f"distinct vertices {earlier} and {index} collide at STL float32 precision; "
+                "recenter, rescale or adjust --weld before exporting"
+            )
         rounded.append(point)  # type: ignore[arg-type]
     for number, triangle in enumerate(triangles):
         if _area2(rounded, triangle) <= 0.0:
