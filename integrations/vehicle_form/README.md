@@ -32,6 +32,29 @@ python3 integrations/vehicle_form/plan_taper.py \
 python3 -m unittest forge.tests.test_vehicle_plan_taper
 ```
 
+### Optional measured lateral centerline
+
+Width alone cannot distinguish a centered body from one whose entire
+silhouette has shifted sideways, or whose door station has the right width
+but is offset from the front/rear body. When the reference top-view is
+registered in **world X/Z coordinates**, add a measured `referenceCenterZ`
+to **every** station (example: `"referenceCenterZ": 0.0`) and optionally set
+`"maxNormalizedCenterError": 0.08` at the table root. The default center
+tolerance is 0.08 of the **maximum reference width**; the measured
+`minZ + (maxZ - minZ)/2` centerline is compared against the authored
+reference center at each longitudinal station.
+
+The report then includes `centerlineCompared: true`, a
+`measuredCenterZ`, and `normalizedCenterError` for each station. A
+correct-width body laterally displaced by 0.30 reference-width units
+fails with a centerline mismatch instead of a misleading plan-view pass.
+A partial set of center measurements, or a centerline threshold with no
+center measurements, fails closed as unmeasurable evidence. Width-only
+tables remain fully backwards compatible (`centerlineCompared: false`):
+**no centerline alignment claim is made unless the reference data supplies
+those measurements**. Camera registration and source-image accuracy still
+need independent verification.
+
 World X coordinates must already correspond across the model and reference table; all geometry comes from actual triangle/plane intersections, not the nearest vertex. Finite input coordinates do not guarantee finite *derived* widths or longitudinal spans (subtractions can overflow binary64). The gate rejects non-finite derived measurements rather than normalizing `inf/inf` into NaN and accidentally passing a tolerance comparison. Zero-area/collinear triangles are ignored (reported as `degenerateTrianglesIgnored`) because lines can produce arbitrary widths without contributing a real surface; if the selected body has no nondegenerate triangles, the gate refuses the evidence. **Surface coverage guard:** Width extrema alone are insufficient. Two disconnected
 longitudinal rails at opposite Z edges can match every reference width while
 leaving most of the body absent. The gate now intersects actual nondegenerate
