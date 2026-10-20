@@ -80,6 +80,14 @@ class CaptureRuntimePreflightTest(unittest.TestCase):
             with self.subTest(value=value):
                 self.assert_failed_before_side_effects(value, "runtime must be an object")
 
+    def test_missing_or_nonstring_runtime_url_fails_before_invalidation(self):
+        for invalid in (None, False, 123, "", "   ", []):
+            with self.subTest(url=invalid):
+                self.assert_failed_before_side_effects(
+                    {"url": invalid, "viewport": [640, 480], "devicePixelRatio": 1},
+                    "runtime.url",
+                )
+
     def test_invalid_dimensions_do_not_mutate_prior_complete_hero_receipt(self):
         hero = self.manifest["captures"][0]
         hero.update({
