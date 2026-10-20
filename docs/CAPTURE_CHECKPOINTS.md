@@ -31,6 +31,15 @@ can choose the next view without repeating a known-good screenshot. That
 planner remains a separate contribution. Neither tool proves correct camera
 calibration or likeness.
 
+Before browser launch or receipt invalidation, the resume adapter also
+checks *every* planned screenshot/diagnostic destination, including unselected
+views. It refuses destinations pointing at the original image/GLB, render
+manifest, shared render profile, or another output. Existing **hard-linked**
+paths are checked by file identity, not just resolved names: otherwise
+two different paths can silently share an inode and overwrite protected
+evidence. Preflight is a filesystem snapshot, not protection against
+other processes modifying output paths concurrently.
+
 These regressions run without the optional Playwright package: the test
 adapter simulates a timeout on the second camera, failure in a v2 diagnostic
 pass, reference-mode capture, navigation failure, and a clean retry.
