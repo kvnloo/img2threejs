@@ -409,6 +409,20 @@ def assert_stl_float32_geometry(
                 f"triangle {number} collapses at STL float32 precision; "
                 "scale model with --longest-edge-mm"
             )
+    # A thin closed tetrahedron can become coplanar in float32 while each of
+    # its four faces remains nondegenerate and every vertex remains distinct.
+    # Check closed-shell volume *after* quantization as well as face area.
+    # Do not override the explicit --allow-open escape hatch for a shell that
+    # was already zero-volume in the source: refuse only newly lost solids.
+    rounded_shells = analyze_manifold(rounded, triangles)["shells"]
+    if any(shell["zeroVolume"] for shell in rounded_shells):
+        source_shells = analyze_manifold(vertices, triangles)["shells"]
+        for index, (before, after) in enumerate(zip(source_shells, rounded_shells)):
+            if after["zeroVolume"] and not before["zeroVolume"]:
+                raise PrintExportError(
+                    f"shell {index} loses its enclosed volume at STL float32 precision; "
+                    "recenter or rescale model before exporting"
+                )
 
 
 def _safe_export_name(value: str) -> str:
