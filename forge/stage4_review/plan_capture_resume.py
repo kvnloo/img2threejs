@@ -55,7 +55,7 @@ def receipt_error(manifest_file: Path, record: Any) -> str | None:
 def resume_plan(manifest_file: Path) -> dict[str, Any]:
     manifest_file = manifest_file.expanduser().resolve()
     manifest = read_manifest(manifest_file)
-    if manifest.get("schemaVersion") != 1:
+    if type(manifest.get("schemaVersion")) is not int or manifest["schemaVersion"] != 1:
         raise ValueError("unsupported render manifest schemaVersion")
     runtime = manifest.get("runtime")
     if (
