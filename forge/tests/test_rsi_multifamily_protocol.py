@@ -112,7 +112,9 @@ class RegisteredProtocolTest(unittest.TestCase):
         # This calls the same native generator as the real Chromium job. A
         # default box fallback or malformed ObjectSculptSpec must fail here,
         # before any expensive browser setup.
-        from forge.stage3_build.generate_threejs_factory import generate, filter_components_for_pass
+        from forge.stage3_build.generate_threejs_factory import (
+            generate, filter_components_for_pass, strict_quality_failures,
+        )
 
         registry, _ = rsi.registration()
         fragment_by_family = {
@@ -133,6 +135,11 @@ class RegisteredProtocolTest(unittest.TestCase):
                 # V1's inherited macro lid dominated the visible profile.
                 # Every v2 family must generate just its root silhouette.
                 self.assertEqual([part["id"] for part in in_blockout], ["root"])
+                self.assertEqual(
+                    spec["qualityContract"]["minimumSpecDepth"]["macroComponents"], 1
+                )
+                _, _, quality_failures = strict_quality_failures(spec)
+                self.assertEqual(quality_failures, [], quality_failures)
                 generated = generate(spec, "blockout")
                 self.assertIn(expression, generated)
                 self.assertIn("import * as THREE from 'three'", generated)
