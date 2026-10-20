@@ -2,6 +2,8 @@ name: RSI v2 isolated 24-world train-validation-holdout
 
 # V2 uses MULTIFAMILY_V2_REGISTERED.json. V1 runs are contaminated by
 # the original equipment-case lid and explicitly excluded from this study.
+# Isolated single-primitive synthetic specs use one macro-component minimum;
+# the preregistered render/evaluator budgets and acceptance gates are unchanged.
 on:
   pull_request:
     paths:
