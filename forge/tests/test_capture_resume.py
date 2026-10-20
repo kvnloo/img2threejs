@@ -171,5 +171,43 @@ class CaptureResumeTest(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), before)
 
 
+    def test_unsupported_schema_must_not_count_saved_capture(self):
+        self.record_hero()
+        for version in (None, 0, 2, "1", True):
+            with self.subTest(version=version):
+                self.manifest["schemaVersion"] = version
+                write_manifest(self.path, self.manifest)
+                with self.assertRaisesRegex(ValueError, "schemaVersion"):
+                    resume_plan(self.path)
+        self.manifest["schemaVersion"] = 1
+        write_manifest(self.path, self.manifest)
+        self.assertEqual(resume_plan(self.path)["verifiedShots"], 1)
+
+    def test_missing_or_unusable_runtime_does_not_schedule_captures(self):
+        self.record_hero()
+        for invalid in (None, "not an object", {}, {"url": ""}, {"url": "   "}, {"url": True}):
+            with self.subTest(runtime=invalid):
+                self.manifest["runtime"] = invalid
+                write_manifest(self.path, self.manifest)
+                with self.assertRaisesRegex(ValueError, "runtime.url"):
+                    resume_plan(self.path)
+        self.manifest["runtime"] = {"url": "http://localhost:3000"}
+        write_manifest(self.path, self.manifest)
+        self.assertEqual(resume_plan(self.path)["verifiedShots"], 1)
+
+    def test_bad_runtime_cli_returns_failure_without_rewriting_manifest(self):
+        self.manifest["runtime"] = {"url": ""}
+        write_manifest(self.path, self.manifest)
+        before = self.path.read_bytes()
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "forge/stage4_review/plan_capture_resume.py"),
+             "--manifest", str(self.path)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("runtime.url", result.stderr)
+        self.assertEqual(self.path.read_bytes(), before)
+
+
 if __name__ == "__main__":
     unittest.main()
