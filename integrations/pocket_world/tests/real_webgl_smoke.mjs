@@ -27,6 +27,7 @@ globalThis.__pocketSmoke = {
   tapTarget: () => {
     const rect = canvas.getBoundingClientRect();
     const picker = new THREE.Raycaster();
+    let chosen = null, distance = Infinity;
     for (const cell of cells) {
       if (cell === scoutCell) continue;
       const [x, , z] = positionOf(cell, 0);
@@ -38,9 +39,15 @@ globalThis.__pocketSmoke = {
       picker.setFromCamera(new THREE.Vector2(point.x, point.y), camera);
       if (picker.intersectObjects(beacons.filter(beacon => beacon.visible), false).length) continue;
       const hit = picker.intersectObject(world, false)[0];
-      if (hit && cells[hit.instanceId] === cell) return {x:clientX, y:clientY, cell};
+      if (hit && cells[hit.instanceId] === cell) {
+        // Test a nearby *actual* touch target; scanning first-to-last chose a
+        // distant cell and timed out on slow SwiftShader mobile CI runners.
+        const steps = Math.abs(cell % GRID_SIZE - scoutCell % GRID_SIZE) +
+          Math.abs(Math.floor(cell / GRID_SIZE) - Math.floor(scoutCell / GRID_SIZE));
+        if (steps < distance) { chosen = {x:clientX, y:clientY, cell}; distance = steps; }
+      }
     }
-    return null;
+    return chosen;
   },
 };`;
 
@@ -202,19 +209,6 @@ try {
   await viewport.focus();
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#bridge').getAttribute('aria-pressed'), 'false');
-  // Drawing-buffer sizes stay bounded even when a large CSS viewport is used.
-  await page.setViewportSize({width: 3000, height: 1800});
-  await page.waitForFunction(() => {
-    const c = document.querySelector('#viewport');
-    return c.width * c.height <= 4_010_000;
-  });
-  const boundedPixels = await page.evaluate(() => {
-    const c = document.getElementById('viewport');
-    return c.width * c.height;
-  });
-  assert.ok(boundedPixels <= 4_010_000, `oversized drawing buffer: ${boundedPixels}`);
-  await page.setViewportSize({width: 1100, height: 740});
-
   // Touch emulation uses the actual app, OrbitControls and browser capture.
   // It is not a claim of physical Android/iOS device performance.
   const mobile = await browser.newPage({
@@ -260,6 +254,19 @@ try {
   await mobile.locator('#viewport').screenshot({path:join(shotDir, 'world-mobile-landscape.png')});
   const mobileState = await mobile.evaluate(() => globalThis.__pocketSmoke.snapshot());
   await mobile.close();
+  // Isolate large-framebuffer GPU stress *after* mobile interaction checks.
+  // Expanding the first page beforehand can slow software-GL/mobile emulation.
+  await page.setViewportSize({width: 3000, height: 1800});
+  await page.waitForFunction(() => {
+    const c = document.querySelector('#viewport');
+    return c.width * c.height <= 4_010_000;
+  });
+  const boundedPixels = await page.evaluate(() => {
+    const c = document.getElementById('viewport');
+    return c.width * c.height;
+  });
+  assert.ok(boundedPixels <= 4_010_000, `oversized drawing buffer: ${boundedPixels}`);
+  await page.setViewportSize({width: 1100, height: 740});
   assert.deepEqual(errors, [], 'browser page errors');
   await writeFile(join(shotDir, 'verification.json'), JSON.stringify({
     webgl, brightSubjectPixels: visible, collected: progress, receiptVersion: receipt.version,
