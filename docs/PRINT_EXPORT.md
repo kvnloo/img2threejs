@@ -121,6 +121,11 @@ never insert additional OBJ vertex/face commands through a filename.
   to identical coordinates, producing a degenerate print even when the original
   Python mesh is topologically closed. Before writing STL, the exporter checks
   each triangle after float32 conversion and refuses any collapse (exit code 2).
+  Even when every triangle retains a positive area, distinct vertices
+  from separate closed shells can round to identical float32 coordinates:
+  for example, a small gap near a world X coordinate of 1001 may vanish,
+  creating coincident faces in the slicer. The exporter also refuses **new
+  vertex collisions after float32 rounding**, before publishing any STL.
   For very small meshes, set `--weld` below the smallest meaningful
   source-space feature **and** use `--longest-edge-mm` to rescale them; the
   weld occurs before rescaling. For distant world origins, recenter the source
