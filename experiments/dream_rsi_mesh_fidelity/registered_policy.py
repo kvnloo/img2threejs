@@ -69,10 +69,14 @@ def verify_report(file: Path, *, split: str, registry: dict[str, Any], digest: s
         failures = record.get("hardGateFailures")
         if not isinstance(failures, list) or any(not isinstance(x, str) for x in failures):
             raise ValueError("invalid hard gate receipt")
-        approved = (
-            not failures and record.get("action") in (None, "continue")
-            and record.get("verdict") in (None, "pass")
-        )
+        # Core fit accepts omitted action/verdict for backwards compatibility.
+        # A preregistered *native-browser* observation must contain both
+        # explicit review decisions, or a truncated receipt can manufacture
+        # an approved result simply by omitting them.
+        action, verdict = record.get("action"), record.get("verdict")
+        if not isinstance(action, str) or not action or not isinstance(verdict, str) or not verdict:
+            raise ValueError("native review action and verdict are required for policy evidence")
+        approved = not failures and action == "continue" and verdict == "pass"
         if record.get("approved") is not approved:
             raise ValueError("native approval result misreported in policy input")
     if observed["target"]["silhouetteIoU"] < 0.999:
