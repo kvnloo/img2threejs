@@ -62,6 +62,20 @@ def verify_report(file: Path, *, split: str, registry: dict[str, Any], digest: s
             raise ValueError("reported candidate geometry changed from registration")
         if not all(_is_sha(record.get(key)) for key in SHA256_KEYS):
             raise ValueError("missing independently verified screenshot/spec hash")
+        # A SHA-looking JSON string is *not* a file-integrity check. The
+        # freezer must inspect the exact source-generated PNG and spec bytes
+        # that were uploaded alongside the native scorer receipt. This also
+        # prevents a forged report from substituting a different screenshot
+        # and merely rewriting its claimed digest.
+        folder = file.parent / name
+        for filename, key in (("render.png", "pngSha256"), ("spec.json", "specSha256")):
+            asset = folder / filename
+            if asset.is_symlink() or not asset.is_file():
+                raise ValueError(f"native {name} {filename} evidence is missing or unsafe")
+            if _sha256(asset) != record[key]:
+                raise ValueError(f"native {name} {filename} evidence hash differs from receipt")
+        if name == "target" and record["pngSha256"] != data["referencePngSha256"]:
+            raise ValueError("native reference PNG hash disagrees with target evidence")
         for field in ("fidelity", "silhouetteIoU"):
             val = record.get(field)
             if isinstance(val, bool) or not isinstance(val, (int, float)) or not math.isfinite(val) or not 0 <= val <= 1:
