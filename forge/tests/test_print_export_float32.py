@@ -120,6 +120,48 @@ class Float32GeometryGateTest(unittest.TestCase):
             print_export.write_stl(stl, result["vertices"], result["triangles"])
             self.assertEqual(stl.stat().st_size, 84 + 50 * 24)
 
+    def test_thin_closed_tetrahedron_fails_when_float32_erases_volume(self):
+        # STL quantization at z=1000 rounds a 1e-5-high apex to the base
+        # plane. The apex remains a distinct (x,y) point, and all four
+        # triangles still have positive 2D area, so a face-only gate misses it.
+        thin = {
+            "name": "thin-tetra",
+            "vertices": [
+                [0, 0, 1000], [1, 0, 1000], [0, 1, 1000],
+                [0.2, 0.2, 1000.00001],
+            ],
+            "indices": FACES,
+        }
+        result = print_export.build_export([thin])
+        self.assertTrue(result["report"]["watertight"])
+        self.assertEqual(result["report"]["zeroVolumeShellCount"], 0)
+        self.assertGreater(result["report"]["volume"], 0)
+        with tempfile.TemporaryDirectory() as directory:
+            stl = Path(directory) / "flat-after-rounding.stl"
+            with self.assertRaisesRegex(print_export.PrintExportError,
+                                        "loses its enclosed volume at STL float32 precision"):
+                print_export.write_stl(stl, result["vertices"], result["triangles"])
+            self.assertFalse(stl.exists())
+            obj = Path(directory) / "original-height.obj"
+            print_export.write_obj(obj, result["vertices"], result["triangles"])
+            self.assertIn("1000.00001", obj.read_text())
+
+    def test_apex_height_above_float32_ulp_can_still_export(self):
+        taller = {
+            "name": "tetra",
+            "vertices": [
+                [0, 0, 1000], [1, 0, 1000], [0, 1, 1000],
+                [0.2, 0.2, 1000.001],
+            ],
+            "indices": FACES,
+        }
+        result = print_export.build_export([taller])
+        self.assertTrue(result["report"]["watertight"])
+        with tempfile.TemporaryDirectory() as directory:
+            stl = Path(directory) / "surviving-height.stl"
+            print_export.write_stl(stl, result["vertices"], result["triangles"])
+            self.assertEqual(stl.stat().st_size, 84 + 4 * 50)
+
     def test_normal_unit_tetrahedron_still_serializes(self):
         model = print_export.build_export([tetra()])
         with tempfile.TemporaryDirectory() as directory:
