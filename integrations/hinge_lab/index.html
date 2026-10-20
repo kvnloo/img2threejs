@@ -59,6 +59,13 @@
     .data span:nth-child(2n) { color:var(--text); text-align:right; }
     .mono { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
     footer { margin-top:16px; font-size:11px; color:var(--muted); }
+    /* On wide screens the viewer owns the viewport; long controls scroll
+       in their own columns instead of moving the entire scene below fold. */
+    @media(min-width:1051px) {
+      main { height:calc(100dvh - 67px); min-height:620px; overflow:hidden; }
+      .viewer { height:100%; min-height:0; }
+      aside { height:100%; overflow-y:auto; overscroll-behavior:contain; }
+    }
     @media(max-width:1050px) { main { grid-template-columns:245px minmax(0,1fr); } aside:last-of-type { grid-column:1 / -1; border-left:0; border-top:1px solid var(--line); display:grid; grid-template-columns:1fr 1fr; gap:16px; } }
     @media(max-width:680px) { .hint .desktop-hint { display:none; } .hint .mobile-hint { display:inline; } header { padding:12px 14px; } header p { display:none; } main { display:flex; flex-direction:column; } .viewer { min-height:56vh; order:0; } aside:first-of-type { order:1; border-right:0; border-top:1px solid var(--line); } aside:last-of-type { order:2; display:block; } }
     @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; } }

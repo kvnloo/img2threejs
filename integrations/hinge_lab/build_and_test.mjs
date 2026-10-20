@@ -120,6 +120,18 @@ try {
     .includes('export function createOpenFoldingCartonModel('));
   assert.deepEqual(await page.evaluate(()=>window.__hingeLab.getStatus().angles),
     {'back-flap':0,'front-flap':0,'left-flap':0,'right-flap':0});
+  const desktopGeometry = await page.evaluate(()=>({
+    screenHeight:window.innerHeight,
+    stageBottom:document.getElementById('stage').getBoundingClientRect().bottom,
+    stageHeight:document.getElementById('stage').getBoundingClientRect().height,
+    controlScroll:document.querySelector('aside').scrollHeight >
+                  document.querySelector('aside').clientHeight,
+  }));
+  assert.ok(desktopGeometry.stageBottom <= desktopGeometry.screenHeight + 3,
+    'desktop model should not be cut off by tall controls: ' +
+      JSON.stringify(desktopGeometry));
+  assert.ok(desktopGeometry.stageHeight > 450,
+    'desktop viewer should retain sufficient canvas height');
   await page.screenshot({path:join(output,'lab-flat.png')});
   await page.locator('#pose').click();
   assert.deepEqual(await page.evaluate(()=>window.__hingeLab.getStatus().angles),
