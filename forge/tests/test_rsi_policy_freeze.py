@@ -128,14 +128,15 @@ class PolicyFreezeTest(unittest.TestCase):
         # Core fitter has a legacy optional-action compatibility mode. The
         # preregistered study instead requires complete native-review receipts,
         # or an attacker could omit both fields to mark an unreviewed image clean.
+        self.populate()
+        path = next(self.train.rglob("observations.json"))
+        original = path.read_text(encoding="utf-8")
         for field, replacement in (
             ("action", None), ("action", ""),
             ("verdict", None), ("verdict", ""),
         ):
             with self.subTest(field=field, replacement=replacement):
-                self.populate()
-                path = next(self.train.rglob("observations.json"))
-                report = json.loads(path.read_text(encoding="utf-8"))
+                report = json.loads(original)
                 record = report["observed"]["c0-plus"]
                 if replacement is None:
                     record.pop(field, None)
