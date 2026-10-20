@@ -30,8 +30,11 @@ single primary contact counts as a tap; right-button gestures, pinches, cancelle
 contacts and drags do not collect treasure or edit terrain. Keyboard-only users can
 Tab to the viewport, move a visible tile selector with arrows or WASD, press Enter
 to walk or set a bridge anchor, and press Escape to exit bridge mode.
-The compass selects a
-reachable, uncollected beacon. Retargeting finishes the current grid edge before
+On narrow or short mobile screens, World tools starts collapsed so the island
+stays visible. Open its native disclosure to reach all controls; press Escape
+while a tool is focused to close it and return focus to the disclosure.
+Desktop controls start expanded. The compass selects a reachable, uncollected
+beacon. Retargeting finishes the current grid edge before
 turning, rather than cutting diagonally across invisible cells.
 
 The scout uses stable binary-heap A*. The compass uses one slope-aware Dijkstra

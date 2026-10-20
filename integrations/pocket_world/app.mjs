@@ -8,6 +8,24 @@ import {
 
 const $ = id => document.getElementById(id);
 const canvas = $('viewport');
+const panel = $('controls-panel');
+const summary = $('controls-summary');
+const compactControls = window.matchMedia('(max-width: 680px), (max-height: 500px)');
+function syncControlsLayout() {
+  const shouldClose = compactControls.matches;
+  const focusedInside = shouldClose && panel.contains(document.activeElement) && document.activeElement !== summary;
+  panel.open = !shouldClose;
+  if (focusedInside) summary.focus();
+}
+compactControls.addEventListener('change', syncControlsLayout);
+panel.addEventListener('keydown', event => {
+  if (compactControls.matches && panel.open && event.key === 'Escape') {
+    event.preventDefault();
+    panel.open = false;
+    summary.focus();
+  }
+});
+syncControlsLayout();
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, preserveDrawingBuffer: false });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;

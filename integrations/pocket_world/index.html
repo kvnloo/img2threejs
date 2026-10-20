@@ -17,7 +17,13 @@
     .mark { width: 34px; height: 34px; border: 1px solid #8ce8c965; display: grid; place-items: center; border-radius: 11px; background: #7ae6c31c; color: #94edcf; font-weight: 900; }
     .brand strong { display: block; font-size: 15px; letter-spacing: -.03em; }
     .brand small { color: #9bafc1; display: block; font-size: 11px; letter-spacing: .02em; }
-    .panel { position: fixed; top: 92px; right: 22px; width: 278px; max-height: calc(100svh - 130px); overflow: auto; padding: 18px; border: 1px solid #ffffff22; background: #111b29dd; backdrop-filter: blur(18px); border-radius: 19px; box-shadow: 0 18px 75px #0007; }
+    .panel { position: fixed; top: 92px; right: 22px; width: 278px; max-height: calc(100svh - 130px); overflow-y: auto; border: 1px solid #ffffff22; background: #111b29dd; backdrop-filter: blur(18px); border-radius: 19px; box-shadow: 0 18px 75px #0007; }
+    .panel > summary { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; background: #172838; cursor: pointer; font-weight: 750; list-style: none; }
+    .panel > summary::-webkit-details-marker { display: none; }
+    .panel > summary::after { content: '+'; font-size: 20px; line-height: 1; color: #9deed7; }
+    .panel[open] > summary::after { content: '−'; }
+    .panel > summary:focus-visible { outline: 2px solid #97e8cc; outline-offset: -3px; }
+    .panel-content { padding: 0 18px 18px; }
     .eyebrow { color: #91e9ce; font-size: 10px; font-weight: 800; letter-spacing: .17em; text-transform: uppercase; }
     h1 { font-size: 22px; margin: 5px 0 5px; letter-spacing: -.055em; line-height: 1.06; }
     p { margin: 0 0 17px; color: #abbac8; font-size: 12px; }
@@ -47,9 +53,11 @@
     .bottom { position: fixed; bottom: max(20px, env(safe-area-inset-bottom)); left: 22px; color: #aabed0; background: #101d2baa; border: 1px solid #ffffff1b; border-radius: 40px; padding: 10px 16px; font-size: 11px; pointer-events: none; }
     #notice { position: fixed; bottom: max(20px, env(safe-area-inset-bottom)); right: 22px; max-width: 330px; background: #20364c; border: 1px solid #a4e9ce55; color: white; padding: 10px 14px; border-radius: 11px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
     #notice.show { opacity: 1; }
-    @media (max-width: 680px) {
+    @media (max-width: 680px), (max-height: 500px) {
       .topbar { left: 12px; right: 12px; top: max(12px, env(safe-area-inset-top)); }
-      .panel { top: auto; bottom: max(55px, env(safe-area-inset-bottom)); right: 12px; left: 12px; width: auto; max-height: 48svh; padding: 13px; }
+      .panel { top: auto; bottom: max(55px, env(safe-area-inset-bottom)); right: 12px; left: 12px; width: auto; max-height: 48svh; }
+      .panel > summary { padding: 9px 13px; }
+      .panel-content { padding: 0 13px 13px; }
       .panel h1 { font-size: 19px; }
       .panel p { margin-bottom: 9px; }
       .preview { display: none; }
@@ -72,19 +80,22 @@
     <div class="brand"><div class="mark" aria-hidden="true">3</div><div><strong>Pocket World</strong><small>an img2threejs experiment</small></div></div>
     <div class="stat"><span aria-hidden="true">✦</span> Beacons <strong id="count">0 / 5</strong></div>
   </div>
-  <aside class="panel" aria-label="Pocket World controls">
-    <div class="eyebrow">Experimental toybox / 01</div>
-    <h1>Every image hides a world.</h1>
-    <p>Turn colors into a tiny voxel island. Send a scout across the island, discover beacons, export real Three.js code.</p>
-    <div class="preview"><canvas id="reference" width="28" height="28" aria-label="Source image preview"></canvas><div><strong id="source-label">Sunset coast</strong><span>Stylized relief, not depth estimation</span></div></div>
-    <label class="upload">Choose your own image<input id="upload" type="file" accept="image/png,image/jpeg,image/webp,image/avif,image/gif,image/bmp,image/heic,image/heif"></label>
-    <div class="controls"><button id="remix" type="button">Remix world</button><button id="night" type="button" aria-pressed="false">Night mode</button><button id="orbit" type="button" aria-pressed="false">Auto orbit</button><button id="reset" type="button">Reset view</button></div>
-    <div class="control-group"><div class="control-label"><span>Adventure tools</span><span>Join islands together</span></div><div class="controls"><button id="bridge" type="button" aria-pressed="false">Build a bridge</button><button id="undo-bridge" type="button" disabled>Undo bridge</button><button id="hint" type="button">Find next beacon</button></div></div>
-    <div class="control-group"><label class="control-label" for="relief"><span>Terrain relief</span><output id="relief-value">1.0×</output></label><input id="relief" type="range" min="0" max="3" step="any" value="1"></div>
-    <div class="controls action"><button id="save" type="button">Save world JSON</button><label class="upload">Load world JSON<input id="load" type="file" accept=".json,application/json"></label></div>
-    <button class="primary action" id="export" type="button">Export THREE.Group factory</button>
-    <p class="hint">Drag to orbit · scroll/pinch to zoom · tap terrain to guide the scout. Keyboard: Tab to focus the world, arrows/WASD to select a tile, Enter to visit or place a bridge, Escape to exit bridge mode. Use the compass to route to a reachable beacon; connect disconnected islands with bridges. JSON v2 preserves your scout and collected treasure, and v1 terrain files still load. All processing stays in your browser.</p>
-  </aside>
+  <details class="panel" id="controls-panel" aria-label="Pocket World controls" open>
+    <summary id="controls-summary">World tools</summary>
+    <div class="panel-content">
+      <div class="eyebrow">Experimental toybox / 01</div>
+      <h1>Every image hides a world.</h1>
+      <p>Turn colors into a tiny voxel island. Send a scout across the island, discover beacons, export real Three.js code.</p>
+      <div class="preview"><canvas id="reference" width="28" height="28" aria-label="Source image preview"></canvas><div><strong id="source-label">Sunset coast</strong><span>Stylized relief, not depth estimation</span></div></div>
+      <label class="upload">Choose your own image<input id="upload" type="file" accept="image/png,image/jpeg,image/webp,image/avif,image/gif,image/bmp,image/heic,image/heif"></label>
+      <div class="controls"><button id="remix" type="button">Remix world</button><button id="night" type="button" aria-pressed="false">Night mode</button><button id="orbit" type="button" aria-pressed="false">Auto orbit</button><button id="reset" type="button">Reset view</button></div>
+      <div class="control-group"><div class="control-label"><span>Adventure tools</span><span>Join islands together</span></div><div class="controls"><button id="bridge" type="button" aria-pressed="false">Build a bridge</button><button id="undo-bridge" type="button" disabled>Undo bridge</button><button id="hint" type="button">Find next beacon</button></div></div>
+      <div class="control-group"><label class="control-label" for="relief"><span>Terrain relief</span><output id="relief-value">1.0×</output></label><input id="relief" type="range" min="0" max="3" step="any" value="1"></div>
+      <div class="controls action"><button id="save" type="button">Save world JSON</button><label class="upload">Load world JSON<input id="load" type="file" accept=".json,application/json"></label></div>
+      <button class="primary action" id="export" type="button">Export THREE.Group factory</button>
+      <p class="hint">Drag to orbit · scroll/pinch to zoom · tap terrain to guide the scout. Keyboard: Tab to focus the world, arrows/WASD to select a tile, Enter to visit or place a bridge, Escape to exit bridge mode. Use the compass to route to a reachable beacon; connect disconnected islands with bridges. JSON v2 preserves your scout and collected treasure, and v1 terrain files still load. All processing stays in your browser.</p>
+    </div>
+  </details>
   <div class="bottom" id="scout-status">Tap a tile to guide your glowing scout · find five beacons</div>
   <div id="notice" role="status" aria-live="polite"></div>
   <script type="module" src="./app.mjs"></script>

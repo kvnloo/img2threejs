@@ -218,6 +218,12 @@ try {
   mobile.on('pageerror', error => errors.push(String(error)));
   await mobile.goto(url, {waitUntil: 'domcontentloaded'});
   await mobile.waitForFunction(() => globalThis.__pocketSmoke?.tapTarget());
+  const portraitPanel = await mobile.evaluate(() => {
+    const element = document.getElementById('controls-panel');
+    return { open: element.open, height: element.getBoundingClientRect().height };
+  });
+  assert.equal(portraitPanel.open, false, 'portrait controls must default closed');
+  assert.ok(portraitPanel.height <= 60, 'portrait controls obscure the island');
   const target = await mobile.evaluate(() => globalThis.__pocketSmoke.tapTarget());
   assert.ok(target, 'mobile controls cover all tappable terrain');
   await mobile.touchscreen.tap(target.x, target.y);
@@ -241,9 +247,16 @@ try {
   await session.detach();
   assert.deepEqual(await mobile.evaluate(() => globalThis.__pocketSmoke.snapshot()), beforePinch,
     'pinch zoom must not move the scout or collect a beacon');
-  await mobile.locator('#viewport').screenshot({path:join(shotDir, 'world-mobile-portrait.png')});
+  await mobile.screenshot({path:join(shotDir, 'world-mobile-portrait.png')});
   await mobile.setViewportSize({width:844, height:390});
   await mobile.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const landscapePanel = await mobile.evaluate(() => {
+    const element = document.getElementById('controls-panel');
+    return { open: element.open, height: element.getBoundingClientRect().height };
+  });
+  assert.equal(landscapePanel.open, false, 'short landscape controls must default closed');
+  assert.ok(landscapePanel.height <= 60, 'landscape controls cover too much terrain');
+  await mobile.locator('#controls-summary').tap();
   await mobile.locator('#hint').scrollIntoViewIfNeeded();
   const landscapeStart = await mobile.evaluate(() => globalThis.__pocketSmoke.snapshot().collected);
   await mobile.locator('#hint').tap();
@@ -251,7 +264,8 @@ try {
     const state = globalThis.__pocketSmoke.snapshot();
     return state.collected > previous && state.scoutDestination === -1;
   }, landscapeStart, {timeout:30000});
-  await mobile.locator('#viewport').screenshot({path:join(shotDir, 'world-mobile-landscape.png')});
+  await mobile.locator('#controls-summary').tap();
+  await mobile.screenshot({path:join(shotDir, 'world-mobile-landscape.png')});
   const mobileState = await mobile.evaluate(() => globalThis.__pocketSmoke.snapshot());
   await mobile.close();
   // Isolate large-framebuffer GPU stress *after* mobile interaction checks.

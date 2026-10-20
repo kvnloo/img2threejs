@@ -373,6 +373,66 @@ with sync_playwright() as p:
     check('active SVG images are rejected before decoder or remote-reference work',
           page.evaluate('window.__pocketTest.state().cells===window.__beforeSvgWorld && window.__svgDecodeCalls===0'))
     page.evaluate('window.createImageBitmap=window.__oldBitmap;delete window.__oldBitmap')
+    # Compact controls should leave the world playable without hiding tools.
+    # The native disclosure keeps Enter/Space and focus traversal usable.
+    adventure_before=page.evaluate('window.__pocketTest.state()')
+    page.set_viewport_size({'width':390,'height':844})
+    page.wait_for_timeout(60)
+    portrait=page.evaluate('''() => {
+      const panel=document.querySelector('.panel');
+      const rect=panel.getBoundingClientRect();
+      return {height:rect.height,open:panel.open,
+        worldCenter:document.elementFromPoint(195,500)?.id};
+    }''')
+    check('portrait controls collapse to a short accessible bar and uncover world',
+          portrait['height']<=60 and portrait['open'] is False and portrait['worldCenter']=='viewport')
+    disclosure=page.locator('#controls-panel').count()==1 and page.locator('#controls-summary').count()==1
+    check('controls use native details/summary disclosure',disclosure)
+    if disclosure:
+        page.locator('#controls-summary').click()
+        check('disclosure opens scrollable controls with bounded portrait height',
+              page.evaluate('''() => {
+                const panel=document.getElementById('controls-panel');
+                return panel.open && panel.getBoundingClientRect().height <= innerHeight*.49 &&
+                  getComputedStyle(panel).overflowY==='auto';
+              }'''))
+        page.locator('#night').click()
+        check('opened controls remain functional',page.locator('#night').get_attribute('aria-pressed')=='true')
+        page.locator('#night').click()
+        page.locator('#controls-summary').click()
+        check('disclosure closes without changing the adventure',
+              not page.evaluate('document.getElementById("controls-panel").open') and
+              page.evaluate('window.__pocketTest.state()')==adventure_before)
+        page.locator('#controls-summary').focus()
+        page.keyboard.press('Enter')
+        check('summary Enter reopens controls',page.evaluate('document.getElementById("controls-panel").open'))
+        page.locator('#night').focus()
+        page.keyboard.press('Escape')
+        check('Escape closes compact controls and returns keyboard focus to summary',
+              page.evaluate('''() => !document.getElementById('controls-panel').open &&
+                document.activeElement.id==='controls-summary' '''))
+        page.locator('#controls-summary').click()
+        page.locator('#relief').focus()
+        page.set_viewport_size({'width':1100,'height':740})
+        page.wait_for_timeout(60)
+        check('desktop controls remain expanded',page.evaluate('document.getElementById("controls-panel").open'))
+        page.set_viewport_size({'width':844,'height':390})
+        page.wait_for_timeout(60)
+        check('short landscape viewport collapses and preserves a focusable reentry',
+              page.evaluate('''() => {
+                const p=document.getElementById('controls-panel');
+                return !p.open && p.getBoundingClientRect().height <=60 &&
+                  document.activeElement.id==='controls-summary' &&
+                  document.documentElement.scrollWidth<=innerWidth;
+              }'''))
+        page.locator('#controls-summary').click()
+        check('landscape disclosure can reopen',page.evaluate('document.getElementById("controls-panel").open'))
+        page.set_viewport_size({'width':1100,'height':740})
+    else:
+        for label in ('opened controls remain functional','Escape returns focus to summary',
+                      'landscape disclosure can reopen'):
+            check(label,False)
+        page.set_viewport_size({'width':1100,'height':740})
     check('no JS uncaught exceptions', not errs)
     print('RESULT',sum(1 for _,ok in checks if ok),'/',len(checks),'errors',errs)
     browser.close()
