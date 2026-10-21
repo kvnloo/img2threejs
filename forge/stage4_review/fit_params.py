@@ -13,6 +13,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal
 
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from forge.stage1_intake.reconstruction_evidence import load_optional_bundle
+
 if __package__:
     from ._fit_divine_eye import is_approved_divine_eye_result, normalize_history
 else:
@@ -153,13 +159,35 @@ def fit_against_divine_eye(
     reference_png: str | Path,
     evaluator: DivineEyeEvaluator | None = None,
     config: FitConfig = FitConfig(),
+    evidence_manifest: str | Path | None = None,
+    *,
+    experimental_silhouette_weight: float = 0.0,
 ) -> DivineEyeFitResult:
+    """Fit with receipt-only evidence by default; one optional lab-only penalty.
+
+    A positive silhouette weight (at most 0.1) requires a hash-matched bundle
+    reference and alpha renders. It only ranks already-approved candidates;
+    raw fidelity, Divine Eye verdicts, and hard failures remain unmodified.
+    """
+    if (isinstance(experimental_silhouette_weight, bool)
+            or not isinstance(experimental_silhouette_weight, int | float)
+            or not math.isfinite(experimental_silhouette_weight)
+            or not 0.0 <= experimental_silhouette_weight <= 0.1):
+        raise FitInputError("experimental_silhouette_weight", "must be finite within [0, 0.1]")
     if not callable(render_for_parameters):
         raise FitInputError("render_for_parameters", "must be callable")
     evaluator = _default_divine_eye_evaluator if evaluator is None else evaluator
     if not callable(evaluator):
         raise FitInputError("evaluator", "must be callable")
     reference_path = Path(reference_png)
+    evidence_bundle = load_optional_bundle(evidence_manifest)
+    evidence_receipt = evidence_bundle.receipt() if evidence_bundle is not None else None
+    silhouette = None
+    if experimental_silhouette_weight:
+        if evidence_bundle is None:
+            raise FitInputError("experimental_silhouette_weight", "requires an evidence bundle")
+        from forge.stage4_review.evidence_silhouette import prepare_silhouette
+        silhouette = prepare_silhouette(evidence_bundle, reference_path)
     results: list[Mapping[str, object]] = []
 
     def objective(parameters: ParameterVector) -> float:
@@ -172,8 +200,17 @@ def fit_against_divine_eye(
         result["fitCandidateParameters"] = list(parameters)
         result["fitReferencePng"] = str(reference_path)
         result["fitRenderPath"] = str(render_path)
+        if evidence_receipt is not None:
+            result["fitEvidenceBundle"] = deepcopy(evidence_receipt)
+        score = _divine_eye_objective_score(result)
+        if silhouette is not None:
+            term = silhouette.compare(Path(render_path), experimental_silhouette_weight)
+            if score != -1.0:
+                score -= term["penalty"]
+            term["objectiveScore"] = score
+            result["fitEvidenceSilhouette"] = term
         results.append(result)
-        return _divine_eye_objective_score(result)
+        return score
 
     fit_result = fit(initial, bounds, objective, config)
     history = divine_eye_correction_history(results)
