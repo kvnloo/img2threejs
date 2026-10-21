@@ -35,3 +35,68 @@ Characters cost more (more review cycles plus landmark and projection checks): r
 - Model tokens are spent only on vision (reading one sheet per pass), authoring the spec, and writing code.
 - The gates are the savings mechanism: strict-quality blocks codegen on an underspecified spec, and the detail-inventory gate blocks it on missing detail — each avoided bad render saves roughly one full cycle (~10k-20k tokens).
 - The single biggest lever on cost is the review-cycle count. A well-formed spec up front is worth more tokens than any micro-optimization downstream.
+
+## Measured benchmark: provider receipts required
+
+All figures above remain **estimates**. The new opt-in script aggregates actual
+provider usage records; it does not invoke an agent or reconstruct an object.
+No measured corpus or measured savings is claimed yet.
+
+Capture one JSONL event per provider request, using a unique event ID for each
+render-review attempt. Omit prompts and image bytes from the usage log:
+
+```json
+{"run_id":"demo-a","event_id":"call-001","stage":"assessment","model":"your-model","provider":"your-provider","usage_source":"provider","usage":{"prompt_tokens":1000,"completion_tokens":300,"total_tokens":1300},"cost_usd":"0.0123"}
+```
+
+To claim a **complete reconstruction**, each run needs measured calls for
+`assessment`, `spec`, `codegen`, and `render-review`. Stage labels may
+include additional measurements. Counts must come from actual provider usage.
+If the provider supplies tokens but no price, omit `cost_usd` rather than
+assuming free service.
+
+```bash
+python3 scripts/benchmark_token_cost.py work/usage.jsonl \
+  --minimum-runs 3 --out work/usage-report.json
+```
+
+The deterministic report breaks down calls, prompt/completion/total tokens
+and known (possibly partial) billed USD by stage. The output must be a
+**separate file** from candidate and baseline JSONL inputs, including symlink
+aliases. Reports are published atomically: failed serialization or file
+replacement leaves the previous verified report intact, without truncated
+JSON or changes to the original provider receipts. Malformed/non-object
+JSONL events fail with exit status 2. Comparable A/B benchmarks
+must hold reference set, model, render budgets, and stage routing fixed,
+and should preserve engine/agent revisions separately with the run artifacts.
+
+
+## Paired provider-token comparisons (not fidelity measurements)
+
+For a baseline and a candidate treatment, use the same `run_id` for
+each reference image in both JSONL files. Each provider call in **both**
+files must also carry immutable, run-consistent comparison metadata:
+
+```json
+{"reference_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","render_profile_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","evaluator_revision":"eval-v1","render_budget":8}
+```
+
+These are illustrative digests, **not real evidence**. Real comparisons require
+actual SHA-256 fingerprints of the reference and render configuration, the
+same evaluator revision, and the same render-evaluation budget. Different
+model/provider routing is allowed as the experimental treatment; the model
+identity on each provider receipt remains visible. Missing or mismatched run
+IDs, provenance, or budgets are rejected.
+
+```bash
+python3 scripts/benchmark_token_cost.py work/candidate-usage.jsonl \
+  --baseline work/baseline-usage.jsonl \
+  --minimum-runs 3 --out work/paired-tokens.json
+```
+
+The report includes per-run and aggregate **candidate minus baseline** token
+and request differences. USD differences are `null` unless every receipt in
+both arms has a provider price. This compares token consumption only:
+`qualityCompared=false` by design. Neither fewer tokens nor a lower USD
+amount proves the reconstructed geometry is as accurate; use the separate
+fixed-camera and hard-gate fidelity evaluation for that decision.
