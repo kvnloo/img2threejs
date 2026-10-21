@@ -1,0 +1,482 @@
+{
+  "schema": "img2threejs-multifamily-v1",
+  "registeredOn": "2026-10-19",
+  "purpose": "Predeclared, source-generated procedural Three.js / native Divine Eye comparison. NOT an independently blinded photographic holdout.",
+  "families": [
+    {
+      "id": "assembled-box",
+      "primitive": "box",
+      "shape": "beveled tapered hard-surface"
+    },
+    {
+      "id": "lathe",
+      "primitive": "lathe",
+      "shape": "rotational profile"
+    },
+    {
+      "id": "tapered-sweep",
+      "primitive": "tapered-sweep",
+      "shape": "changing cross-section along 3D spine"
+    }
+  ],
+  "worlds": [
+    {
+      "id": "assembled-box-train-01",
+      "family": "assembled-box",
+      "split": "train",
+      "profileId": 1,
+      "initial": [
+        0.88,
+        0.92
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "assembled-box-train-02",
+      "family": "assembled-box",
+      "split": "train",
+      "profileId": 2,
+      "initial": [
+        0.92,
+        0.86
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "assembled-box-train-03",
+      "family": "assembled-box",
+      "split": "train",
+      "profileId": 3,
+      "initial": [
+        0.84,
+        0.9
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "assembled-box-train-04",
+      "family": "assembled-box",
+      "split": "train",
+      "profileId": 4,
+      "initial": [
+        0.9,
+        0.84
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "assembled-box-validation-05",
+      "family": "assembled-box",
+      "split": "validation",
+      "profileId": 5,
+      "initial": [
+        0.95,
+        0.89
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "assembled-box-validation-06",
+      "family": "assembled-box",
+      "split": "validation",
+      "profileId": 6,
+      "initial": [
+        0.87,
+        0.95
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "assembled-box-holdout-07",
+      "family": "assembled-box",
+      "split": "holdout",
+      "profileId": 7,
+      "initial": [
+        0.91,
+        0.94
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "assembled-box-holdout-08",
+      "family": "assembled-box",
+      "split": "holdout",
+      "profileId": 8,
+      "initial": [
+        0.94,
+        0.91
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "lathe-train-01",
+      "family": "lathe",
+      "split": "train",
+      "profileId": 1,
+      "initial": [
+        0.92,
+        0.88
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "lathe-train-02",
+      "family": "lathe",
+      "split": "train",
+      "profileId": 2,
+      "initial": [
+        0.86,
+        0.92
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "lathe-train-03",
+      "family": "lathe",
+      "split": "train",
+      "profileId": 3,
+      "initial": [
+        0.9,
+        0.84
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "lathe-train-04",
+      "family": "lathe",
+      "split": "train",
+      "profileId": 4,
+      "initial": [
+        0.84,
+        0.9
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "lathe-validation-05",
+      "family": "lathe",
+      "split": "validation",
+      "profileId": 5,
+      "initial": [
+        0.89,
+        0.95
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "lathe-validation-06",
+      "family": "lathe",
+      "split": "validation",
+      "profileId": 6,
+      "initial": [
+        0.95,
+        0.87
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "lathe-holdout-07",
+      "family": "lathe",
+      "split": "holdout",
+      "profileId": 7,
+      "initial": [
+        0.94,
+        0.91
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "lathe-holdout-08",
+      "family": "lathe",
+      "split": "holdout",
+      "profileId": 8,
+      "initial": [
+        0.91,
+        0.94
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "tapered-sweep-train-01",
+      "family": "tapered-sweep",
+      "split": "train",
+      "profileId": 1,
+      "initial": [
+        0.89,
+        0.91
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "tapered-sweep-train-02",
+      "family": "tapered-sweep",
+      "split": "train",
+      "profileId": 2,
+      "initial": [
+        0.93,
+        0.85
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "tapered-sweep-train-03",
+      "family": "tapered-sweep",
+      "split": "train",
+      "profileId": 3,
+      "initial": [
+        0.85,
+        0.89
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "tapered-sweep-train-04",
+      "family": "tapered-sweep",
+      "split": "train",
+      "profileId": 4,
+      "initial": [
+        0.91,
+        0.83
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "tapered-sweep-validation-05",
+      "family": "tapered-sweep",
+      "split": "validation",
+      "profileId": 5,
+      "initial": [
+        0.96,
+        0.88
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "tapered-sweep-validation-06",
+      "family": "tapered-sweep",
+      "split": "validation",
+      "profileId": 6,
+      "initial": [
+        0.88,
+        0.94
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "tapered-sweep-holdout-07",
+      "family": "tapered-sweep",
+      "split": "holdout",
+      "profileId": 7,
+      "initial": [
+        0.92,
+        0.93
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    },
+    {
+      "id": "tapered-sweep-holdout-08",
+      "family": "tapered-sweep",
+      "split": "holdout",
+      "profileId": 8,
+      "initial": [
+        0.95,
+        0.9
+      ],
+      "target": [
+        1,
+        1
+      ],
+      "coordinateStep": [
+        0.08,
+        0.08
+      ]
+    }
+  ],
+  "splitSizes": {
+    "train": 12,
+    "validation": 6,
+    "holdout": 6
+  },
+  "budgets": [
+    3,
+    5
+  ],
+  "targetIoU": 0.96,
+  "provenance": {
+    "source": "forge/tests/fixtures/reference_target_conformance_spec.json",
+    "generator": "forge/stage3_build/generate_threejs_factory.py",
+    "renderer": "Chromium WebGL2 + three.js; no numeric stand-in",
+    "scorer": "forge/stage4_review/divine_eye.py",
+    "policyLockRequiredForHoldout": true,
+    "holdoutOutcomesDoNotTrainPolicy": true
+  },
+  "baseline": "coordinate_order [0,1]",
+  "experimentalPolicy": "train-only approved-result sensitivity, frozen before reading holdout",
+  "successRule": "holdout median best approved IoU +0.01 versus fixed OR parity within 0.002 with >=20% fewer evaluations to target, no hard-gate regression",
+  "warnings": [
+    "Worlds in this public preregistration are algorithmic procedural variants; their parameters are not cryptographically hidden. Heldout means excluded by programmatic split discipline, not independently blinded.",
+    "This registration commits worlds and thresholds before executing the multi-family browser study; previous one-family calibration is excluded.",
+    "No upstream claims before full, leakage-checked cross-family holdout and human maintainer triage."
+  ]
+}

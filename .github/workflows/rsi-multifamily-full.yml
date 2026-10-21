@@ -1,0 +1,298 @@
+name: RSI v2 isolated 24-world train-validation-holdout
+
+# V2 uses MULTIFAMILY_V2_REGISTERED.json. V1 runs are contaminated by
+# the original equipment-case lid and explicitly excluded from this study.
+# Isolated single-primitive synthetic specs use one macro-component minimum;
+# the preregistered render/evaluator budgets and acceptance gates are unchanged.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rsi-multifamily-full.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  protocol:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Verify 24-world registration, source primitives and policy leakage tests
+        run: |
+          python3 -m unittest -v \
+            forge.tests.test_rsi_multifamily_protocol \
+            forge.tests.test_rsi_policy_freeze \
+            forge.tests.test_rsi_registered_holdout
+          python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py register
+
+  observed-train-validation:
+    needs: protocol
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        world:
+          - assembled-box-train-01
+          - assembled-box-train-02
+          - assembled-box-train-03
+          - assembled-box-train-04
+          - assembled-box-validation-05
+          - assembled-box-validation-06
+          - lathe-train-01
+          - lathe-train-02
+          - lathe-train-03
+          - lathe-train-04
+          - lathe-validation-05
+          - lathe-validation-06
+          - tapered-sweep-train-01
+          - tapered-sweep-train-02
+          - tapered-sweep-train-03
+          - tapered-sweep-train-04
+          - tapered-sweep-validation-05
+          - tapered-sweep-validation-06
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare original native Three.js geometry for one registered world
+        shell: bash
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          OUTPUT: ${{ runner.temp }}/rsi-world-${{ matrix.world }}
+        run: |
+          set -euo pipefail
+          python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py \
+            prepare --world-id "${{ matrix.world }}" --out "$OUTPUT"
+      - name: Isolated Chromium/Three.js dependencies
+        run: |
+          npm install --no-save --no-package-lock \
+            --prefix experiments/dream_rsi_mesh_fidelity \
+            esbuild@0.25.6 playwright-core@1.55.0 three@0.170.0
+      - name: Capture all registered signed proposals from actual WebGL2
+        shell: bash
+        env:
+          OUTPUT: ${{ runner.temp }}/rsi-world-${{ matrix.world }}
+        run: |
+          set -euo pipefail
+          CHROME_BIN="$(command -v google-chrome || command -v chromium || true)"
+          test -n "$CHROME_BIN"
+          CHROME_BIN="$CHROME_BIN" node \
+            experiments/dream_rsi_mesh_fidelity/real_browser_capture.mjs "$OUTPUT"
+      - name: Obtain native Divine Eye evidence without learning from validation
+        shell: bash
+        env:
+          OUTPUT: ${{ runner.temp }}/rsi-world-${{ matrix.world }}
+        run: |
+          python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py \
+            score --out "$OUTPUT"
+      - name: Preserve source hashes, pixels, failing captures and native verdicts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rsi-v2-study-${{ matrix.world }}
+          path: ${{ runner.temp }}/rsi-world-${{ matrix.world }}/
+          if-no-files-found: warn
+          retention-days: 14
+
+  freeze:
+    needs: observed-train-validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      run_holdout: ${{ steps.gate.outputs.run_holdout }}
+      policy_digest: ${{ steps.gate.outputs.policy_digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rsi-v2-study-*
+          path: ${{ runner.temp }}/rsi-observations
+          merge-multiple: false
+      - name: Separate training and validation artifacts; never inspect holdouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/rsi-train" "$RUNNER_TEMP/rsi-validation"
+          for entry in "$RUNNER_TEMP"/rsi-observations/rsi-v2-study-*; do
+            test -f "$entry/observations.json"
+            world="${entry##*/rsi-v2-study-}"
+            if [[ "$world" == *-train-* ]]; then
+              base="$RUNNER_TEMP/rsi-train"
+            elif [[ "$world" == *-validation-* ]]; then
+              base="$RUNNER_TEMP/rsi-validation"
+            else
+              echo "Unexpected research split in artifact name" >&2
+              exit 2
+            fi
+            mkdir -p "$base/$world"
+            cp "$entry/observations.json" "$base/$world/observations.json"
+            # Copy only the exact preregistered image/spec evidence, not the
+            # model's browser dependencies or other untrusted artifact files.
+            # This lets registered_policy.py compare real bytes to each of
+            # the six PNG/spec hashes before freezing any learned order.
+            for candidate in target root c0-minus c0-plus c1-minus c1-plus; do
+              test -f "$entry/$candidate/render.png"
+              test -f "$entry/$candidate/spec.json"
+              mkdir -p "$base/$world/$candidate"
+              cp "$entry/$candidate/render.png" "$base/$world/$candidate/render.png"
+              cp "$entry/$candidate/spec.json" "$base/$world/$candidate/spec.json"
+            done
+          done
+      - name: Learn only from twelve approved training worlds, validate six without relearning, freeze hash
+        run: |
+          python3 experiments/dream_rsi_mesh_fidelity/registered_policy.py \
+            --train-root "$RUNNER_TEMP/rsi-train" \
+            --validation-root "$RUNNER_TEMP/rsi-validation" \
+            --out "$RUNNER_TEMP/rsi-frozen-policy.json"
+      - name: Expose validation-gated holdout decision
+        id: gate
+        shell: bash
+        run: |
+          python3 - "$RUNNER_TEMP/rsi-frozen-policy.json" "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          from pathlib import Path
+          policy = json.loads(Path(sys.argv[1]).read_text())
+          # A failed validation or identity-order policy has no novel
+          # hypothesis worth spending six more holdout-world budgets on.
+          run = policy["validationPassed"] and policy["coordinateOrder"] != [0, 1]
+          with Path(sys.argv[2]).open("a") as out:
+              out.write(f"run_holdout={str(run).lower()}\n")
+              out.write(f"policy_digest={policy['policyDigest']}\n")
+          print(f"validationPassed={policy['validationPassed']} candidate={policy['candidateOrder']} "
+                f"frozen={policy['coordinateOrder']} holdoutEligible={run}")
+          PY
+      - name: Preserve frozen policy and source receipt hashes
+        uses: actions/upload-artifact@v4
+        with:
+          name: rsi-v2-frozen-policy
+          path: ${{ runner.temp }}/rsi-frozen-policy.json
+          retention-days: 14
+
+  reserved-holdout:
+    needs: freeze
+    if: needs.freeze.outputs.run_holdout == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        world:
+          - assembled-box-holdout-07
+          - assembled-box-holdout-08
+          - lathe-holdout-07
+          - lathe-holdout-08
+          - tapered-sweep-holdout-07
+          - tapered-sweep-holdout-08
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: rsi-v2-frozen-policy
+          path: ${{ runner.temp }}/rsi-frozen
+      - name: Verify split lock BEFORE preparing any reserved reference/model
+        shell: bash
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          OUTPUT: ${{ runner.temp }}/rsi-holdout-${{ matrix.world }}
+        run: |
+          set -euo pipefail
+          python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py \
+            prepare --world-id "${{ matrix.world }}" --out "$OUTPUT" \
+            --policy "$RUNNER_TEMP/rsi-frozen/rsi-frozen-policy.json"
+      - name: Install isolated Chromium dependencies
+        run: |
+          npm install --no-save --no-package-lock \
+            --prefix experiments/dream_rsi_mesh_fidelity \
+            esbuild@0.25.6 playwright-core@1.55.0 three@0.170.0
+      - name: Capture and score frozen holdout reference and full diagnostic neighborhood
+        shell: bash
+        env:
+          OUTPUT: ${{ runner.temp }}/rsi-holdout-${{ matrix.world }}
+        run: |
+          set -euo pipefail
+          CHROME_BIN="$(command -v google-chrome || command -v chromium || true)"
+          test -n "$CHROME_BIN"
+          CHROME_BIN="$CHROME_BIN" node \
+            experiments/dream_rsi_mesh_fidelity/real_browser_capture.mjs "$OUTPUT"
+          python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py \
+            score --out "$OUTPUT" --policy "$RUNNER_TEMP/rsi-frozen/rsi-frozen-policy.json"
+      - name: Fresh equal-budget ABAB on-demand Chromium fitting under immutable policy
+        shell: bash
+        env:
+          OUTPUT: ${{ runner.temp }}/rsi-holdout-${{ matrix.world }}
+        run: |
+          CHROME_BIN="$(command -v google-chrome || command -v chromium || true)"
+          test -n "$CHROME_BIN"
+          CHROME_BIN="$CHROME_BIN" python3 \
+            experiments/dream_rsi_mesh_fidelity/registered_holdout_ab.py \
+            --out "$OUTPUT" --policy "$RUNNER_TEMP/rsi-frozen/rsi-frozen-policy.json"
+      - name: Retain all holdout browser pixels and negative evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rsi-v2-holdout-${{ matrix.world }}
+          path: ${{ runner.temp }}/rsi-holdout-${{ matrix.world }}/
+          retention-days: 14
+          if-no-files-found: warn
+
+  aggregate:
+    needs: [freeze, reserved-holdout]
+    if: needs.freeze.outputs.run_holdout == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - uses: actions/download-artifact@v4
+        with:
+          name: rsi-v2-frozen-policy
+          path: ${{ runner.temp }}/rsi-frozen
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rsi-v2-holdout-*
+          merge-multiple: false
+          path: ${{ runner.temp }}/rsi-all-holdouts
+      - name: Report all six families/splits without suppressing a null or negative finding
+        run: |
+          python3 experiments/dream_rsi_mesh_fidelity/aggregate_holdout.py \
+            --root "$RUNNER_TEMP/rsi-all-holdouts" \
+            --policy "$RUNNER_TEMP/rsi-frozen/rsi-frozen-policy.json" \
+            --out "$RUNNER_TEMP/rsi-holdout-summary.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rsi-v2-six-world-holdout-verdict
+          path: ${{ runner.temp }}/rsi-holdout-summary.json
+          retention-days: 14
