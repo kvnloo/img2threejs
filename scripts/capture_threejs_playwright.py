@@ -61,6 +61,21 @@ def capture(manifest_path_value: Path, capture_ids: list[str], headed: bool, tim
     page_errors: list[str] = []
     browser_info: dict = {}
 
+    def checkpoint(error: Exception | None = None) -> None:
+        """Atomically persist each completed screenshot/pass before the next view.
+
+        A later browser timeout must not erase hashes already recorded in the
+        render manifest. Last-attempt errors remain visible after a failure.
+        """
+        evidence = manifest.setdefault("evidence", {})
+        evidence["browser"] = browser_info
+        evidence["consoleErrors"] = console_errors + page_errors
+        if error is None:
+            evidence.pop("lastCaptureError", None)
+        else:
+            evidence["lastCaptureError"] = f"{type(error).__name__}: {error}"
+        write_manifest(manifest_path_value, manifest)
+
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=not headed)
@@ -187,6 +202,9 @@ def capture(manifest_path_value: Path, capture_ids: list[str], headed: bool, tim
                         browser_snapshot={"canvas": canvas},
                     )
 
+                # Commit the beauty shot independently of diagnostic passes or
+                # later cameras. A process kill after this line keeps its receipt.
+                checkpoint()
                 if fidelity_v2:
                     for pass_id in PASS_IDS:
                         if pass_id == "beauty":
@@ -217,14 +235,17 @@ def capture(manifest_path_value: Path, capture_ids: list[str], headed: bool, tim
                             pass_path,
                             reference=mode == "reference",
                         )
+                        checkpoint()
 
             browser.close()
     except PlaywrightError as exc:
+        checkpoint(exc)
         raise RuntimeError(f"Playwright capture failed: {exc}") from exc
+    except Exception as exc:
+        checkpoint(exc)
+        raise
 
-    manifest.setdefault("evidence", {})["browser"] = browser_info
-    manifest["evidence"]["consoleErrors"] = console_errors + page_errors
-    write_manifest(manifest_path_value, manifest)
+    checkpoint()
     return {"captured": selected, "mode": mode, "browser": browser_info, "consoleErrors": console_errors + page_errors}
 
 
