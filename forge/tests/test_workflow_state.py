@@ -155,6 +155,124 @@ class WorkflowStateTest(unittest.TestCase):
         pass_entries = [entry for entry in state["checklist"] if entry["scope"] == "pass"]
         self.assertTrue(all(entry["status"] == "pending" for entry in pass_entries))
 
+    def test_pass_rows_are_hidden_and_unmarkable_until_a_pass_opens(self):
+        state = new_state("reference.png", spec="spec.json")
+        setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+
+        payload = status_payload(state)
+        self.assertEqual(payload["currentPass"], "")
+        self.assertEqual(payload["currentStep"], "await-pass-start")
+        self.assertNotIn("build-current-pass", payload["pending"])
+        with self.assertRaisesRegex(WorkflowStateError, "expected await-pass-start"):
+            mark_steps(state, ["build-current-pass"], status="done", evidence=["premature.png"])
+
+        sync_from_spec(state, {"reviewHistory": []}, "blockout")
+        self.assertEqual(status_payload(state)["currentStep"], "build-current-pass")
+        self.assertIn("build-current-pass", status_payload(state)["pending"])
+
+    def test_review_cannot_fast_forward_a_partially_recorded_pass(self):
+        state = new_state("reference.png", spec="spec.json")
+        setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+        pass_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "pass"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+        set_current_pass(state, "blockout")
+        mark_steps(state, pass_ids[:-2], status="done", evidence=["render-and-gates.json"])
+
+        spec = {"reviewHistory": [{"passId": "blockout", "action": "continue"}]}
+        sync_from_spec(state, spec, "structural-pass")
+        payload = status_payload(state)
+        self.assertEqual(payload["currentPass"], "blockout")
+        self.assertEqual(payload["currentStep"], "ai-review-recorded")
+        self.assertEqual(state["passHistory"], [])
+        self.assertEqual(state["reviewCursor"], 0)
+        self.assertEqual(
+            [entry["id"] for entry in state["checklist"] if entry["status"] == "pending"
+             and entry["scope"] == "pass"],
+            pass_ids[-2:],
+        )
+
+        mark_steps(state, pass_ids[-2:], status="done", evidence=["review-and-sync.json"])
+        sync_from_spec(state, spec, "structural-pass")
+        self.assertEqual(state["currentPass"], "structural-pass")
+        self.assertEqual(state["reviewCursor"], 1)
+        self.assertEqual(status_payload(state)["currentStep"], "build-current-pass")
+        self.assertEqual(
+            [entry["status"] for entry in state["passHistory"][-1]["checklist"]],
+            ["done"] * len(pass_ids),
+        )
+        self.assertTrue(
+            all(entry["status"] == "pending"
+                for entry in state["checklist"] if entry["scope"] == "pass")
+        )
+
+    def test_an_imported_spec_cannot_skip_the_unopened_first_pass(self):
+        state = new_state("reference.png", spec="spec.json")
+        spec = {
+            "buildPasses": [{"id": "blockout"}, {"id": "structural-pass"}],
+            "reviewHistory": [{"passId": "blockout", "action": "continue"}],
+        }
+        with self.assertRaisesRegex(WorkflowStateError, "has not opened the first pass"):
+            sync_from_spec(state, spec, "structural-pass")
+        self.assertEqual(state["currentPass"], "")
+        self.assertEqual(state["passHistory"], [])
+
+    def test_a_finished_checklist_is_not_evidence_for_two_pass_transitions(self):
+        state = new_state("reference.png", spec="spec.json")
+        setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+        pass_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "pass"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+        set_current_pass(state, "blockout")
+        mark_steps(state, pass_ids, status="done", evidence=["one-pass.json"])
+
+        spec = {
+            "buildPasses": [
+                {"id": "blockout"},
+                {"id": "structural-pass"},
+                {"id": "form-refinement"},
+            ],
+            "reviewHistory": [
+                {"passId": "blockout", "action": "continue"},
+                {"passId": "structural-pass", "action": "continue"},
+            ],
+        }
+        with self.assertRaisesRegex(WorkflowStateError, "skipped pass boundary"):
+            sync_from_spec(state, spec, "form-refinement")
+        self.assertEqual(state["currentPass"], "blockout")
+        self.assertEqual(state["passHistory"], [])
+        self.assertEqual(state["reviewCursor"], 0)
+
+    def test_refinement_does_not_erase_unmarked_pass_evidence(self):
+        state = new_state("reference.png", spec="spec.json")
+        setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+        pass_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "pass"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+        set_current_pass(state, "blockout")
+        mark_steps(state, pass_ids[:1], status="done", evidence=["before-refine.png"])
+
+        spec = {"reviewHistory": [{"passId": "blockout", "action": "refine-code"}]}
+        sync_from_spec(state, spec, "blockout")
+        self.assertEqual(status_payload(state)["currentStep"], "render-capture")
+        self.assertEqual(state["reviewCursor"], 0)
+        self.assertEqual(state["passHistory"], [])
+        self.assertEqual(
+            [entry for entry in state["checklist"] if entry["scope"] == "pass"][0]["evidence"],
+            ["before-refine.png"],
+        )
+
+        mark_steps(state, pass_ids[1:], status="done", evidence=["review-and-sync.json"])
+        sync_from_spec(state, spec, "blockout")
+        self.assertEqual(state["reviewCursor"], 1)
+        self.assertEqual(state["passHistory"][-1]["iteration"], "refine")
+        self.assertIn("do not regenerate", status_payload(state)["nextCommand"])
+        self.assertTrue(
+            all(entry["status"] == "pending"
+                for entry in state["checklist"] if entry["scope"] == "pass")
+        )
+        archives = len(state["passHistory"])
+        sync_from_spec(state, spec, "blockout")
+        self.assertEqual(len(state["passHistory"]), archives)
+
     def test_checklist_cannot_be_completed_out_of_order(self):
         state = new_state("reference.png")
         with self.assertRaisesRegex(WorkflowStateError, "out-of-order"):
@@ -253,6 +371,28 @@ class WorkflowStateTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("LOCAL_STATE status=active step=image-analysis", result.stdout)
             self.assertIn("pending mandatory steps", result.stdout)
+
+    def test_next_cli_after_setup_does_not_offer_unopened_pass_work(self):
+        # Regression carried forward from the narrower downstream #20 experiment.
+        # A spec path can be recorded at init but remain missing after setup;
+        # the agent must not receive a fabricated build --pass-id <pass>.
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            spec_path = Path(directory) / "not-written-yet.json"
+            state = new_state("reference.png", spec=str(spec_path))
+            setup = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+            mark_steps(state, setup, status="done", evidence=["setup-receipts.json"])
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "forge" / "next.py"), "--state", str(state_path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("step=await-pass-start pass=none", result.stdout)
+            self.assertNotIn("generate_threejs_factory.py", result.stdout)
+            self.assertNotIn("- build-current-pass", result.stdout)
+            self.assertIn(str(spec_path), result.stdout)
 
     def test_next_cli_reads_state_when_init_recorded_a_spec_path_that_is_not_written_yet(self):
         """`state.py init --spec` records where the spec WILL land.
