@@ -166,6 +166,11 @@ window.__IMG2THREEJS_CAPTURE__ = {
 };
 ```
 
+Direct Python integrations invoking `record_capture()` or `record_reference_capture()` must pass
+`ready_signal=True` **only after observing** `window.__IMG2THREEJS_READY__ === true` in
+the browser. Omitting the helper argument writes `readySignal: null` (unverified), just
+like omitting the CLI `--ready-signal`; a saved PNG alone is not proof of readiness.
+
 If the ready signal, capture contract, canvas, screenshot, or hash check fails, the adapter stops.
 It does not fall back to a Python/Blender image and does not claim that a render happened.
 

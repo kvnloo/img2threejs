@@ -123,8 +123,14 @@ class GlbReferenceProbeTest(unittest.TestCase):
             procedural_shot = root / "captures" / "hero.png"
             write_png(reference_shot, 16, 16)
             write_png(procedural_shot, 16, 16)
-            record_reference_capture(manifest_path, manifest, "hero", reference_shot)
-            record_capture(manifest_path, manifest, "hero", procedural_shot)
+            # The fixture simulates two successfully observed browser-ready shots.
+            # No helper may infer readiness from the PNG existing on disk.
+            record_reference_capture(
+                manifest_path, manifest, "hero", reference_shot, ready_signal=True
+            )
+            record_capture(
+                manifest_path, manifest, "hero", procedural_shot, ready_signal=True
+            )
             write_manifest(manifest_path, manifest)
             complete = validate_manifest(manifest_path, require_complete=False)
             self.assertTrue(complete["passed"])
