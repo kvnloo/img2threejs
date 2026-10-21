@@ -303,7 +303,13 @@ weaker claim than a clean verdict over the whole mesh. `undecided` samples (graz
 separately and never folded into either answer.
 
 Input is the same mesh shape `geometry_integrity.py` accepts. Produce it from a live scene with
-`runtime/scripts/export_mesh_geometry.mjs` (below).
+`runtime/scripts/export_mesh_geometry.mjs` (below). **An empty mesh batch is not a pass.**
+Raw legacy mesh arrays and `{"meshes": [...]}` remain accepted. A structured browser
+receipt carrying `schemaVersion`, `coordinateSpace`, or `skippedMeshes`/`skipped`
+must also declare `"incomplete": false` (JSON Boolean) and, when versioned,
+`"schemaVersion": 1`. Missing, unknown or contradictory completeness metadata
+fails closed, including with otherwise clean triangle arrays; explicitly hidden
+or filtered scene geometry remains allowed.
 
 `measure_geometry_integrity` calls this automatically for every mesh that supplies `vertices` and
 `indices`, reporting a `selfIntersection` block per mesh and raising a `self-intersection` failure.

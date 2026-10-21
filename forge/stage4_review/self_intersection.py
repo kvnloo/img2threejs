@@ -499,7 +499,9 @@ def analyze_meshes(
 ) -> dict[str, Any]:
     """Run `analyze_mesh` over a list of meshes and aggregate the verdicts."""
     reports: list[dict[str, Any]] = []
-    errors: list[str] = []
+    # An empty exporter result is missing geometry evidence, not a clean surface.
+    # Preserve meshCount=0, but fail the same closed gate as unreadable meshes.
+    errors: list[str] = ["no meshes to analyze"] if not meshes else []
     for index, mesh in enumerate(meshes):
         if not isinstance(mesh, dict):
             report = _error_result(f"mesh-{index}", "mesh entry is not an object")
@@ -525,6 +527,28 @@ def _load_meshes(path: Path) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict):
+        # Raw legacy meshes/components need no browser-side metadata, but an
+        # exporter *receipt* is evidence of scene coverage, not just geometry.
+        # If its schema/space/skipped fields identify it as such, omission of the
+        # completeness flag must not silently certify an unknown partial scene.
+        exporter_fields = {"schemaVersion", "coordinateSpace", "skipped", "skippedMeshes"}
+        exporter_receipt = any(field in payload for field in exporter_fields)
+        if ("incomplete" in payload or exporter_receipt) and payload.get("incomplete") is not False:
+            raise ValueError("incomplete or unverified mesh export: explicit incomplete=false required")
+        if "schemaVersion" in payload and (type(payload["schemaVersion"]) is not int or
+                                           payload["schemaVersion"] != 1):
+            raise ValueError("unsupported mesh export schemaVersion: expected integer 1")
+        if "coordinateSpace" in payload and payload["coordinateSpace"] != "world":
+            raise ValueError("mesh export coordinates must be in world space")
+        # An exporter that omitted active meshes must not report a clean
+        # result even if its completeness flag was missing or incorrectly false.
+        for key in ("skipped", "skippedMeshes"):
+            skipped = payload.get(key, [])
+            if not isinstance(skipped, list):
+                raise ValueError(f"invalid {key} coverage receipt")
+            if any(not isinstance(item, dict) or item.get("reason") not in {"hidden", "filtered"}
+                   for item in skipped):
+                raise ValueError(f"incomplete mesh export: {key} includes uninspected active geometry")
         meshes = payload.get("meshes")
         if meshes is None:
             meshes = payload.get("components")
@@ -539,6 +563,9 @@ def _load_meshes(path: Path) -> list[dict[str, Any]]:
 
 def _format_summary(result: dict[str, Any]) -> str:
     lines: list[str] = []
+    if result["meshCount"] == 0:
+        for error in result["errors"]:
+            lines.append(f"  [ERROR] {error}")
     for report in result["meshes"]:
         if report["error"]:
             lines.append(f"  [ERROR] {report['name']}: {report['error']}")
