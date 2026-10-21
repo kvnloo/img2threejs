@@ -185,3 +185,43 @@ garment or anatomy labels.
 - Do not compare orbit images to a reference angle that was never supplied.
 - Do not infer visual success from TypeScript compilation, `__READY__`, or an inline preview.
 - Do not add Playwright/Chromium dependencies to the zero-install core without explicit scope.
+
+
+## Compact browser evidence for agents
+
+Use the dependency-free receipt instead of pasting raw DOM, console logs or entire
+render manifests into the model context after each camera capture:
+
+```bash
+python3 forge/stage4_review/browser_evidence_brief.py \
+  --manifest work/character/render-manifest.json
+# On subsequent calls, pass the previous full digest:
+python3 forge/stage4_review/browser_evidence_brief.py \
+  --manifest work/character/render-manifest.json --since DIGEST
+```
+
+Repair invalid source provenance, capture hashes, readiness or browser errors
+**before** scheduling remaining camera views. Recorded browser captures require
+an explicit empty console-error receipt. On the v2 diagnostic track, all six
+declared render passes must have recorded status, image metadata and a SHA-256
+receipt before the brief can claim `evidenceComplete`. The normal validator's
+non-strict mode intentionally tolerates unfinished passes, but this summary
+does not treat a lone beauty pass as a complete camera review. The `nextStep` field chooses
+`repair-evidence` whenever any error category exists; otherwise it chooses
+`capture-missing` for valid but incomplete batches.
+
+The output includes camera counts, bounded pending/repair IDs (only the
+repository-owned camera names, such as `hero` and `orbit-plus35`, are emitted
+verbatim). **Every custom capture ID** is replaced by its zero-based
+`capture-N` position, even if it looks like a short, harmless ASCII slug:
+a bearer token can be alphanumeric too. Ordinal labels are **not** executable
+capture IDs; consult the local manifest for custom capture actions. The brief
+reports validation error *counts/categories* and a content digest; it never
+echoes untrusted IDs, URLs, console messages, DOM or file paths. An unchanged receipt is produced only for complete evidence,
+and the validator runs again even if the manifest itself has not changed, so a
+modified screenshot cannot be hidden by the digest. Add `--strict` for exit 1
+on missing/invalid evidence. The receipt is **not a visual acceptance score**:
+inspect real screenshots and run the existing geometry/Tier-1/visual gates
+before any continue verdict. This is an optional bounded-output route for
+[#29](https://github.com/img2threejs/img2threejs/issues/29), not a claim
+of a measured 50% browser-tool token reduction.
