@@ -1,0 +1,80 @@
+name: Vehicle plan-taper pixel/mesh A-B smoke
+
+on:
+  pull_request:
+    paths:
+      - 'integrations/vehicle_form/**'
+      - 'forge/tests/test_vehicle_plan_taper.py'
+      - 'forge/tests/test_vehicle_centerline.py'
+      - '.github/workflows/vehicle-plan-ab-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-vehicle-ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # Keep the exporter an independent, pinned downstream draft (#35).
+      # Pin exact commit, not a mutable branch: reproducible integration evidence.
+      - name: Checkout canonical downstream mesh exporter
+        uses: actions/checkout@v4
+        with:
+          repository: kvnloo/img2threejs
+          ref: 034f3296d09fa2374e3d32bb5107c9ec4a90e3c6
+          path: .img2-exporter-pinned
+          persist-credentials: false
+      - name: Install isolated Three.js/Chromium dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/img2-vehicle-browser-deps"
+          cd "$RUNNER_TEMP/img2-vehicle-browser-deps"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --no-save playwright@1.56.0 three@0.169.0
+          npx playwright install --with-deps chromium
+      - name: Run deterministic pixel-measurement and plan-taper tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test integrations/vehicle_form/vehicle_reference_pixels.test.mjs
+          python3 -m unittest forge.tests.test_vehicle_plan_taper forge.tests.test_vehicle_centerline
+      - name: Verify real Chromium pixels to exported world meshes to plan-taper verdict
+        shell: bash
+        env:
+          IMG2THREEJS_SHOWCASE_ROOT: ${{ runner.temp }}/img2-vehicle-browser-deps
+          IMG2_EXPORTER_PATH: ${{ github.workspace }}/.img2-exporter-pinned/runtime/scripts/export_mesh_geometry.mjs
+          VEHICLE_AB_OUTPUT: ${{ runner.temp }}/vehicle-plan-ab
+        run: |
+          set -euo pipefail
+          node integrations/vehicle_form/vehicle_browser_ab_smoke.mjs
+      - name: Build interactive offline 3D vehicle inspection preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/vehicle-plan-ab"
+          python3 -m unittest forge.tests.test_vehicle_mesh_preview
+          python3 integrations/vehicle_form/vehicle_mesh_preview.py \
+            --matching "$evidence/matching-meshes.json" \
+            --stadium "$evidence/stadium-meshes.json" \
+            --reference "$evidence/reference-top.png" \
+            --matching-report "$evidence/matching-gate.json" \
+            --stadium-report "$evidence/stadium-gate.json" \
+            --out "$evidence/vehicle-mesh-interactive.html"
+      - name: Publish exact rendered reference, comparisons, mesh receipts and verdicts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vehicle-plan-taper-ab
+          path: ${{ runner.temp }}/vehicle-plan-ab/
+          if-no-files-found: ignore
+          retention-days: 7
