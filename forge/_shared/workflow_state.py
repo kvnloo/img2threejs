@@ -273,6 +273,15 @@ def next_entry(state: dict[str, Any]) -> dict[str, Any] | None:
     setup_pending = _pending(_entries(state, "setup"))
     if setup_pending:
         return setup_pending[0]
+    # An initialized workspace has no active build pass until a spec is read.
+    # Never offer a command with a fabricated "<pass>" id in the meantime.
+    if not state.get("currentPass"):
+        return {
+            "id": "await-pass-initialization",
+            "scope": "setup",
+            "status": "pending",
+            "command": "Finish authoring {spec}, then run python3 forge/next.py --state .img2threejs/state.json",
+        }
     if state.get("currentPass") != "complete":
         pass_pending = _pending(_entries(state, "pass"))
         if pass_pending:
@@ -374,8 +383,25 @@ def set_current_pass(state: dict[str, Any], pass_id: str) -> None:
 
 
 def sync_from_spec(state: dict[str, Any], spec: dict[str, Any], current_pass: str) -> None:
-    set_current_pass(state, current_pass)
+    # Review records can advance the spec before the local checklist is marked.
+    # Preserve the uncredited pass rather than archiving pending gate rows as if
+    # their checks had run. The operator can mark missing evidence and re-sync.
+    previous = str(state.get("currentPass") or "")
     history = spec.get("reviewHistory", [])
+    prior_continue = isinstance(history, list) and any(
+        isinstance(review, dict)
+        and review.get("action") == "continue"
+        and review.get("passId") != current_pass
+        for review in history
+    )
+    if previous != current_pass and (previous not in {"", "complete"} or (not previous and prior_continue)):
+        unfinished = [entry["id"] for entry in _pending(_entries(state, "pass"))]
+        if unfinished:
+            raise WorkflowStateError(
+                f"cannot advance from {previous or 'uninitialized'} to {current_pass}: "
+                f"unmarked pass checklist steps: {', '.join(unfinished)}"
+            )
+    set_current_pass(state, current_pass)
     if not isinstance(history, list):
         history = []
     review_cursor = min(int(state.get("reviewCursor", 0)), len(history))
@@ -430,7 +456,7 @@ def status_payload(state: dict[str, Any]) -> dict[str, Any]:
     current_pass = str(state.get("currentPass") or "")
     loops = state["loops"]
     visible_scopes = {"setup", "final", "rig"}
-    if current_pass != "complete":
+    if current_pass not in {"", "complete"}:
         visible_scopes.add("pass")
     return {
         "status": state["status"],

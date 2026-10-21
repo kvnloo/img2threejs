@@ -123,6 +123,63 @@ class WorkflowStateTest(unittest.TestCase):
         self.assertLess(ids.index("tier1-diagnostics"), ids.index("pass-gate-check"))
         self.assertLess(ids.index("pass-gate-check"), ids.index("ai-review-recorded"))
 
+    def test_pre_spec_state_never_offers_a_pass_command(self):
+        state = new_state("reference.png", spec="spec.json")
+        setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+        payload = status_payload(state)
+        self.assertEqual(payload["currentPass"], "")
+        self.assertEqual(payload["currentStep"], "await-pass-initialization")
+        self.assertNotIn("build-current-pass", payload["pending"])
+        self.assertNotIn("generate_threejs_factory.py", payload["nextCommand"])
+        with self.assertRaisesRegex(WorkflowStateError, "out-of-order"):
+            mark_steps(state, ["build-current-pass"], status="done", evidence=["model.ts"])
+
+    def test_sync_refuses_to_archive_an_unfinished_reviewed_pass(self):
+        state = new_state("reference.png", spec="spec.json")
+        setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+        sync_from_spec(state, {"reviewHistory": []}, "blockout")
+        mark_steps(state, ["build-current-pass"], status="done", evidence=["model.ts"])
+        before = json.dumps(state, sort_keys=True)
+        advanced_spec = {"reviewHistory": [{"passId": "blockout", "action": "continue"}]}
+
+        with self.assertRaisesRegex(WorkflowStateError, "unmarked pass checklist steps: render-capture"):
+            sync_from_spec(state, advanced_spec, "structural-pass")
+        self.assertEqual(json.dumps(state, sort_keys=True), before)
+
+        remaining = [
+            entry["id"] for entry in state["checklist"]
+            if entry["scope"] == "pass" and entry["status"] == "pending"
+        ]
+        mark_steps(state, remaining, status="done", evidence=["review.png"])
+        sync_from_spec(state, advanced_spec, "structural-pass")
+        self.assertEqual(state["currentPass"], "structural-pass")
+        self.assertEqual(state["passHistory"][0]["passId"], "blockout")
+        self.assertTrue(all(
+            entry["status"] == "done" for entry in state["passHistory"][0]["checklist"]
+        ))
+        self.assertEqual(status_payload(state)["currentStep"], "build-current-pass")
+
+    def test_sync_rejects_backfilling_completed_reviews_into_uninitialized_checklist(self):
+        state = new_state("reference.png")
+        setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
+        mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
+        with self.assertRaisesRegex(WorkflowStateError, "cannot advance from uninitialized"):
+            sync_from_spec(
+                state,
+                {"reviewHistory": [{"passId": "blockout", "action": "continue"}]},
+                "structural-pass",
+            )
+        self.assertEqual(state["currentPass"], "")
+        self.assertEqual(state["passHistory"], [])
+
+    def test_uninitialized_state_still_enters_first_pass_normally(self):
+        state = new_state("reference.png")
+        sync_from_spec(state, {"reviewHistory": []}, "blockout")
+        self.assertEqual(state["currentPass"], "blockout")
+        self.assertEqual(status_payload(state)["currentStep"], "image-analysis")
+
     def test_skipping_a_mandatory_step_requires_reason(self):
         state = new_state("reference.png")
         with self.assertRaises(WorkflowStateError):
