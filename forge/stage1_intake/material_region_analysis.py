@@ -19,7 +19,9 @@ confidence inference to ``proceed``.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import re
 import sys
 from argparse import Namespace
 from pathlib import Path
@@ -51,6 +53,26 @@ def _bounded_bbox(raw: Any, width: int, height: int) -> tuple[int, int, int, int
     if (x1 - x0) < 8 or (y1 - y0) < 8:
         raise ValueError("material crop is too small; minimum crop dimension is 8 pixels")
     return x0, y0, x1 - x0, y1 - y0
+
+
+def _safe_region_token(region_id: str) -> str:
+    """Return a filename-only token for a semantic region id."""
+    token = re.sub(r"[^A-Za-z0-9._-]+", "-", region_id).strip("._-")
+    token = re.sub(r"\.{2,}", "-", token).strip("._-") or "region"
+    if len(token) > 80:
+        # Fixed component length avoids filesystem errors on untrusted long IDs;
+        # hash the original identifier so distinct truncated IDs stay distinct.
+        suffix = hashlib.sha256(region_id.encode("utf-8")).hexdigest()[:12]
+        token = f"{token[:80].rstrip('._-') or 'region'}-{suffix}"
+    return token
+
+
+def _contained_artifact(out_dir: Path, filename: str) -> Path:
+    """Refuse pre-existing symlinks and resolved paths outside the selected output root."""
+    candidate = out_dir / filename
+    if candidate.is_symlink() or not candidate.resolve().is_relative_to(out_dir.resolve()):
+        raise ValueError(f"material artifact path escapes output directory: {filename!r}")
+    return candidate
 
 
 def crop_region(source: Path, bbox: dict[str, Any], output: Path) -> dict[str, Any]:
@@ -117,10 +139,11 @@ def analyze_manifest(
             source = (manifest_path.parent / source).resolve()
         if not source.exists():
             raise ValueError(f"region {region_id!r} source image does not exist: {source}")
-        crop_path = out_dir / f"{index:02d}-{region_id.replace('/', '-').replace(' ', '-')}.png"
+        region_token = _safe_region_token(region_id)
+        crop_path = _contained_artifact(out_dir, f"{index:02d}-{region_token}.png")
         crop_info = crop_region(source, region.get("bbox"), crop_path)
         texture_report = analyze(crop_path)
-        pbr_dir = out_dir / f"pbr-{index:02d}-{region_id.replace('/', '-').replace(' ', '-')}"
+        pbr_dir = _contained_artifact(out_dir, f"pbr-{index:02d}-{region_token}")
         args = Namespace(
             image=crop_path,
             out_dir=pbr_dir,
