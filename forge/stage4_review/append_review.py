@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from feature_acceptance_policy import feature_gate_failures
 from status_banner import emit_status
+from workflow_state import load_state
 
 
 def _review_scene_fixture_id(scene_path: Path) -> object:
@@ -74,6 +75,29 @@ def load_json_argument(value: str | None, label: str) -> object | None:
         return json.loads(text)
     except json.JSONDecodeError as exc:
         raise ValueError(f"{label} must be valid inline JSON or a JSON file path") from exc
+
+
+def resolve_workflow_state(spec_path: Path, state_path: Path | None) -> dict | None:
+    """Find the active checklist beside the spec or in the current workspace.
+
+    Explicit --state always wins and must exist. An absent implicit state preserves
+    legacy spec-only calls, but a discovered invalid state must not disable gates.
+    """
+    if state_path is not None:
+        locations = [state_path.expanduser().resolve()]
+    else:
+        locations = [
+            spec_path.parent / ".img2threejs" / "state.json",
+            Path.cwd() / ".img2threejs" / "state.json",
+        ]
+    for location in dict.fromkeys(locations):
+        if state_path is not None or location.exists():
+            state = load_state(location)
+            profile = state.get("profile")
+            if not isinstance(profile, str) or not profile.strip():
+                raise ValueError(f"workflow state profile is missing or invalid: {location}")
+            return state
+    return None
 
 
 def clamp_score(value: float) -> float:
@@ -247,6 +271,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--map-stripped-render", help="Blockout render captured with all material maps disabled")
     parser.add_argument("--review-viewpoints-json", help="JSON array or file containing review viewpoint labels")
     parser.add_argument("--force-out-of-order", action="store_true", help="Record deliberate re-review outside the unlocked pass")
+    parser.add_argument("--state", type=Path, help="Workflow state path; auto-discovers .img2threejs/state.json beside the spec or in the current directory")
     parser.add_argument(
         "--domain-review-json",
         "--cs2-review-json",  # accepted for specs and runs authored before domains were extracted
@@ -278,6 +303,7 @@ def main(argv: list[str]) -> int:
 
     spec_path = args.spec.expanduser().resolve()
     spec = load_spec(spec_path)
+    workflow_state = resolve_workflow_state(spec_path, args.state)
     emit_status(spec, next_command=f"forge/stage4_review/append_review.py {spec_path} --pass-id {args.pass_id}")
     history = spec.setdefault("reviewHistory", [])
     if not isinstance(history, list):
@@ -360,6 +386,17 @@ def main(argv: list[str]) -> int:
                 )
 
     domain_review = load_json_argument(args.domain_review_json, "--domain-review-json")
+    if (
+        args.action == "continue"
+        and workflow_state is not None
+        and workflow_state["profile"] != "generic"
+        and domain_review is None
+    ):
+        raise ValueError(
+            f"domain profile {workflow_state['profile']!r} requires --domain-review-json "
+            "with a passing gate report before action=continue; use a non-continue action "
+            "when domain evidence is not ready"
+        )
     if domain_review is not None:
         if not isinstance(domain_review, dict):
             raise ValueError("--domain-review-json must be a JSON object")
