@@ -1624,6 +1624,28 @@ def validate_components(
     for component_id, parent in parent_refs:
         if parent not in ids:
             errors.append(f"component {component_id!r} references missing parent {parent!r}")
+    # A forward parent reference is permitted, but a cycle never has a root.
+    # Resolve after collecting IDs and fail before code generation attempts
+    # to recursively include parents. This walk is iterative for deep scenes.
+    parent_by_id = {
+        component_id: parent
+        for component_id, parent in parent_refs
+        if parent in ids
+    }
+    checked: set[str] = set()
+    for component_id in sorted(ids):
+        pending: list[str] = []
+        active: dict[str, int] = {}
+        current = component_id
+        while current in parent_by_id and current not in checked:
+            if current in active:
+                cycle = pending[active[current]:] + [current]
+                errors.append("componentTree parent cycle: " + " -> ".join(cycle))
+                break
+            active[current] = len(pending)
+            pending.append(current)
+            current = parent_by_id[current]
+        checked.update(pending)
     # Resolved after the loop, like parents: a component may legitimately stand proud of one that
     # appears later in the tree, and a forward reference is not a defect.
     for component_id, against in proud_refs:
