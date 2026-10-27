@@ -45,6 +45,40 @@ def _dct_2d(block: list[list[float]]) -> list[list[float]]:
     return out
 
 
+def _area_resample_small_image(
+    width: int,
+    height: int,
+    pixels: list[tuple[int, int, int, int]],
+    size: int,
+) -> list[list[float]]:
+    """Area-average source pixels into every target cell, including upscaled axes.
+
+    The fast binning path below leaves empty target cells whenever an image axis is
+    shorter than `size`. DCT treats those gaps as black image content, so the
+    same 16x16 image enlarged to 32x32 can acquire a completely different pHash.
+    Continuous pixel-area overlap fills every cell without inventing black bands.
+    """
+    gray = [0.2126 * r + 0.7152 * g + 0.0722 * b for r, g, b, _a in pixels]
+    out = [[0.0] * size for _ in range(size)]
+    for target_y in range(size):
+        top = target_y * height / size
+        bottom = (target_y + 1) * height / size
+        for target_x in range(size):
+            left = target_x * width / size
+            right = (target_x + 1) * width / size
+            total = 0.0
+            for y in range(int(top), min(height, math.ceil(bottom))):
+                y_weight = min(y + 1, bottom) - max(y, top)
+                if y_weight <= 0:
+                    continue
+                for x in range(int(left), min(width, math.ceil(right))):
+                    x_weight = min(x + 1, right) - max(x, left)
+                    if x_weight > 0:
+                        total += gray[y * width + x] * x_weight * y_weight
+            out[target_y][target_x] = total / ((right - left) * (bottom - top))
+    return out
+
+
 def to_grayscale_downsampled(
     width: int,
     height: int,
@@ -52,8 +86,17 @@ def to_grayscale_downsampled(
     size: int = 32,
 ) -> list[list[float]]:
     """Box-average downsample of the luminance channel to size×size (Rec.709 luma)."""
-    if width <= 0 or height <= 0 or not pixels:
+    if width <= 0 or height <= 0:
         return [[0.0] * size for _ in range(size)]
+    # A truncated normal-resolution decode also created unfilled (black) bins
+    # and a plausible pHash. Apply this refusal to both binning paths; complete
+    # images retain identical hash bytes and cached legacy identities.
+    if len(pixels) < width * height:
+        raise ValueError("image pixel payload is shorter than width * height")
+    if width < size or height < size:
+        # Only change the undersampled case: preserve the exact existing hashes
+        # for normal-size images (including persisted duplicate-reference hashes).
+        return _area_resample_small_image(width, height, pixels, size)
     out = [[0.0] * size for _ in range(size)]
     counts = [[0] * size for _ in range(size)]
     for idx, (r, g, b, _a) in enumerate(pixels):
