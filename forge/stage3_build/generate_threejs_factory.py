@@ -2316,6 +2316,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
     }
     all_components = [item for item in spec.get("componentTree", []) if isinstance(item, dict)]
     components = filter_components_for_pass(spec, all_components, pass_id)
+    has_hinges = any(isinstance(component.get('hinge'), dict) for component in components)
 
     lines: list[str] = [
         "import * as THREE from 'three';",
@@ -2341,6 +2342,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
         "  sockets: Record<string, THREE.Object3D>;",
         "  colliders: Record<string, unknown>;",
         "  destructionGroups: Record<string, THREE.Object3D[]>;",
+        *(["  hinges: Record<string, THREE.Group>;"] if has_hinges else []),
         "};",
         "",
         "type SculptMaterialSpec = Record<string, any>;",
@@ -3481,6 +3483,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
             "  const sockets: Record<string, THREE.Object3D> = {};",
             "  const colliders: Record<string, unknown> = {};",
             "  const destructionGroups: Record<string, THREE.Object3D[]> = {};",
+            *(["  const hinges: Record<string, THREE.Group> = {};"] if has_hinges else []),
         ]
     )
 
@@ -3497,10 +3500,15 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
         component_id = str(component.get("id") or f"component-{index}")
         component_var = local_var("mesh", component_id, index)
         node_var = local_var("node", component_id, index)
+        hinge_anchor_var = local_var("hinge_anchor", component_id, index)
+        hinge_rotation_var = local_var("hinge_rotation", component_id, index)
+        hinge_counter_var = local_var("hinge_counter", component_id, index)
+        hinge_offset_var = local_var("hinge_offset", component_id, index)
         primitive = str(component.get("primitive") or "box")
         if primitive not in VALID_PRIMITIVES:
             primitive = "box"
         transform = component.get("transform", {}) if isinstance(component.get("transform"), dict) else {}
+        hinge = component.get("hinge") if isinstance(component.get("hinge"), dict) else None
         action_profile = component.get("actionProfile") if isinstance(component.get("actionProfile"), dict) else {}
         sockets_spec = action_profile.get("sockets", []) if isinstance(action_profile.get("sockets"), list) else []
         destruction = action_profile.get("destruction") if isinstance(action_profile.get("destruction"), dict) else {}
@@ -3644,7 +3652,34 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
                 "  }",
                 f"  {node_var}.userData.sculptComponent = {json.dumps(component, ensure_ascii=False)};",
                 f"  {node_var}.userData.actionProfile = {json.dumps(action_profile, ensure_ascii=False)};",
-                f"  (nodes[{json.dumps(str(parent))}] ?? root).add({node_var});",
+                *(
+                    [
+                        # Axis endpoints are parent-local. Orient +Y to the authored axis;
+                        # applying a fold on local Y rotates exactly about that line.
+                        # The counter-frame restores the unhinged pose at angle 0.
+                        f"  const {hinge_anchor_var} = new THREE.Group();",
+                        f"  {hinge_anchor_var}.name = {json.dumps(name + '__hinge_axis')};",
+                        f"  {hinge_anchor_var}.position.set({vector(hinge['axisStart'], [0, 0, 0])});",
+                        f"  {hinge_anchor_var}.quaternion.setFromUnitVectors(",
+                        "    new THREE.Vector3(0, 1, 0),",
+                        f"    new THREE.Vector3({vector(hinge['axisEnd'], [0, 1, 0])}).sub({hinge_anchor_var}.position).normalize(),",
+                        "  );",
+                        f"  const {hinge_rotation_var} = new THREE.Group();",
+                        f"  {hinge_rotation_var}.name = {json.dumps(name + '__hinge_rotation')};",
+                        f"  {hinge_rotation_var}.rotation.y = {math.radians(hinge.get('restAngleDeg', 0))};",
+                        f"  const {hinge_counter_var} = new THREE.Group();",
+                        f"  {hinge_counter_var}.quaternion.copy({hinge_anchor_var}.quaternion).invert();",
+                        f"  const {hinge_offset_var} = new THREE.Group();",
+                        f"  {hinge_offset_var}.position.copy({hinge_anchor_var}.position).negate();",
+                        f"  {hinge_offset_var}.add({node_var});",
+                        f"  {hinge_counter_var}.add({hinge_offset_var});"
+                        f"  {hinge_rotation_var}.add({hinge_counter_var});",
+                        f"  {hinge_anchor_var}.add({hinge_rotation_var});",
+                        f"  (nodes[{json.dumps(str(parent))}] ?? root).add({hinge_anchor_var});",
+                        f"  hinges[{json.dumps(component_id)}] = {hinge_rotation_var};",
+                    ]
+                    if hinge else [f"  (nodes[{json.dumps(str(parent))}] ?? root).add({node_var});"]
+                ),
                 f"  nodes[{json.dumps(component_id)}] = {node_var};",
                 *geometry_lines,
                 # Attachment geometry (the endpoint branch above) already derives its exact
@@ -3896,7 +3931,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
     lines.extend(
         [
             "",
-            "  root.userData.sculptRuntime = { nodes, meshes, sockets, colliders, destructionGroups } satisfies ProceduralModelRuntime;",
+            f"  root.userData.sculptRuntime = {{ nodes, meshes, sockets, colliders, destructionGroups{', hinges' if has_hinges else ''} }} satisfies ProceduralModelRuntime;",
             f"  root.userData.lookDevTargets = {json_literal(look_dev_targets)};",
             "  root.userData.actionReadiness = {",
             "    note: 'Use root.userData.sculptRuntime.nodes for transforms, sockets for attachments, colliders for physics proxies, and destructionGroups for breakable sets.',",

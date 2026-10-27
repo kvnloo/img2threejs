@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -1056,6 +1057,47 @@ def validate_material_pipeline_contract(spec: dict[str, Any], material_ids: set[
         errors.append("materialPipeline.registry is required")
     elif not registry.endswith("material-reference.json"):
         warnings.append("quality: materialPipeline.registry does not point to material-reference.json")
+
+
+def validate_hinge(component_id: str, hinge: Any, errors: list[str]) -> None:
+    """Validate an optional edge pivot expressed in the component parent's frame."""
+    if not isinstance(hinge, dict):
+        errors.append(f"component {component_id!r} hinge must be an object")
+        return
+    unsupported = sorted(str(key) for key in hinge if key not in {"axisStart", "axisEnd", "restAngleDeg"})
+    if unsupported:
+        errors.append(f"component {component_id!r} hinge has unsupported fields: {', '.join(unsupported)}")
+    def finite_number(value: Any) -> bool:
+        if not is_number(value):
+            return False
+        try:
+            return math.isfinite(value)
+        except (OverflowError, ValueError, TypeError):
+            return False
+
+    points: dict[str, list[float]] = {}
+    for field in ("axisStart", "axisEnd"):
+        value = hinge.get(field)
+        if (
+            not isinstance(value, list)
+            or len(value) != 3
+            or not all(finite_number(item) for item in value)
+        ):
+            errors.append(f"component {component_id!r} hinge.{field} must be three finite numbers")
+        else:
+            points[field] = [float(item) for item in value]
+    if len(points) == 2:
+        delta = [end - start for start, end in zip(points["axisStart"], points["axisEnd"])]
+        # Match Three.js Vector3.length(): its sum of squares must not
+        # overflow even when each coordinate is individually finite.
+        squared = sum(item * item for item in delta)
+        if not all(math.isfinite(item) for item in delta) or not math.isfinite(squared) or squared <= 1e-12:
+            errors.append(f"component {component_id!r} hinge axis must have finite, non-zero length")
+    angle = hinge.get("restAngleDeg", 0)
+    if not finite_number(angle):
+        errors.append(f"component {component_id!r} hinge.restAngleDeg must be a finite number")
+
+
 def validate_dimensions(component_id: str, dimensions: Any, errors: list[str]) -> None:
     if dimensions is None:
         return
@@ -1578,6 +1620,25 @@ def validate_components(
             for field in ("position", "rotation", "scale"):
                 if field in transform and not as_number_list(transform[field], 3):
                     errors.append(f"component {component_id!r} transform.{field} must be [number, number, number]")
+        if "hinge" in component:
+            validate_hinge(component_id, component["hinge"], errors)
+            assessment = spec.get("preSpecAssessment")
+            object_class = assessment.get("objectClass") if isinstance(assessment, dict) else None
+            domain = object_class.get("primaryDomain") if isinstance(object_class, dict) else None
+            rig = spec.get("rig")
+            bones = rig.get("bones") if isinstance(rig, dict) else None
+            if domain in {"character", "hybrid"} and isinstance(bones, list):
+                # Skinning reparents bound meshes to the root: a hinge there
+                # would animate an empty pivot instead of visible geometry.
+                if any(
+                    isinstance(bone, dict)
+                    and str(bone.get("component") or bone.get("id")) == component_id
+                    for bone in bones
+                ):
+                    errors.append(
+                        f"component {component_id!r} hinge is incompatible with bone-track skinning; "
+                        "use a rigid non-skinned component or a bone animation"
+                    )
         validate_action_profile(component_id, component.get("actionProfile"), errors, warnings)
         validate_attachment(
             component_id,
