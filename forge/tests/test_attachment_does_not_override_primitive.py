@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT / "forge" / "stage2_spec"))
 sys.path.insert(0, str(ROOT / "forge" / "stage3_build"))
 
 import generate_threejs_factory as generator  # noqa: E402
+from validate_sculpt_spec import validate_subdivision_budget  # noqa: E402
 
 
 def spec_with(primitive: str, topology: str) -> dict:
@@ -91,16 +92,56 @@ class AttachmentDoesNotOverridePrimitive(unittest.TestCase):
         self.assertIn("const endpoint_part_1 = makeAttachmentEndpoint(null);", source)
         self.assertIn("buildTaperedSweepGeometry", source)
 
+    def test_authored_curve_sweep_uses_spine_instead_of_attachment_cylinder(self):
+        spec = spec_with("curve-sweep", "continuous-sculpt")
+        part = spec["componentTree"][1]
+        part["geometryDescriptor"] = {
+            "curveSweep": {
+                "spine": [[-0.45, -0.35, 0.0], [0.15, 0.12, 0.05], [0.55, -0.15, 0.0]],
+                "crossSection": {
+                    "points": [[-0.04, -0.02], [0.04, -0.02], [0.04, 0.02], [-0.04, 0.02]]
+                },
+                "closed": False,
+            }
+        }
+        source = generator.generate(spec, "blockout")
+        # The emitted ternary contains a CylinderGeometry branch; the endpoint
+        # binding, not text searching for that branch, determines the live geometry.
+        self.assertIn("const endpoint_part_1 = makeAttachmentEndpoint(null);", source)
+        self.assertNotIn("const endpoint_part_1 = makeAttachmentEndpoint(attachment_part_1);", source)
+        self.assertIn("buildCurveSweepGeometry(", source)
+        self.assertIn("node_part_1.position.set(0.0, 0.4, 0.6);", source)
+        self.assertIn("mesh_part_1Geometry.scale(0.9, 0.7, 0.8);", source)
+        # Geometry selection must not discard the joint metadata used by review.
+        self.assertIn('"parentSocket": "neck"', source)
+
+    def test_authored_curve_sweep_cannot_use_attachment_cylinder_subdivision_budget(self):
+        spec = spec_with("curve-sweep", "continuous-sculpt")
+        part = spec["componentTree"][1]
+        descriptor = {
+            "curveSweep": {
+                "spine": [[0, 0, 0], [0.2, 0.3, 0], [0.4, 0, 0]],
+                "crossSection": {"points": [[-0.02, 0], [0.02, 0], [0, 0.02]]},
+            },
+            "subdivide": {"iterations": 1},
+        }
+        errors = []
+        validate_subdivision_budget(
+            "part", "curve-sweep", "continuous-sculpt", descriptor,
+            part["attachment"], errors,
+        )
+        self.assertTrue(any("cannot statically budget" in error for error in errors), errors)
+
     def test_a_cylinder_with_an_attachment_still_derives_geometry_from_its_endpoints(self):
         """Negative control: the endpoint path is not removed, only scoped.
 
-        A cylinder, cone, capsule, tube or curve-sweep IS an attachment shape, and deriving its
-        radius and length from the measured endpoints is the whole point of the contract.
+        Cylinders and other axial parts still derive their radius and length
+        from the measured endpoints.
         """
         source = self._emit("cylinder", "assembled-solid")
         self.assertIn("const endpoint_part_1 = makeAttachmentEndpoint(attachment_part_1);", source)
 
-    def test_every_attachment_primitive_still_takes_the_endpoint_path(self):
+    def test_attachment_primitives_without_authored_spines_keep_endpoint_path(self):
         for primitive, topology in (("cylinder", "assembled-solid"), ("cone", "assembled-solid"),
                                     ("capsule", "assembled-solid"), ("tube", "continuous-sculpt"),
                                     ("curve-sweep", "continuous-sculpt")):
@@ -109,6 +150,54 @@ class AttachmentDoesNotOverridePrimitive(unittest.TestCase):
                 self.assertIn(
                     "const endpoint_part_1 = makeAttachmentEndpoint(attachment_part_1);", source
                 )
+
+    def test_attached_tube_with_authored_path_keeps_its_path(self):
+        spec = spec_with("tube", "continuous-sculpt")
+        part = spec["componentTree"][1]
+        part["geometryDescriptor"] = {
+            "tubePath": {
+                "points": [[-0.35, -0.2, 0.0], [0.0, 0.25, 0.15], [0.4, -0.1, 0.3]],
+                "radius": 0.07,
+                "closed": False,
+            },
+        }
+        source = generator.generate(spec, "blockout")
+        # The emitted ternary always contains both constructors; the endpoint
+        # binding controls which one is actually evaluated in the browser.
+        self.assertIn("const endpoint_part_1 = makeAttachmentEndpoint(null);", source)
+        self.assertNotIn("const endpoint_part_1 = makeAttachmentEndpoint(attachment_part_1);", source)
+        self.assertIn("buildTubeGeometry(", source)
+        self.assertIn("node_part_1.position.set(0.0, 0.4, 0.6);", source)
+        self.assertIn("mesh_part_1Geometry.scale(0.9, 0.7, 0.8);", source)
+        self.assertIn('"parentSocket": "neck"', source)
+
+    def test_attached_tube_without_authored_path_keeps_endpoint_geometry(self):
+        source = self._emit("tube", "continuous-sculpt")
+        self.assertIn("const endpoint_part_1 = makeAttachmentEndpoint(attachment_part_1);", source)
+
+    def test_authored_tube_path_uses_tube_subdivision_budget_not_cylinder(self):
+        spec = spec_with("tube", "continuous-sculpt")
+        part = spec["componentTree"][1]
+        descriptor = {
+            "tubePath": {
+                "points": [[0, 0, 0], [0.3, 0.2, 0.1], [0.5, 0.0, 0.2]],
+                "radius": 0.04,
+                "closed": False,
+            },
+            "subdivide": {"iterations": 1},
+        }
+        errors = []
+        validate_subdivision_budget(
+            "part", "tube", "continuous-sculpt", descriptor,
+            part["attachment"], errors,
+        )
+        self.assertTrue(any("cannot statically budget" in error for error in errors), errors)
+        errors = []
+        validate_subdivision_budget(
+            "part", "tube", "continuous-sculpt",
+            {"subdivide": {"iterations": 1}}, part["attachment"], errors,
+        )
+        self.assertFalse(any("cannot statically budget" in error for error in errors), errors)
 
     def test_an_implicit_component_is_placed_by_its_transform_not_its_attachment(self):
         """An implicit part must still declare a `primitive`, and the fixture's is `capsule`.
