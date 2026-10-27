@@ -1,0 +1,82 @@
+name: Pocket World real-browser smoke
+
+on:
+  pull_request:
+    paths:
+      - 'integrations/pocket_world/**'
+      - '.github/workflows/pocket-world-webgl.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pocket-world-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  data-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        node: ['18', '22']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Run Pocket World data regressions
+        run: node --test integrations/pocket_world/world-data.test.mjs
+      - name: Check application syntax
+        run: node --check integrations/pocket_world/app.mjs
+  chromium-pocket-world:
+    needs: data-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated browser test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pocket-world-browser-deps"
+          cd "$RUNNER_TEMP/pocket-world-browser-deps"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --no-save playwright@1.56.0 three@0.169.0 esbuild@0.25.12
+          npx playwright install --with-deps chromium
+      - name: Run interaction regressions with mocked Three.js
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/pocket-world-dom-deps"
+          "$RUNNER_TEMP/pocket-world-dom-deps/bin/pip" install playwright==1.56.0 Pillow==11.3.0
+          mkdir -p "$RUNNER_TEMP/pocket-world-webgl-smoke"
+          "$RUNNER_TEMP/pocket-world-dom-deps/bin/python" -u integrations/pocket_world/tests/dom_smoke.py \
+            | tee "$RUNNER_TEMP/pocket-world-webgl-smoke/interaction-tests.log"
+      - name: Run real Three.js renderer and adventure smoke
+        env:
+          IMG2THREEJS_BROWSER_DEPS_ROOT: ${{ runner.temp }}/pocket-world-browser-deps
+        run: node integrations/pocket_world/tests/real_webgl_smoke.mjs
+      - name: Measure deterministic scout pathfinding (CPU-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pocket-world-webgl-smoke"
+          node integrations/pocket_world/tests/bench_pathfinding.mjs \
+            | tee "$RUNNER_TEMP/pocket-world-webgl-smoke/pathfinding-benchmark.json"
+      - name: Publish visual evidence for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pocket-world-real-webgl
+          path: ${{ runner.temp }}/pocket-world-webgl-smoke/
+          if-no-files-found: ignore
+          retention-days: 7
