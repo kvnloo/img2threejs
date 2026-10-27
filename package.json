@@ -11,7 +11,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test bin/img2threejs.mjs-test.mjs",
+    "test": "node --test bin/img2threejs.mjs-test.mjs runtime/scripts/export_mesh_geometry.test.mjs",
     "package:check": "npm pack --dry-run"
   },
   "files": [

@@ -1,0 +1,46 @@
+name: Mesh exporter real-browser smoke
+
+on:
+  pull_request:
+    paths:
+      - 'runtime/scripts/export_mesh_geometry.mjs'
+      - 'runtime/scripts/export_mesh_geometry.browser-smoke.mjs'
+      - '.github/workflows/mesh-export-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chromium-threejs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated browser test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/img2-browser-deps"
+          cd "$RUNNER_TEMP/img2-browser-deps"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --no-save playwright@1.56.0 three@0.169.0 esbuild@0.25.12
+          npx playwright install --with-deps chromium
+      - name: Capture actual Three.js scene and run Python gate
+        shell: bash
+        env:
+          IMG2THREEJS_SHOWCASE_ROOT: ${{ runner.temp }}/img2-browser-deps
+        run: |
+          set -euo pipefail
+          node runtime/scripts/export_mesh_geometry.browser-smoke.mjs
+      - name: Publish diagnostic browser receipts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mesh-export-smoke
+          path: ${{ runner.temp }}/img2-export-smoke/
+          if-no-files-found: ignore
+          retention-days: 7
