@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import tempfile
@@ -30,6 +31,12 @@ class SimulatedPage:
     def on(self, *args):
         return None
 
+    def set_default_timeout(self, timeout):
+        self.default_timeout = timeout
+
+    def set_default_navigation_timeout(self, timeout):
+        self.navigation_timeout = timeout
+
     def goto(self, *args, **kwargs):
         if self.fail_navigation:
             raise SimulatedPlaywrightTimeout("navigation timeout")
@@ -38,6 +45,8 @@ class SimulatedPage:
         return None
 
     def evaluate(self, script, argument=None):
+        if isinstance(argument, dict) and "timeoutMs" in argument:
+            argument = argument["argument"]
         if "await api.setCamera(camera)" in script:
             if argument["id"] == self.fail_camera:
                 raise SimulatedPlaywrightTimeout("synthetic second-view timeout")
@@ -114,7 +123,7 @@ class CaptureCheckpointTest(unittest.TestCase):
         )
         write_manifest(self.path, self.manifest)
 
-    def execute(self, page, *, mode="procedural", selected=None):
+    def execute(self, page, *, mode="procedural", selected=None, resume=False):
         api = types.ModuleType("playwright.sync_api")
         api.Error = SimulatedPlaywrightTimeout
         session = SimulatedSession(page)
@@ -122,7 +131,7 @@ class CaptureCheckpointTest(unittest.TestCase):
         package = types.ModuleType("playwright")
         package.sync_api = api
         with patch.dict(sys.modules, {"playwright": package, "playwright.sync_api": api}):
-            return capture(self.path, selected or [], False, 500, mode)
+            return capture(self.path, selected or [], False, 500, mode, resume=resume)
 
     def saved(self):
         return json.loads(self.path.read_text(encoding="utf-8"))
@@ -133,10 +142,13 @@ class CaptureCheckpointTest(unittest.TestCase):
         saved = self.saved()
         hero, second = saved["captures"][:2]
         self.assertEqual(hero["status"], "recorded")
-        self.assertEqual(second["status"], "pending")
+        self.assertEqual(second["status"], "failed")
+        self.assertFalse(second["captureReceipt"]["complete"])
+        self.assertTrue(hero["captureReceipt"]["complete"])
         self.assertEqual(len(hero["screenshotSha256"]), 64)
         self.assertTrue((self.root / hero["path"]).is_file())
-        self.assertTrue(hero["readySignal"])
+        self.assertEqual(hero["screenshotSha256"], hashlib.sha256((self.root / hero["path"]).read_bytes()).hexdigest())
+        self.assertIs(hero["readySignal"], True)
         self.assertEqual(saved["evidence"]["browser"]["adapter"], "playwright")
         self.assertIn("synthetic second-view timeout", saved["evidence"]["lastCaptureError"])
 
@@ -152,9 +164,13 @@ class CaptureCheckpointTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "synthetic second-view timeout"):
             self.execute(SimulatedPage(fail_camera="orbit-plus35"), mode="reference")
         saved = self.saved()
-        self.assertEqual(saved["captures"][0]["reference"]["status"], "recorded")
+        reference = saved["captures"][0]["reference"]
+        self.assertEqual(reference["status"], "recorded")
+        self.assertTrue(reference["captureReceipt"]["complete"])
+        self.assertEqual(reference["screenshotSha256"], hashlib.sha256((self.root / reference["path"]).read_bytes()).hexdigest())
         self.assertEqual(saved["captures"][0]["status"], "pending")
-        self.assertEqual(saved["captures"][1]["reference"]["status"], "pending")
+        self.assertEqual(saved["captures"][1]["reference"]["status"], "failed")
+        self.assertFalse(saved["captures"][1]["reference"]["captureReceipt"]["complete"])
 
     def test_diagnostic_pass_timeout_preserves_completed_pass_receipts(self):
         profile = Path(__file__).resolve().parents[2] / "docs/specs/render-profile.v2.example.json"
@@ -166,12 +182,18 @@ class CaptureCheckpointTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "synthetic diagnostic-pass timeout"):
             self.execute(SimulatedPage(fail_pass="depth"), selected=["hero"])
         hero = self.saved()["captures"][0]
-        self.assertEqual(hero["status"], "recorded")
+        self.assertEqual(hero["status"], "failed")
+        self.assertFalse(hero["captureReceipt"]["complete"])
+        self.assertEqual(hero["screenshotSha256"], hashlib.sha256((self.root / hero["path"]).read_bytes()).hexdigest())
         self.assertEqual(hero["passes"]["beauty"]["status"], "recorded")
         self.assertEqual(hero["passes"]["alpha-silhouette"]["status"], "recorded")
         self.assertEqual(hero["passes"]["semantic-id"]["status"], "recorded")
         self.assertEqual(hero["passes"]["depth"]["status"], "pending")
         self.assertEqual(len(hero["passes"]["semantic-id"]["sha256"]), 64)
+        for pass_id in ("beauty", "alpha-silhouette", "semantic-id"):
+            record = hero["passes"][pass_id]
+            self.assertTrue(record["captureReceipt"]["complete"])
+            self.assertEqual(record["sha256"], hashlib.sha256((self.root / record["path"]).read_bytes()).hexdigest())
 
     def test_navigation_failure_records_error_without_faking_a_shot(self):
         with self.assertRaisesRegex(RuntimeError, "navigation timeout"):
@@ -189,6 +211,20 @@ class CaptureCheckpointTest(unittest.TestCase):
         self.assertNotIn("lastCaptureError", saved["evidence"])
         self.assertEqual(saved["captures"][0]["status"], "recorded")
         self.assertEqual(saved["captures"][1]["status"], "pending")
+
+    def test_resume_rejects_truthy_non_boolean_readiness(self):
+        for ready_value in ("true", "false", 1, 1.0, -1):
+            with self.subTest(ready_value=ready_value):
+                self.execute(SimulatedPage(), selected=["hero"])
+                manifest = self.saved()
+                manifest["captures"][0]["readySignal"] = ready_value
+                write_manifest(self.path, manifest)
+                page = SimulatedPage()
+                result = self.execute(page, selected=["hero"], resume=True)
+                self.assertEqual(result["captured"], ["hero"])
+                self.assertEqual(result["skipped"], [])
+                self.assertEqual(len(page.captured), 1)
+                self.assertIs(self.saved()["captures"][0]["readySignal"], True)
 
 
 if __name__ == "__main__":
