@@ -228,6 +228,9 @@ class ReferenceTargetSocketEndToEnd(unittest.TestCase):
                 if isinstance(target.get("id"), str)
             ],
         }]
+        # The added review credits blockout; keep the derived projection aligned with
+        # the ledger before strict-quality validation in the reference target.
+        spec["sculptPipeline"]["completedPasses"] = [FROZEN_PASS_ID]
         old_home = os.environ.get("IMG2_HOME")
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp) / "ws"
