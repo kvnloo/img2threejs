@@ -357,6 +357,15 @@ class DegenerateInput(unittest.TestCase):
         self.assertTrue(result["meshes"][1]["analyzed"])
 
 
+class EmptyGeometryEvidence(unittest.TestCase):
+    def test_empty_batch_is_an_error_not_a_clean_verdict(self) -> None:
+        result = analyze_meshes([])
+        self.assertEqual(result["meshCount"], 0)
+        self.assertEqual(result["meshes"], [])
+        self.assertFalse(result["selfIntersecting"])
+        self.assertEqual(result["errors"], ["no meshes to analyze"])
+
+
 class CommandLine(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -409,6 +418,108 @@ class CommandLine(unittest.TestCase):
         path = self._write("scalar.json", 17)
         code, _ = self._run([str(path)])
         self.assertEqual(code, 2)
+
+    def test_empty_exporter_payloads_fail_closed(self) -> None:
+        for label, payload in (
+            ("empty-list", []),
+            ("empty-meshes", {"meshes": []}),
+            ("empty-components", {"components": {}}),
+        ):
+            with self.subTest(label=label):
+                path = self._write(f"{label}.json", payload)
+                code, output = self._run([str(path), "--json"])
+                self.assertEqual(code, 2)
+                result = json.loads(output)
+                self.assertEqual(result["meshCount"], 0)
+                self.assertEqual(result["errors"], ["no meshes to analyze"])
+
+    def test_incomplete_exporter_receipts_cannot_pass(self) -> None:
+        clean = {"name": "clean", "vertices": self.vertices, "indices": self.indices}
+        incomplete = self._write(
+            "partial.json",
+            {"meshes": [clean], "incomplete": True,
+             "skippedMeshes": [{"name": "skinned", "reason": "unsupported"}]},
+        )
+        code, _ = self._run([str(incomplete)])
+        self.assertEqual(code, 2)
+
+        complete = self._write("complete.json", {"meshes": [clean], "incomplete": False})
+        code, output = self._run([str(complete), "--json"])
+        self.assertEqual(code, 0, output)
+        self.assertEqual(json.loads(output)["meshCount"], 1)
+
+    def test_explicit_local_space_and_omitted_active_meshes_fail_closed(self) -> None:
+        clean = {"name": "clean", "vertices": self.vertices, "indices": self.indices}
+        rejected_receipts = (
+            {"coordinateSpace": "local"},
+            {"coordinateSpace": None},
+            {"incomplete": "false"},
+            {"incomplete": None},
+            {"incomplete": False, "skippedMeshes": [{"name": "rig", "reason": "animated-or-instanced-mesh"}]},
+            {"incomplete": False, "skipped": [{"name": "morph", "reason": "active-morph-target"}]},
+            {"incomplete": False, "skipped": "not-a-list"},
+        )
+        for index, extras in enumerate(rejected_receipts):
+            with self.subTest(index=index, extras=extras):
+                payload = {"meshes": [clean], **extras}
+                path = self._write(f"invalid-receipt-{index}.json", payload)
+                code, _ = self._run([str(path)])
+                self.assertEqual(code, 2)
+
+    def test_browser_receipt_must_declare_explicit_complete_evidence(self) -> None:
+        clean = {"name": "clean", "vertices": self.vertices, "indices": self.indices}
+        for index, meta in enumerate((
+            {"schemaVersion": 1, "coordinateSpace": "world"},
+            {"coordinateSpace": "world"},
+            {"skippedMeshes": []},
+            {"skipped": [{"name": "ground", "reason": "hidden"}]},
+        )):
+            with self.subTest(meta=meta):
+                path = self._write(f"missing-coverage-{index}.json", {"meshes": [clean], **meta})
+                code, _ = self._run([str(path)])
+                self.assertEqual(code, 2, "missing complete receipt must not certify captured scene")
+
+        # Unadorned historical geometry inputs are not browser-exporter
+        # coverage receipts and retain their existing supported behavior.
+        legacy = self._write("legacy-raw-geometry.json", {"meshes": [clean]})
+        code, output = self._run([str(legacy), "--json"])
+        self.assertEqual(code, 0, output)
+        self.assertEqual(json.loads(output)["meshCount"], 1)
+
+    def test_exporter_schema_version_is_strictly_v1(self) -> None:
+        clean = {"name": "clean", "vertices": self.vertices, "indices": self.indices}
+        for index, version in enumerate((0, 2, "1", 1.0, True, None)):
+            with self.subTest(schemaVersion=version):
+                payload = {"meshes": [clean], "schemaVersion": version,
+                           "coordinateSpace": "world", "incomplete": False}
+                path = self._write(f"wrong-schema-{index}.json", payload)
+                code, _ = self._run([str(path)])
+                self.assertEqual(code, 2)
+        valid = self._write("verified-schema-v1.json",
+                            {"meshes": [clean], "schemaVersion": 1,
+                             "coordinateSpace": "world", "incomplete": False})
+        code, _ = self._run([str(valid)])
+        self.assertEqual(code, 0)
+
+    def test_world_space_receipt_with_intentionally_hidden_geometry_passes(self) -> None:
+        clean = {"name": "clean", "vertices": self.vertices, "indices": self.indices}
+        path = self._write("verified-world.json", {
+            "meshes": [clean],
+            "coordinateSpace": "world",
+            "incomplete": False,
+            "skippedMeshes": [{"name": "studio-floor", "reason": "hidden"}],
+            "skipped": [{"name": "excluded-overlay", "reason": "filtered"}],
+        })
+        code, output = self._run([str(path), "--json"])
+        self.assertEqual(code, 0, output)
+        self.assertEqual(json.loads(output)["meshCount"], 1)
+
+    def test_empty_exporter_payload_reports_actionable_text(self) -> None:
+        path = self._write("empty-cli.json", {"meshes": []})
+        code, output = self._run([str(path)])
+        self.assertEqual(code, 2)
+        self.assertIn("no meshes to analyze", output)
+        self.assertIn("verdict: ERROR", output)
 
     def test_max_samples_flag_is_honoured(self) -> None:
         path = self._write("budget.json", {"name": "solo", "vertices": self.vertices, "indices": self.indices})
