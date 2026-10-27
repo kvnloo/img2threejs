@@ -67,9 +67,9 @@ def _lum(p):
     return (p[0] * 30 + p[1] * 59 + p[2] * 11) / 100.0
 
 
-def analyze(path: str | Path) -> dict[str, Any]:
+def analyze(path: str | Path, *, interior_crop: bool = False) -> dict[str, Any]:
     w, h, pixels, _ = load_image(Path(path))
-    mask, _diag, _warn = build_foreground_mask(w, h, pixels)
+    mask, _diag, _warn = build_foreground_mask(w, h, pixels, interior_crop=interior_crop)
     g = _sample(pixels, w, h, mask)
     n = len(g)
     lums = [_lum(p) for p in g]
@@ -220,13 +220,18 @@ def main(argv=None) -> int:
     ap.add_argument("--spec", type=Path, help="ObjectSculptSpec to patch a material in")
     ap.add_argument("--material-id", help="material id to apply the recipe to (with --spec)")
     ap.add_argument("--in-place", action="store_true", help="write the spec back")
+    ap.add_argument(
+        "--interior-crop",
+        action="store_true",
+        help="Treat every opaque pixel as material evidence for a crop that contains material only",
+    )
     args = ap.parse_args(argv)
     has_patch_target = args.spec is not None and args.material_id is not None
     if (args.spec is None) != (args.material_id is None):
         ap.error("--spec and --material-id must be used together")
     if args.in_place and not has_patch_target:
         ap.error("--in-place requires --spec and --material-id")
-    result = analyze(args.image)
+    result = analyze(args.image, interior_crop=args.interior_crop)
 
     if has_patch_target:
         spec = json.loads(args.spec.read_text(encoding="utf-8"))
