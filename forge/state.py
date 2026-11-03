@@ -16,6 +16,8 @@ from workflow_state import (  # noqa: E402
     load_state,
     mark_steps,
     new_state,
+    recompute,
+    set_current_pass,
     status_payload,
 )
 
@@ -58,6 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
     mark.add_argument("--status", choices=("done", "skipped", "pending"), default="done")
     mark.add_argument("--evidence", action="append", default=[])
     mark.add_argument("--reason", default="")
+
+    # Preserve the public resume command from upstream PR #182.
+    resume = commands.add_parser("resume")
+    resume.add_argument("--state", type=Path, default=Path(".img2threejs/state.json"))
+    resume.add_argument("--pass-id", default="")
 
     return parser
 
@@ -113,6 +120,19 @@ def main(argv: list[str]) -> int:
             mark_steps(state, args.step, status=args.status, evidence=args.evidence, reason=args.reason)
             write_state(args.state, state, action="mark", steps=args.step,
                         status=args.status, evidence=args.evidence)
+            print_status(state)
+        elif args.command == "resume":
+            # Match upstream #182's reopen semantics, including stopped states.
+            if state.get("status") == "stopped":
+                state["status"] = "active"
+                state["stopReason"] = ""
+            if args.pass_id:
+                set_current_pass(state, args.pass_id)
+            else:
+                recompute(state)
+            # Resume is a transition too: it must not bypass the #175 ledger.
+            write_state(args.state, state, action="resume", steps=("resume",),
+                        status=state["status"])
             print_status(state)
         return 3 if state.get("status") == "stopped" else 0
     except (OSError, WorkflowStateError) as error:
