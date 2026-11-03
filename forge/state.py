@@ -9,13 +9,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "_shared"))
 
+from state_integrity import migrate_state, verify_state, write_state  # noqa: E402
 from domains import DomainRegistryError, registered_domains  # noqa: E402
 from workflow_state import (  # noqa: E402
     WorkflowStateError,
     load_state,
     mark_steps,
     new_state,
-    save_state,
     status_payload,
 )
 
@@ -45,6 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
     status = commands.add_parser("status")
     status.add_argument("--state", type=Path, default=Path(".img2threejs/state.json"))
     status.add_argument("--json", action="store_true")
+
+    verify = commands.add_parser("verify")
+    verify.add_argument("--state", type=Path, default=Path(".img2threejs/state.json"))
+
+    migrate = commands.add_parser("migrate")
+    migrate.add_argument("--state", type=Path, default=Path(".img2threejs/state.json"))
 
     mark = commands.add_parser("mark")
     mark.add_argument("step", nargs="+")
@@ -89,15 +95,24 @@ def main(argv: list[str]) -> int:
                 max_per_pass=args.max_per_pass,
                 max_total=args.max_total,
             )
-            save_state(args.state, state)
+            write_state(args.state, state, action="init", steps=("init",), status=state["status"])
             print_status(state)
             return 0
         state = load_state(args.state)
-        if args.command == "status":
+        if args.command == "migrate":
+            migrate_state(args.state, state)
+            print("WARNING: previous state history cannot be verified", file=sys.stderr)
+            print_status(state)
+            return 3 if state.get("status") == "stopped" else 0
+        verify_state(args.state, state)
+        if args.command == "verify":
+            print("state integrity: verified")
+        elif args.command == "status":
             print_status(state, as_json=args.json)
         elif args.command == "mark":
             mark_steps(state, args.step, status=args.status, evidence=args.evidence, reason=args.reason)
-            save_state(args.state, state)
+            write_state(args.state, state, action="mark", steps=args.step,
+                        status=args.status, evidence=args.evidence)
             print_status(state)
         return 3 if state.get("status") == "stopped" else 0
     except (OSError, WorkflowStateError) as error:

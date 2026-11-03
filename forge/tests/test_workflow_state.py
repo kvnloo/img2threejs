@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "forge" / "_shared"))
 
+from state_integrity import write_state  # noqa: E402
 from workflow_state import (  # noqa: E402
     WorkflowStateError,
     mark_steps,
@@ -311,7 +312,7 @@ class WorkflowStateTest(unittest.TestCase):
             state = new_state("reference.png", spec=str(spec_path))
             setup_ids = [entry["id"] for entry in state["checklist"] if entry["scope"] == "setup"]
             mark_steps(state, setup_ids, status="done", evidence=["setup.json"])
-            state_path.write_text(json.dumps(state), encoding="utf-8")
+            write_state(state_path, state, action="test-fixture")
             spec_path.write_text(
                 json.dumps({"buildPasses": [{"id": "blockout", "acceptance": []}], "reviewHistory": []}),
                 encoding="utf-8",
@@ -350,9 +351,9 @@ class WorkflowStateTest(unittest.TestCase):
             state_path = Path(directory) / "state.json"
             stored_spec = Path(directory) / "stored.json"
             other_spec = Path(directory) / "other.json"
-            state_path.write_text(
-                json.dumps(new_state("reference.png", spec=str(stored_spec))),
-                encoding="utf-8",
+            write_state(
+                state_path, new_state("reference.png", spec=str(stored_spec)),
+                action="test-fixture",
             )
             other_spec.write_text(json.dumps({"buildPasses": []}), encoding="utf-8")
             result = subprocess.run(
@@ -368,6 +369,103 @@ class WorkflowStateTest(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 2)
             self.assertIn("does not match stored spec", result.stderr)
+
+    def test_journal_detects_unlogged_state_and_log_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            cli = [sys.executable, str(ROOT / "forge" / "state.py")]
+            init = subprocess.run(
+                [*cli, "init", "--state", str(state_path), "--reference", "reference.png"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(init.returncode, 0, init.stderr)
+            mark = subprocess.run(
+                [*cli, "mark", "image-analysis", "--state", str(state_path),
+                 "--evidence", "observations.json"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(mark.returncode, 0, mark.stderr)
+            journal = state_path.with_name("state.json.transitions.jsonl")
+            entries = [json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(
+                [(e["action"], e["step"], e["status"]) for e in entries],
+                [("init", "init", "active"), ("mark", "image-analysis", "done")],
+            )
+            self.assertEqual(entries[1]["previousHash"], entries[0]["entryHash"])
+            valid = subprocess.run(
+                [*cli, "verify", "--state", str(state_path)], capture_output=True, text=True,
+            )
+            self.assertEqual(valid.returncode, 0, valid.stderr)
+            altered = json.loads(state_path.read_text(encoding="utf-8"))
+            altered["checklist"][0]["evidence"] = ["fabricated.png"]
+            state_path.write_text(json.dumps(altered), encoding="utf-8")
+            for command in (
+                [*cli, "verify", "--state", str(state_path)],
+                [sys.executable, str(ROOT / "forge" / "next.py"), "--state", str(state_path)],
+                [*cli, "mark", "local-spec-search", "--state", str(state_path), "--evidence", "x"],
+            ):
+                rejected = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(rejected.returncode, 2, rejected.stderr)
+                self.assertIn("state tampered", rejected.stderr)
+            self.assertEqual(len(journal.read_text(encoding="utf-8").splitlines()), 2)
+
+    def test_legacy_state_migrates_once_and_log_hash_is_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            state_path.write_text(json.dumps(new_state("reference.png")), encoding="utf-8")
+            cli = [sys.executable, str(ROOT / "forge" / "state.py")]
+            old = subprocess.run(
+                [*cli, "verify", "--state", str(state_path)], capture_output=True, text=True,
+            )
+            self.assertEqual(old.returncode, 2)
+            self.assertIn("migrate", old.stderr)
+            next_old = subprocess.run(
+                [sys.executable, str(ROOT / "forge" / "next.py"), "--state", str(state_path)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(next_old.returncode, 2)
+            migrated = subprocess.run(
+                [*cli, "migrate", "--state", str(state_path)], capture_output=True, text=True,
+            )
+            self.assertEqual(migrated.returncode, 0, migrated.stderr)
+            self.assertIn("previous state history cannot be verified", migrated.stderr)
+            verified = subprocess.run(
+                [*cli, "verify", "--state", str(state_path)], capture_output=True, text=True,
+            )
+            self.assertEqual(verified.returncode, 0, verified.stderr)
+            journal = state_path.with_name("state.json.transitions.jsonl")
+            entry = json.loads(journal.read_text(encoding="utf-8").splitlines()[0])
+            entry["status"] = "complete"
+            journal.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+            broken = subprocess.run(
+                [*cli, "verify", "--state", str(state_path)], capture_output=True, text=True,
+            )
+            self.assertEqual(broken.returncode, 2)
+            self.assertIn("tampered transition log", broken.stderr)
+
+    def test_next_sync_writes_valid_transition(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            spec_path = Path(directory) / "spec.json"
+            write_state(state_path, new_state("reference.png", spec=str(spec_path)),
+                        action="test-fixture")
+            spec_path.write_text(
+                json.dumps({"buildPasses": [{"id": "blockout", "acceptance": []}], "reviewHistory": []}),
+                encoding="utf-8",
+            )
+            next_run = subprocess.run(
+                [sys.executable, str(ROOT / "forge" / "next.py"), "--state", str(state_path)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(next_run.returncode, 0, next_run.stderr)
+            verified = subprocess.run(
+                [sys.executable, str(ROOT / "forge" / "state.py"), "verify", "--state", str(state_path)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(verified.returncode, 0, verified.stderr)
+            journal = state_path.with_name("state.json.transitions.jsonl")
+            entries = [json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([entry["action"] for entry in entries], ["test-fixture", "sync"])
 
     def test_state_cli_does_not_expose_manual_pass_bypass(self):
         result = subprocess.run(
