@@ -196,13 +196,21 @@ Do not regenerate after `refine-code`; edit the existing artifact. Regenerate wi
 Aligns + packages one side-by-side sheet. It does **not** compute an acceptance score — inspect
 `cmp.png` with agent vision and write the score back via `stage4_review/append_review.py`.
 
+## stage4_review/diagnose_render.py
+`stage4_review/diagnose_render.py --reference IMG --render SHOT --spec spec.json --pass-id PASS --in-place [--map-stripped-render MAPS_OFF]`
+For `blockout`, supply the separate screenshot captured with material maps disabled; without
+`--map-stripped-render` the recorded Tier 1 result fails. The flag records an evidence path; it
+does not itself verify that material maps were disabled.
+
 ## stage4_review/append_review.py
 `stage4_review/append_review.py spec.json --pass-id PASS --fidelity 0-1 --action continue|refine-spec|refine-code|request-input|stop --summary "..." [evidence flags] --in-place`
 Evidence flags: `--matched --mismatches --spec-fixes --code-fixes --evidence --reference-screenshot
 --render-screenshot --comparison-image --ai-vision-score 0-1 --layer-scores-json '{...}'
 --feature-reviews-json f.json --ai-vision-notes "..." --visual-threshold 0-1 --camera-view NAME
---require-screenshot-files`. Layer keys: `silhouetteProportion, componentStructure, formDetail,
+--require-screenshot-files --map-stripped-render MAPS_OFF`. Layer keys: `silhouetteProportion, componentStructure, formDetail,
 materialSurface, lightingCamera`. Records one self-correction entry into `reviewHistory`.
+`--map-stripped-render` is required to credit `blockout` with `--action continue`.
+Reviews follow the unlocked pass order; `--force-out-of-order` is for deliberate re-review only.
 
 ## GLB-mediated v2 render profile
 
