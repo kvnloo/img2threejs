@@ -1,0 +1,94 @@
+name: RSI v2 isolated-family WebGL pilot
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/dream_rsi_mesh_fidelity/registered_multifamily.py'
+      - 'experiments/dream_rsi_mesh_fidelity/MULTIFAMILY_V2_REGISTERED.json'
+      - 'forge/tests/test_rsi_multifamily_protocol.py'
+      - 'forge/tests/test_rsi_policy_freeze.py'
+      - 'forge/tests/test_rsi_registered_holdout.py'
+      - 'experiments/dream_rsi_mesh_fidelity/registered_policy.py'
+      - 'experiments/dream_rsi_mesh_fidelity/registered_holdout_ab.py'
+      - 'experiments/dream_rsi_mesh_fidelity/aggregate_holdout.py'
+      - '.github/workflows/rsi-multifamily-browser.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  protocol:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Validate preregistration, heldout isolation and actual native codegen
+        run: |
+          python3 -m unittest \
+            forge.tests.test_rsi_multifamily_protocol \
+            forge.tests.test_rsi_policy_freeze \
+            forge.tests.test_rsi_registered_holdout -v
+          python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py register
+
+  three-family-browser:
+    needs: protocol
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [assembled-box, lathe, tapered-sweep]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate one frozen world in this family using native stage3
+        shell: bash
+        env:
+          WORLD: ${{ matrix.family }}-train-01
+          OUTPUT: ${{ runner.temp }}/rsi-v2-${{ matrix.family }}
+        run: |
+          set -euo pipefail
+          python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py \
+            prepare --world-id "$WORLD" --out "$OUTPUT"
+      - name: Install optional browser dependencies in experiment scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock \
+            --prefix experiments/dream_rsi_mesh_fidelity \
+            esbuild@0.25.6 playwright-core@1.55.0 three@0.170.0
+      - name: Capture actual source-generated Three.js geometry with Chromium WebGL2
+        shell: bash
+        env:
+          OUTPUT: ${{ runner.temp }}/rsi-v2-${{ matrix.family }}
+        run: |
+          set -euo pipefail
+          CHROME_BIN="$(command -v google-chrome || command -v chromium || true)"
+          test -n "$CHROME_BIN"
+          CHROME_BIN="$CHROME_BIN" node \
+            experiments/dream_rsi_mesh_fidelity/real_browser_capture.mjs "$OUTPUT"
+      - name: Evaluate native Divine Eye and retain all failure evidence
+        shell: bash
+        env:
+          OUTPUT: ${{ runner.temp }}/rsi-v2-${{ matrix.family }}
+        run: |
+          set -euo pipefail
+          python3 experiments/dream_rsi_mesh_fidelity/registered_multifamily.py \
+            score --out "$OUTPUT"
+      - name: Upload receipts, screenshots and native generated models
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rsi-v2-preregistered-${{ matrix.family }}
+          path: ${{ runner.temp }}/rsi-v2-${{ matrix.family }}/
+          if-no-files-found: warn
+          retention-days: 14
