@@ -257,7 +257,11 @@ Full flags: `grimoire/scripts.md`. Never let a script *score* visuals — that i
     When a domain plugin contributes a review gate, produce its versioned report first with
     the command that plugin's review step names, then attach it with
     `--domain-review-json <report>.json --review-scene-json <the plugin's scene fixture>`. The
-    checklist step carries the resolved paths.
+    checklist step carries the resolved paths. When `.img2threejs/state.json` beside
+    the spec (or in the current workspace) names a non-`generic` profile, the CLI
+    refuses `action=continue` if `--domain-review-json` is absent or null. Use
+    `--state PATH` for a nonstandard workspace location; if a domain review has not
+    passed, choose `refine-spec`, `refine-code`, `request-input`, or `stop` instead.
     A failed family, painted-region, projection-coverage, critical-detail, or orbit gate blocks
     `continue` even when the global score passes. See the plugin's own review-gate documentation.
 11. Sync pipeline state after manual review edits, record checklist evidence, then re-run the local
