@@ -73,7 +73,7 @@ def capture(manifest_path_value: Path, capture_ids: list[str], headed: bool, tim
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-            page.wait_for_function("() => Boolean(window.__IMG2THREEJS_READY__)", timeout=timeout_ms)
+            page.wait_for_function("() => window.__IMG2THREEJS_READY__ === true", timeout=timeout_ms)
 
             if fidelity_v2:
                 pass_contract = page.evaluate(

@@ -77,6 +77,15 @@ def now_utc() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def ready_signal_passed(value: Any) -> bool:
+    """Only an explicit true value proves that the browser reached readiness.
+
+    CLI --ready-signal values arrive as strings; never rely on bool("false").
+    Missing or ambiguous values must not validate a recorded screenshot.
+    """
+    return value is True or (isinstance(value, str) and value.strip().lower() == "true")
+
+
 def init_manifest(
     reference: Path | None,
     runtime_url: str,
@@ -195,7 +204,7 @@ def record_capture(
     manifest: dict[str, Any],
     capture_id: str,
     screenshot: Path,
-    ready_signal: Any = True,
+    ready_signal: Any = None,
     console_errors: list[str] | None = None,
     browser_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -224,7 +233,7 @@ def record_reference_capture(
     manifest: dict[str, Any],
     capture_id: str,
     screenshot: Path,
-    ready_signal: Any = True,
+    ready_signal: Any = None,
     console_errors: list[str] | None = None,
 ) -> dict[str, Any]:
     """Record a browser screenshot of the GLB reference baseline.
@@ -338,19 +347,29 @@ def validate_manifest(path: Path, require_complete: bool = False) -> dict[str, A
         if capture_id in ids:
             errors.append(f"duplicate capture id: {capture_id}")
         ids.add(capture_id)
-        if reference.get("kind") == "glb":
+        if isinstance(reference, dict) and reference.get("kind") == "glb":
             baseline = capture.get("reference")
             if not isinstance(baseline, dict) or baseline.get("status") != "recorded":
                 if require_complete:
                     errors.append(f"GLB reference baseline is not recorded: {capture_id}")
-            elif baseline.get("path"):
+            elif not baseline.get("path"):
+                errors.append(f"recorded GLB reference baseline has no path: {capture_id}")
+            else:
+                if not ready_signal_passed(baseline.get("readySignal")):
+                    errors.append(f"GLB reference capture lacks a passing ready signal: {capture_id}")
                 baseline_path = manifest_path(path, str(baseline["path"]))
                 if not baseline_path.is_file():
                     errors.append(f"GLB reference baseline is missing: {baseline_path}")
-                elif baseline.get("screenshotSha256") and baseline["screenshotSha256"] != sha256(baseline_path):
-                    errors.append(f"GLB reference baseline hash changed: {baseline_path}")
-                if baseline.get("consoleErrors"):
-                    errors.append(f"browser console errors recorded for GLB baseline: {capture_id}")
+                else:
+                    expected_hash = baseline.get("screenshotSha256")
+                    if not isinstance(expected_hash, str) or len(expected_hash) != 64 or any(
+                        c not in "0123456789abcdef" for c in expected_hash
+                    ):
+                        errors.append(f"GLB reference baseline has no valid SHA-256 receipt: {capture_id}")
+                    elif expected_hash != sha256(baseline_path):
+                        errors.append(f"GLB reference baseline hash changed: {baseline_path}")
+                if baseline.get("consoleErrors") != []:
+                    errors.append(f"browser console errors or unverified console receipt for GLB baseline: {capture_id}")
                 errors.extend(
                     validate_pass_records(
                         path,
@@ -365,6 +384,8 @@ def validate_manifest(path: Path, require_complete: bool = False) -> dict[str, A
                 errors.append(f"capture is not recorded: {capture_id}")
             continue
         recorded += 1
+        if not ready_signal_passed(capture.get("readySignal")):
+            errors.append(f"recorded capture lacks a passing ready signal: {capture_id}")
         screenshot_value = capture.get("path")
         if not screenshot_value:
             errors.append(f"recorded capture has no path: {capture_id}")
@@ -376,10 +397,15 @@ def validate_manifest(path: Path, require_complete: bool = False) -> dict[str, A
         image = probe(screenshot)
         if not image.get("type") or not image.get("width"):
             errors.append(f"screenshot is unreadable: {screenshot}")
-        if capture.get("screenshotSha256") and capture["screenshotSha256"] != sha256(screenshot):
+        expected_hash = capture.get("screenshotSha256")
+        if not isinstance(expected_hash, str) or len(expected_hash) != 64 or any(
+            c not in "0123456789abcdef" for c in expected_hash
+        ):
+            errors.append(f"recorded capture has no valid SHA-256 receipt: {capture_id}")
+        elif expected_hash != sha256(screenshot):
             errors.append(f"screenshot hash changed: {screenshot}")
-        if capture.get("consoleErrors"):
-            errors.append(f"browser console errors recorded for: {capture_id}")
+        if capture.get("consoleErrors") != []:
+            errors.append(f"browser console errors or unverified console receipt recorded for: {capture_id}")
         errors.extend(
             validate_pass_records(
                 path,
@@ -410,6 +436,8 @@ def diagnose(path: Path, output: Path) -> dict[str, Any]:
     hero_path = manifest_path(path, str(hero["path"]))
     if hero.get("status") != "recorded":
         raise ValueError("hero capture must be recorded before diagnostics")
+    if not ready_signal_passed(hero.get("readySignal")):
+        raise ValueError("hero capture must have a passing browser ready signal before diagnostics")
 
     review_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(review_dir))
@@ -419,14 +447,29 @@ def diagnose(path: Path, output: Path) -> dict[str, Any]:
     orbit_paths = []
     for capture in manifest.get("captures", []):
         if isinstance(capture, dict) and capture.get("role") == "orbit" and capture.get("status") == "recorded":
+            if not ready_signal_passed(capture.get("readySignal")):
+                raise ValueError(f"orbit capture lacks a passing browser ready signal: {capture.get('id')}")
             orbit_paths.append(manifest_path(path, str(capture["path"])))
     if reference_record.get("kind") == "glb":
         hero_reference = hero.get("reference")
         if not isinstance(hero_reference, dict) or hero_reference.get("status") != "recorded":
             raise ValueError("GLB reference hero baseline must be recorded before diagnostics")
+        if not ready_signal_passed(hero_reference.get("readySignal")):
+            raise ValueError("GLB reference hero baseline must have a passing browser ready signal")
         comparison_reference_path = manifest_path(path, str(hero_reference["path"]))
     else:
         comparison_reference_path = reference_path
+
+    # Direct callers must not sidestep the same evidence-integrity gate as the
+    # validate CLI: bad hashes, corrupt screenshots or browser errors are not
+    # suitable material for visual-fidelity scoring.
+    evidence_check = validate_manifest(path)
+    if not evidence_check["passed"]:
+        raise ValueError(
+            "render manifest failed validation before diagnostics: "
+            + "; ".join(evidence_check["errors"])
+        )
+
     result = {
         "manifest": str(path.resolve()),
         "reference": str(reference_path),
@@ -464,14 +507,14 @@ def main(argv: list[str]) -> int:
     record.add_argument("--manifest", type=Path, required=True)
     record.add_argument("--capture-id", required=True)
     record.add_argument("--screenshot", type=Path, required=True)
-    record.add_argument("--ready-signal", default=True)
+    record.add_argument("--ready-signal", default=None)
     record.add_argument("--console-error", action="append", default=[])
 
     record_reference = commands.add_parser("record-reference", help="record a browser-rendered GLB baseline screenshot")
     record_reference.add_argument("--manifest", type=Path, required=True)
     record_reference.add_argument("--capture-id", required=True)
     record_reference.add_argument("--screenshot", type=Path, required=True)
-    record_reference.add_argument("--ready-signal", default=True)
+    record_reference.add_argument("--ready-signal", default=None)
     record_reference.add_argument("--console-error", action="append", default=[])
 
     record_pass_parser = commands.add_parser("record-pass", help="record one browser-produced diagnostic pass")
