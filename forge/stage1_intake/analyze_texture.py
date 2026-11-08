@@ -6,8 +6,10 @@ material recipe (MeshPhysicalMaterial scalars + palette + procedural hints) that
 `generate_threejs_factory.py`'s procedural texture generator consumes. This replaces the
 per-object hand-crafting of albedo/roughness maps with a repeatable analysis→recipe step.
 
-finishClass ∈ { gem-metal, gemstone, painted-metal, worn-composite, brushed-steel, plastic }
-Recipe scalars grounded in grimoire/build/threejs_texture_reference.md (notebooklm/three.js docs).
+finishClass candidates come from { gem-metal, gemstone, painted-metal, worn-composite, brushed-steel, plastic }.
+When a known semantic family is incompatible with that legacy vocabulary, the result is `status=probe`
+and no finish class is applied. Recipe scalars are grounded in
+grimoire/build/threejs_texture_reference.md (notebooklm/three.js docs).
 
 CLI:  analyze_texture.py <crop.png> [--json]
 API:  analyze(path) -> dict
@@ -40,6 +42,16 @@ RECIPES: dict[str, dict[str, Any]] = {
 
 N = 64  # downsample grid for stats
 
+FINISH_FAMILIES: dict[str, set[str]] = {
+    "gem-metal": {"metal", "coating"},
+    "candy-coat": {"metal", "coating"},
+    "gemstone": {"gemstone", "glass"},
+    "painted-metal": {"metal", "coating"},
+    "worn-composite": {"rubber", "plastic", "composite"},
+    "brushed-steel": {"metal"},
+    "plastic": {"plastic"},
+}
+
 
 def _sample(pixels, w, h, mask):
     minx = miny = 1 << 30
@@ -67,7 +79,7 @@ def _lum(p):
     return (p[0] * 30 + p[1] * 59 + p[2] * 11) / 100.0
 
 
-def analyze(path: str | Path) -> dict[str, Any]:
+def analyze(path: str | Path, *, expected_family: str | None = None) -> dict[str, Any]:
     w, h, pixels, _ = load_image(Path(path))
     mask, _diag, _warn = build_foreground_mask(w, h, pixels)
     g = _sample(pixels, w, h, mask)
@@ -175,8 +187,24 @@ def analyze(path: str | Path) -> dict[str, Any]:
             })
 
     recipe = dict(RECIPES[finish])
+    normalized_family = expected_family.strip().lower() if isinstance(expected_family, str) and expected_family.strip() else None
+    compatible = FINISH_FAMILIES[finish]
+    status = "proceed"
+    reason = None
+    finish_class: str | None = finish
+    if normalized_family is not None and normalized_family not in compatible:
+        status = "probe"
+        reason = (
+            f"legacy finish classifier has no compatible {normalized_family!r} class for "
+            f"candidate {finish!r}; preserve authored material semantics"
+        )
+        finish_class = None
     return {
-        "finishClass": finish,
+        "status": status,
+        "reason": reason,
+        "expectedFamily": normalized_family,
+        "finishClass": finish_class,
+        "finishClassCandidate": finish,
         "recipe": recipe,
         "palette": stops,
         "paletteHueRisk": palette_risk,
@@ -194,22 +222,37 @@ def analyze(path: str | Path) -> dict[str, Any]:
 
 
 def apply_to_material(material: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
-    """Write the analysed recipe onto a spec material (doc-grounded MeshPhysicalMaterial scalars).
-    Layer-shaped fields ({'base': v}) are preserved so validators stay happy."""
+    """Apply only missing inferred fields; authored material scalars remain authoritative."""
+    if result.get("status", "proceed") != "proceed" or not result.get("finishClass"):
+        raise ValueError(result.get("reason") or "texture analysis is not applicable to this material family")
     r = result["recipe"]
-    material["finishClass"] = result["finishClass"]
-    material["texturePalette"] = result["palette"]
-    material["proceduralTexture"] = r["procedural"]
+    preserved: list[str] = []
+    applied: list[str] = []
+
+    def set_missing(key: str, value: Any) -> None:
+        if key in material:
+            preserved.append(key)
+            return
+        material[key] = value
+        applied.append(key)
+
+    set_missing("finishClass", result["finishClass"])
+    set_missing("texturePalette", result["palette"])
+    set_missing("proceduralTexture", r["procedural"])
     for key in ("metalness", "roughness", "clearcoat", "clearcoatRoughness", "transmission"):
-        existing = material.get(key)
-        if isinstance(existing, dict):
-            existing["base"] = r[key]
-        else:
-            material[key] = {"base": r[key], "variation": 0.0}
-    material["ior"] = {"base": r["ior"], "value": r["ior"]}
-    material["envMapIntensity"] = r["envMapIntensity"]
+        set_missing(key, {"base": r[key], "variation": 0.0})
+    set_missing("ior", {"base": r["ior"], "value": r["ior"]})
+    set_missing("envMapIntensity", r["envMapIntensity"])
     if r["anisotropy"] > 0:
-        material["anisotropy"] = {"base": r["anisotropy"]}
+        set_missing("anisotropy", {"base": r["anisotropy"]})
+    material["textureAnalysis"] = {
+        "status": result.get("status", "proceed"),
+        "finishClass": result.get("finishClass"),
+        "finishClassCandidate": result.get("finishClassCandidate"),
+        "expectedFamily": result.get("expectedFamily"),
+        "appliedFields": applied,
+        "preservedAuthoredFields": preserved,
+    }
     return material
 
 
@@ -220,21 +263,36 @@ def main(argv=None) -> int:
     ap.add_argument("--spec", type=Path, help="ObjectSculptSpec to patch a material in")
     ap.add_argument("--material-id", help="material id to apply the recipe to (with --spec)")
     ap.add_argument("--in-place", action="store_true", help="write the spec back")
+    ap.add_argument("--family", help="Known semantic material family; incompatible legacy finish classes are refused")
     args = ap.parse_args(argv)
     has_patch_target = args.spec is not None and args.material_id is not None
     if (args.spec is None) != (args.material_id is None):
         ap.error("--spec and --material-id must be used together")
     if args.in_place and not has_patch_target:
         ap.error("--in-place requires --spec and --material-id")
-    result = analyze(args.image)
-
+    spec = None
+    material = None
+    expected_family = args.family
     if has_patch_target:
         spec = json.loads(args.spec.read_text(encoding="utf-8"))
         mats = [m for m in spec.get("materials", []) if m.get("id") == args.material_id]
         if not mats:
             print(f"material {args.material_id!r} not found in spec", file=sys.stderr)
             return 2
-        apply_to_material(mats[0], result)
+        material = mats[0]
+        if expected_family is None:
+            expected_family = material.get("materialFamily") or material.get("family")
+        if expected_family is None:
+            reference_material_id = material.get("referenceMaterialId")
+            if isinstance(reference_material_id, str) and "." in reference_material_id:
+                expected_family = reference_material_id.split(".", 1)[0]
+    result = analyze(args.image, expected_family=expected_family)
+
+    if has_patch_target:
+        if result.get("status") != "proceed":
+            print(f"refused: {result.get('reason')}", file=sys.stderr)
+            return 2
+        apply_to_material(material, result)
         if args.in_place:
             args.spec.write_text(json.dumps(spec, indent=2), encoding="utf-8")
             print(f"applied {result['finishClass']} recipe to material {args.material_id!r} in {args.spec.name}")
@@ -245,10 +303,13 @@ def main(argv=None) -> int:
     if args.json:
         print(json.dumps(result, indent=2))
     else:
+        print(f"status:      {result['status']}")
         print(f"finishClass: {result['finishClass']}")
+        if result.get("reason"):
+            print(f"reason:      {result['reason']}")
         print(f"palette:     {result['palette']}")
         print(f"stats:       {result['stats']}")
-    return 0
+    return 0 if result.get("status") == "proceed" else 2
 
 
 if __name__ == "__main__":

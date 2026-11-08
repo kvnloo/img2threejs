@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import zlib
 import io
+import json
 from contextlib import redirect_stderr
 from pathlib import Path
 
@@ -97,17 +98,45 @@ class AnalyzeTextureTest(unittest.TestCase):
         self.assertAlmostEqual(r["recipe"]["metalness"], 1.0)
         self.assertAlmostEqual(r["recipe"]["anisotropy"], 1.0)
 
-    def test_apply_to_material_writes_recipe(self):
+    def test_apply_to_material_preserves_authored_scalars(self):
         from analyze_texture import apply_to_material
         img = self._mk("paint2.png", lambda x, y: (230, 150, 50))
         result = analyze(img)
         mat = {"id": "frame", "roughness": {"base": 0.3, "variation": 0.1}}
         apply_to_material(mat, result)
         self.assertEqual(mat["finishClass"], "painted-metal")
-        self.assertEqual(mat["roughness"]["base"], result["recipe"]["roughness"])  # layer shape kept
-        self.assertEqual(mat["roughness"]["variation"], 0.1)
+        self.assertEqual(mat["roughness"], {"base": 0.3, "variation": 0.1})
+        self.assertIn("roughness", mat["textureAnalysis"]["preservedAuthoredFields"])
         self.assertIn("texturePalette", mat)
         self.assertEqual(mat["clearcoat"]["base"], result["recipe"]["clearcoat"])
+
+    def test_fabric_family_refuses_metal_finish_candidate(self):
+        img = self._mk("woven.png", lambda x, y: (145 + ((x // 5) % 2) * 8, 140, 132))
+        result = analyze(img, expected_family="fabric")
+        self.assertEqual(result["status"], "probe")
+        self.assertIsNone(result["finishClass"])
+        self.assertIsNotNone(result["finishClassCandidate"])
+        self.assertIn("fabric", result["reason"])
+
+    def test_standalone_family_refusal_returns_nonzero(self):
+        img = self._mk("fabric-standalone.png", lambda x, y: (148, 142, 134))
+        rc = main([str(img), "--family", "fabric", "--json"])
+        self.assertEqual(rc, 2)
+
+    def test_in_place_refusal_leaves_fabric_spec_unchanged(self):
+        img = self._mk("fabric-patch.png", lambda x, y: (145 + ((x // 5) % 2) * 8, 140, 132))
+        spec = self.d / "spec.json"
+        original = {
+            "materials": [{
+                "id": "cloth",
+                "materialFamily": "fabric",
+                "roughness": {"base": 0.85, "variation": 0.05},
+            }]
+        }
+        spec.write_text(json.dumps(original), encoding="utf-8")
+        rc = main([str(img), "--spec", str(spec), "--material-id", "cloth", "--in-place"])
+        self.assertEqual(rc, 2)
+        self.assertEqual(json.loads(spec.read_text(encoding="utf-8")), original)
 
     def test_all_recipes_have_required_scalars(self):
         keys = {"metalness", "roughness", "clearcoat", "clearcoatRoughness", "transmission",
