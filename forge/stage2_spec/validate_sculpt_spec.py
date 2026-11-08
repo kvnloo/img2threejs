@@ -1185,7 +1185,12 @@ def validate_subdivision_budget(
             "because generated PlaneGeometry has open boundary edges"
         )
         return
-    uses_attachment_cylinder = attachment_emits_cylinder(attachment)
+    # Explicit curve and tube paths use their authored geometry, never the
+    # endpoint cylinder. Their face counts cannot borrow its fixed budget.
+    uses_attachment_cylinder = attachment_emits_cylinder(attachment) and not (
+        (primitive == "curve-sweep" and isinstance(descriptor.get("curveSweep"), dict))
+        or (primitive == "tube" and isinstance(descriptor.get("tubePath"), dict))
+    )
     if emitted_primitive == "torus" and not uses_attachment_cylinder:
         errors.append(
             f"component {component_id!r} geometryDescriptor.subdivide.iterations torus subdivision topology is unsupported "
