@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#08121f">
+  <title>Pocket World — img2threejs experiment</title>
+  <style>
+    :root { color-scheme: dark; font: 500 14px/1.45 system-ui, -apple-system, sans-serif; background: #08121f; color: #ecf4f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100svh; overflow: hidden; }
+    #viewport { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+    #viewport:focus-visible { outline: 2px solid #97e8cc; outline-offset: -3px; }
+    .topbar { position: fixed; top: max(16px, env(safe-area-inset-top)); left: 22px; right: 22px; display: flex; justify-content: space-between; align-items: start; pointer-events: none; gap: 16px; }
+    .topbar > * { pointer-events: auto; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .mark { width: 34px; height: 34px; border: 1px solid #8ce8c965; display: grid; place-items: center; border-radius: 11px; background: #7ae6c31c; color: #94edcf; font-weight: 900; }
+    .brand strong { display: block; font-size: 15px; letter-spacing: -.03em; }
+    .brand small { color: #9bafc1; display: block; font-size: 11px; letter-spacing: .02em; }
+    .panel { position: fixed; top: 92px; right: 22px; width: 278px; max-height: calc(100svh - 130px); overflow-y: auto; border: 1px solid #ffffff22; background: #111b29dd; backdrop-filter: blur(18px); border-radius: 19px; box-shadow: 0 18px 75px #0007; }
+    .panel > summary { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; background: #172838; cursor: pointer; font-weight: 750; list-style: none; }
+    .panel > summary::-webkit-details-marker { display: none; }
+    .panel > summary::after { content: '+'; font-size: 20px; line-height: 1; color: #9deed7; }
+    .panel[open] > summary::after { content: '−'; }
+    .panel > summary:focus-visible { outline: 2px solid #97e8cc; outline-offset: -3px; }
+    .panel-content { padding: 0 18px 18px; }
+    .eyebrow { color: #91e9ce; font-size: 10px; font-weight: 800; letter-spacing: .17em; text-transform: uppercase; }
+    h1 { font-size: 22px; margin: 5px 0 5px; letter-spacing: -.055em; line-height: 1.06; }
+    p { margin: 0 0 17px; color: #abbac8; font-size: 12px; }
+    .preview { display: flex; align-items: center; gap: 12px; padding: 9px; border: 1px solid #ffffff18; border-radius: 12px; background: #06101b88; margin-bottom: 16px; }
+    #reference { width: 58px; height: 58px; flex: none; border-radius: 8px; object-fit: cover; image-rendering: pixelated; }
+    .preview strong, .preview span { display: block; }
+    .preview strong { font-size: 12px; }
+    .preview span { font-size: 10px; margin-top: 4px; color: #92a7b8; }
+    button, .upload { font: inherit; cursor: pointer; border-radius: 10px; background: #172838; border: 1px solid #ffffff26; color: #e7f3f6; min-height: 39px; padding: 10px 12px; transition: background .2s, transform .2s; }
+    button:hover, .upload:hover { background: #274156; }
+    button[aria-pressed="true"] { border-color: #a4e9ce; background: #24554a; }
+    button:disabled { opacity: .42; cursor: not-allowed; }
+    button:active { transform: scale(.98); }
+    button:focus-visible, .upload:focus-within, input:focus-visible { outline: 2px solid #97e8cc; outline-offset: 3px; }
+    .primary { display: block; text-align: center; width: 100%; background: #a4e9ce; border-color: #a4e9ce; color: #0a2523; font-weight: 800; margin-bottom: 8px; }
+    .primary:hover { background: #bdf5e0; }
+    .upload { display: block; text-align: center; width: 100%; }
+    .upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 8px; }
+    .control-group { margin-top: 20px; }
+    .control-label { display: flex; justify-content: space-between; color: #c5d5df; font-size: 12px; margin-bottom: 8px; }
+    input[type="range"] { width: 100%; accent-color: #a4e9ce; cursor: pointer; }
+    .action { margin-top: 15px; }
+    .hint { margin: 13px 0 0; font-size: 10px; color: #8498aa; }
+    .stat { display: flex; gap: 8px; align-items: center; border: 1px solid #ffffff1b; border-radius: 999px; background: #132336b8; padding: 9px 13px; font-size: 12px; white-space: nowrap; }
+    .stat strong { color: #fbd38b; font-variant-numeric: tabular-nums; }
+    .bottom { position: fixed; bottom: max(20px, env(safe-area-inset-bottom)); left: 22px; color: #aabed0; background: #101d2baa; border: 1px solid #ffffff1b; border-radius: 40px; padding: 10px 16px; font-size: 11px; pointer-events: none; }
+    #notice { position: fixed; bottom: max(20px, env(safe-area-inset-bottom)); right: 22px; max-width: 330px; background: #20364c; border: 1px solid #a4e9ce55; color: white; padding: 10px 14px; border-radius: 11px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+    #notice.show { opacity: 1; }
+    @media (max-width: 680px), (max-height: 500px) {
+      .topbar { left: 12px; right: 12px; top: max(12px, env(safe-area-inset-top)); }
+      .panel { top: auto; bottom: max(55px, env(safe-area-inset-bottom)); right: 12px; left: 12px; width: auto; max-height: 48svh; }
+      .panel > summary { padding: 9px 13px; }
+      .panel-content { padding: 0 13px 13px; }
+      .panel h1 { font-size: 19px; }
+      .panel p { margin-bottom: 9px; }
+      .preview { display: none; }
+      .control-group { margin-top: 11px; }
+      .hint { display: none; }
+      .bottom { bottom: max(15px, env(safe-area-inset-bottom)); left: 12px; right: 12px; font-size: 10px; text-align: center; padding: 7px; }
+      #notice { top: 58px; bottom: auto; right: 12px; }
+    }
+  </style>
+  <script type="importmap">{
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+    }
+  }</script>
+</head>
+<body>
+  <canvas id="viewport" tabindex="0" aria-label="Interactive 3D terrain. Arrow keys or WASD select tiles, Enter visits or places a bridge anchor, Escape exits bridge mode."></canvas>
+  <div class="topbar">
+    <div class="brand"><div class="mark" aria-hidden="true">3</div><div><strong>Pocket World</strong><small>an img2threejs experiment</small></div></div>
+    <div class="stat"><span aria-hidden="true">✦</span> Beacons <strong id="count">0 / 5</strong></div>
+  </div>
+  <details class="panel" id="controls-panel" aria-label="Pocket World controls" open>
+    <summary id="controls-summary">World tools</summary>
+    <div class="panel-content">
+      <div class="eyebrow">Experimental toybox / 01</div>
+      <h1>Every image hides a world.</h1>
+      <p>Turn colors into a tiny voxel island. Send a scout across the island, discover beacons, export real Three.js code.</p>
+      <div class="preview"><canvas id="reference" width="28" height="28" aria-label="Source image preview"></canvas><div><strong id="source-label">Sunset coast</strong><span>Stylized relief, not depth estimation</span></div></div>
+      <label class="upload">Choose your own image<input id="upload" type="file" accept="image/png,image/jpeg,image/webp,image/avif,image/gif,image/bmp,image/heic,image/heif"></label>
+      <div class="controls"><button id="remix" type="button">Remix world</button><button id="night" type="button" aria-pressed="false">Night mode</button><button id="orbit" type="button" aria-pressed="false">Auto orbit</button><button id="reset" type="button">Reset view</button></div>
+      <div class="control-group"><div class="control-label"><span>Adventure tools</span><span>Join islands together</span></div><div class="controls"><button id="bridge" type="button" aria-pressed="false">Build a bridge</button><button id="undo-bridge" type="button" disabled>Undo bridge</button><button id="hint" type="button">Find next beacon</button></div></div>
+      <div class="control-group"><label class="control-label" for="relief"><span>Terrain relief</span><output id="relief-value">1.0×</output></label><input id="relief" type="range" min="0" max="3" step="any" value="1"></div>
+      <div class="controls action"><button id="save" type="button">Save world JSON</button><label class="upload">Load world JSON<input id="load" type="file" accept=".json,application/json"></label></div>
+      <button class="primary action" id="export" type="button">Export THREE.Group factory</button>
+      <p class="hint">Drag to orbit · scroll/pinch to zoom · tap terrain to guide the scout. Keyboard: Tab to focus the world, arrows/WASD to select a tile, Enter to visit or place a bridge, Escape to exit bridge mode. Use the compass to route to a reachable beacon; connect disconnected islands with bridges. JSON v2 preserves your scout and collected treasure, and v1 terrain files still load. All processing stays in your browser.</p>
+    </div>
+  </details>
+  <div class="bottom" id="scout-status">Tap a tile to guide your glowing scout · find five beacons</div>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>
