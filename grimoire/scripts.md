@@ -331,12 +331,51 @@ never ran is the failure this repository keeps rediscovering. A spec with no att
 passes cleanly, so existing specs are unaffected.
 
 ### runtime/scripts/export_mesh_geometry.mjs
-`node runtime/scripts/export_mesh_geometry.mjs --url URL --out meshes.json [--include RE] [--exclude RE] [--max-triangles N] [--ready-flag F] [--viewer-handle H]`
-Dumps a running model's meshes as the JSON `self_intersection.py` reads. Vertices are emitted in
-**world** space on purpose: a parent's non-uniform scale can fold a mesh through itself even when its
-local geometry is fine, and local space would hide exactly that. Normals go through the
-inverse-transpose. Every mesh it declines to emit — instanced, over the triangle cap, filtered out —
-is listed with its reason, so a short mesh list cannot be mistaken for a clean one.
+`node runtime/scripts/export_mesh_geometry.mjs --url URL --out meshes.json [--include RE] [--exclude RE] [--max-triangles N] [--max-total-triangles N] [--max-vertices N] [--max-instances N] [--ready-flag F] [--viewer-handle H] [--allow-scene-root]`
+Dumps executed triangle meshes in the JSON format `self_intersection.py` reads. Vertices are
+**world-space**, normals use the inverse-transpose, and negative-determinant transforms reverse
+triangle winding. The subject root is `window.__IMG2THREEJS_MESH_ROOT__`, the capture API's
+`getModelRoot()/modelRoot`, or `viewer.explodeRoot/viewer.modelRoot`.
+Detached explicit roots refresh their world matrices before evidence capture.
+There is no implicit fallback to `viewer.scene`, preventing a studio floor from
+masquerading as a complete subject export. For explicitly intentional
+whole-scene inspection use `--allow-scene-root`; the receipt records
+`rootSource: "scene-explicit"` and `sceneRootOptIn: true`. A whole-scene
+receipt is not proof that only subject meshes were included.
+
+**Do not confuse a mounted mesh with a ready scene.** For the official showcase the exporter
+waits for the viewer to start and for `window.__IMG2THREEJS_READY__ === true` once that flag
+is published. The flag is set after async asset loading and several render frames. Custom
+previews can use `--ready-flag NAME` for an explicit hard requirement; legacy viewers without
+any readiness flag remain supported.
+
+Static `InstancedMesh` is expanded to one world-space receipt per instance (with
+instance colors), bounded by explicit instance, vertex, and total-triangle caps.
+Unsupported active geometry (skinned, active morph targets including instanced
+`morphTexture`, invalid, or over budget) and active partial draw ranges yield
+`incomplete: true`. For multi-material meshes, an incomplete, overlapping, invalid,
+or hidden material group also makes the receipt incomplete: indexing every triangle
+is not proof that Three.js rendered every indexed face. A single material whose
+`visible` flag is false is similarly refused. These visibility/coverage checks apply
+to static instanced meshes as well. Instanced morph weights are not silently treated as static. Hidden and explicitly filtered
+meshes are named in `skippedMeshes` but are not errors. If there is no usable subject mesh,
+the export is also incomplete. An uncaught preview JavaScript `pageerror` also
+invalidates the receipt even if the viewer reported ready and geometries exist;
+its bounded `browserErrors` messages are retained in diagnostics. A failed/incomplete
+run removes stale `--out` evidence and writes `<out>.incomplete.json`
+diagnostics (exit 2), not a successful mesh manifest. Receipts are staged in
+the destination directory and atomically renamed only after complete serialization;
+a failed write cannot publish half a JSON success receipt.
+Always read `skippedMeshes` before treating a geometry gate as complete.
+
+Playwright is **optional** and resolved from the working directory or
+`IMG2THREEJS_SHOWCASE_ROOT`; no dependency is added to the base skill. If Playwright
+or Chromium is unavailable, the gate was not evaluated. Unit tests:
+`node --test runtime/scripts/export_mesh_geometry.test.mjs`. A real Three.js browser
+export using a **real Three.js browser** with world-space positions, instances,
+Python self-intersection analysis, and fail-closed partial output has now passed
+in downstream CI. A real end-user reconstruction and maintainer triage are still
+required before upstream promotion.
 
 ### stage4_review/vertex_region_gate.py
 `stage4_review/vertex_region_gate.py --geometry meshes.json --palette palette.json [--expect expect.json] [--azimuth 0] [--color-tolerance T] [--max-unclassified N] [--out report.json] [--json]`
