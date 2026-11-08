@@ -244,6 +244,8 @@ def build_foreground_mask(
     width: int,
     height: int,
     pixels: list[tuple[int, int, int, int]],
+    *,
+    interior_crop: bool = False,
 ) -> tuple[list[bool], dict[str, Any], list[str]]:
     warnings: list[str] = []
     alpha_values = [pixel[3] for pixel in pixels]
@@ -251,7 +253,12 @@ def build_foreground_mask(
     background, background_noise = sample_corner_background(width, height, pixels)
     threshold = max(24.0, background_noise * 2.4)
     mask: list[bool] = []
-    if transparent_fraction > 0.03:
+    mask_mode = "corner-background"
+    if interior_crop:
+        mask_mode = "interior-crop"
+        mask = [alpha > 16 for alpha in alpha_values]
+    elif transparent_fraction > 0.03:
+        mask_mode = "alpha"
         for red, green, blue, alpha in pixels:
             mask.append(alpha > 24)
     else:
@@ -266,7 +273,7 @@ def build_foreground_mask(
         warnings.append("foreground mask is tiny; material extraction is likely unreliable")
         mask = [pixel[3] > 16 for pixel in pixels]
         coverage = sum(1 for value in mask if value) / max(1, len(mask))
-    if coverage > 0.9:
+    if coverage > 0.9 and not interior_crop:
         warnings.append("image is not clearly isolated from background; using most pixels as material evidence")
     return (
         mask,
@@ -275,6 +282,7 @@ def build_foreground_mask(
             "backgroundNoise": round(background_noise, 3),
             "transparentPixelFraction": round(transparent_fraction, 4),
             "foregroundCoverage": round(coverage, 4),
+            "maskMode": mask_mode,
         },
         warnings,
     )
@@ -556,7 +564,10 @@ def estimate_confidence(
     min_dim = min(width, height)
     resolution_score = clamp(min_dim / 1024.0, 0.35, 1.0)
     coverage = float(mask_diagnostics.get("foregroundCoverage", 1.0))
-    if 0.08 <= coverage <= 0.82:
+    if mask_diagnostics.get("maskMode") == "interior-crop":
+        mask_score = 1.0
+        confidence_notes.append("interior material crop: opaque pixels are treated as material evidence")
+    elif 0.08 <= coverage <= 0.82:
         mask_score = 1.0
     elif 0.035 <= coverage < 0.08:
         mask_score = 0.55
@@ -729,7 +740,12 @@ def extract(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
     out_dir = args.out_dir.expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     width, height, source_pixels, load_warnings = load_image(image)
-    mask, mask_diag, mask_warnings = build_foreground_mask(width, height, source_pixels)
+    mask, mask_diag, mask_warnings = build_foreground_mask(
+        width,
+        height,
+        source_pixels,
+        interior_crop=bool(getattr(args, "interior_crop", False)),
+    )
     bbox = mask_bbox(width, height, mask)
     sampled_pixels, sampled_mask = resample_crop(width, height, source_pixels, mask, bbox, size)
     samples = representative_samples(sampled_pixels, sampled_mask)
@@ -810,6 +826,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--report", type=Path, help="Write extraction report JSON")
     parser.add_argument("--allow-low-confidence", action="store_true", help="Patch/write even when confidence is below threshold")
     parser.add_argument("--multi-view-reference", action="store_true", help="Raise confidence cap when image belongs to a multi-view reference set")
+    parser.add_argument(
+        "--interior-crop",
+        action="store_true",
+        help="Treat every opaque pixel as material evidence for a crop that contains material only, with no background",
+    )
     args = parser.parse_args(argv)
 
     try:
