@@ -1,0 +1,136 @@
+name: Print export real-browser integration
+
+on:
+  pull_request:
+    paths:
+      - 'forge/stage3_build/print_export.py'
+      - 'scripts/verify_print_export_browser_pipeline.py'
+      - 'scripts/print_export_openscad_smoke.py'
+      - '.github/workflows/print-browser-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-threejs-to-print:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Checkout reviewed mesh exporter at fixed commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Fork #35 is the canonical CLI-compatible carrier; use an immutable SHA.
+          git fetch --no-tags origin bd22acf73c451d3029cf223914a5a618cc0fb86d
+          git worktree add --detach "$RUNNER_TEMP/img2-browser-exporter" bd22acf73c451d3029cf223914a5a618cc0fb86d
+          test "$(git -C "$RUNNER_TEMP/img2-browser-exporter" rev-parse HEAD)" = bd22acf73c451d3029cf223914a5a618cc0fb86d
+      - name: Install isolated browser and independent print parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/img2-browser-deps"
+          cd "$RUNNER_TEMP/img2-browser-deps"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --ignore-scripts --no-save \
+            playwright@1.56.0 three@0.169.0 esbuild@0.25.12
+          npx playwright install --with-deps chromium
+          python3 -m pip install --disable-pip-version-check 'trimesh==4.8.2'
+      - name: Capture WebGL model and world-space geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/img2-browser-exporter"
+          export IMG2THREEJS_SHOWCASE_ROOT="$RUNNER_TEMP/img2-browser-deps"
+          node runtime/scripts/export_mesh_geometry.browser-smoke.mjs
+      - name: Reimport generated STL and OBJ with independent mesh parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_print_export_browser_pipeline.py \
+            --browser-artifacts "$RUNNER_TEMP/img2-export-smoke" \
+            --out-dir "$RUNNER_TEMP/img2-print-export-integration"
+      - name: Upload diagnostic and print artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: print-export-browser-integration
+          path: |
+            ${{ runner.temp }}/img2-export-smoke/
+            ${{ runner.temp }}/img2-print-export-integration/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  slice-with-slic3r:
+    needs: real-threejs-to-print
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: print-export-browser-integration
+          path: ${{ runner.temp }}/print-input
+      - name: Install independent geometry consumer and slicer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends slic3r openscad
+          slic3r --version
+          openscad --version
+      - name: Independently round-trip binary STL through OpenSCAD
+        run: python3 scripts/print_export_openscad_smoke.py
+      - name: Slice actual browser-exported STL to G-code
+        shell: bash
+        run: |
+          set -euo pipefail
+          input="$(find "$RUNNER_TEMP/print-input" -type f -name instances.stl -print -quit)"
+          test -n "$input" && test -s "$input"
+          # Ubuntu Slic3r 1.3 slices by default; --export-gcode and
+          # --bed-size are not supported by this packaged CLI.
+          slic3r \
+            --layer-height 0.30 --nozzle-diameter 0.40 \
+            --filament-diameter 1.75 \
+            --print-center 110,110 \
+            --output "$RUNNER_TEMP/instances.gcode" "$input" \
+            2>&1 | tee "$RUNNER_TEMP/slic3r-output.txt"
+          test -s "$RUNNER_TEMP/instances.gcode"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+          p = Path(os.environ["RUNNER_TEMP"]) / "instances.gcode"
+          lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+          extrusions = [line for line in lines if
+                        re.match(r"^G1\b", line) and re.search(r"\bE[-+]?\d", line)]
+          z_levels = set()
+          for line in lines:
+              if re.match(r"^G[01]\b", line):
+                  match = re.search(r"\bZ([-+]?\d+(?:\.\d+)?)", line)
+                  if match:
+                      z_levels.add(round(float(match.group(1)), 3))
+          assert len(extrusions) >= 30, f"too few extruding toolpaths: {len(extrusions)}"
+          assert len(z_levels) >= 5, f"too few distinct Z levels: {len(z_levels)}"
+          print(f"PASS: independent slic3r generated {len(extrusions)} extrusion moves "
+                f"across {len(z_levels)} Z levels from browser-exported STL")
+          PY
+      - name: Publish slicer and G-code evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: print-export-slic3r-toolpaths
+          path: |
+            ${{ runner.temp }}/instances.gcode
+            ${{ runner.temp }}/slic3r-output.txt
+          if-no-files-found: ignore
+          retention-days: 7
