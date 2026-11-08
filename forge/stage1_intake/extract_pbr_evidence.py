@@ -12,6 +12,7 @@ passed.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import shutil
@@ -41,7 +42,21 @@ def slugify(value: str) -> str:
         elif not last_dash:
             parts.append("-")
             last_dash = True
-    return "".join(parts).strip("-") or "material"
+    token = "".join(parts).strip("-") or "material"
+    # material_id is also used for PBR map filenames. A bounded region crop name
+    # is not enough if a long semantic ID still becomes a >255-byte PNG basename.
+    if len(token.encode("utf-8")) <= 80:
+        return token
+    suffix = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    remaining = 80 - len(suffix) - 1
+    stem: list[str] = []
+    for char in token:
+        width = len(char.encode("utf-8"))
+        if width > remaining:
+            break
+        stem.append(char)
+        remaining -= width
+    return f'{"".join(stem).rstrip("-") or "material"}-{suffix}'
 
 
 def clamp(value: float, minimum: float, maximum: float) -> float:
@@ -169,6 +184,10 @@ def write_png_rgb(path: Path, width: int, height: int, rgb: bytes) -> None:
     if len(rgb) != width * height * 3:
         raise ValueError("RGB payload has the wrong size")
     path.parent.mkdir(parents=True, exist_ok=True)
+    # These filenames can originate in a material manifest; do not follow
+    # pre-existing output symlinks when writing generated pixel evidence.
+    if path.is_symlink():
+        raise ValueError(f"refusing to overwrite symlinked PNG artifact: {path}")
 
     def chunk(kind: bytes, payload: bytes) -> bytes:
         checksum = zlib.crc32(kind)
