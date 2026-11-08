@@ -60,6 +60,18 @@ def webp_size(data: bytes) -> tuple[int, int] | None:
         if start != -1 and start + 7 <= len(data):
             width, height = struct.unpack("<HH", data[start + 3 : start + 7])
             return width & 0x3FFF, height & 0x3FFF
+    if chunk == b"VP8L" and len(data) >= 25:
+        # VP8L stores a 0x2f signature followed by packed 14-bit dimensions.
+        # The top three bits are a reserved version field (currently zero).
+        chunk_size = int.from_bytes(data[16:20], "little")
+        if chunk_size < 5 or data[20] != 0x2F:
+            return None
+        packed = int.from_bytes(data[21:25], "little")
+        if packed >> 29:
+            return None
+        width = 1 + (packed & 0x3FFF)
+        height = 1 + ((packed >> 14) & 0x3FFF)
+        return width, height
     return None
 
 
@@ -91,7 +103,11 @@ def tiff_size(data: bytes) -> tuple[int, int] | None:
             return None
         tag, value_type, count, raw_value = struct.unpack(f"{endian}HHII", data[cursor : cursor + 12])
         if value_type in {3, 4} and count == 1:
-            value = raw_value if value_type == 4 else raw_value & 0xFFFF
+            # A single SHORT is stored in the first two bytes of the IFD value
+            # slot. For big-endian TIFF those occupy the high, not low, bits.
+            value = raw_value if value_type == 4 else (
+                raw_value & 0xFFFF if endian == "<" else raw_value >> 16
+            )
             if tag == 256:
                 width = value
             elif tag == 257:
