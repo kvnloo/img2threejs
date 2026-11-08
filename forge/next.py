@@ -84,7 +84,8 @@ def main(argv: list[str]) -> int:
         print(f"spec error: {error}", file=sys.stderr)
         return 2
     if not isinstance(spec, dict):
-        raise ValueError("spec must be an object")
+        print("spec error: spec must be an object", file=sys.stderr)
+        return 2
     ids = pass_order(spec)
     completed = completed_passes(spec, ids)
     current = current_pass(ids, completed)
