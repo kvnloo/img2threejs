@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vehicle geometry — interactive 3D A/B</title>
+<style>
+:root{color-scheme:dark;--bg:#07121c;--surface:#0c1d2a;--line:#224055;--muted:#99acc0;--green:#72e6a1;--red:#ff9b9b}
+*{box-sizing:border-box}body{margin:0;font:14px/1.55 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:#edf7fc}
+main{max-width:1560px;margin:0 auto;padding:30px clamp(18px,3vw,46px)}
+.eyebrow{text-transform:uppercase;letter-spacing:.14em;font-size:11px;color:var(--green);font-weight:700;margin-bottom:6px}
+h1{font-size:clamp(23px,3vw,34px);letter-spacing:-.035em;line-height:1.16;margin:0}
+p{margin:10px 0;color:var(--muted)}.top{display:flex;justify-content:space-between;align-items:end;gap:30px;flex-wrap:wrap}
+.metric{font-variant-numeric:tabular-nums;font-weight:700;color:#d5edfa;font-size:13px}
+.controls{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:22px 0 17px}
+button{appearance:none;background:#102532;border:1px solid #35516a;color:#dbeaf4;padding:8px 13px;border-radius:9px;font:inherit;cursor:pointer;transition:background .12s,border-color .12s}
+button:hover{background:#1b3646}button[aria-pressed=true]{color:#06231b;background:#76e4a6;border-color:#76e4a6;font-weight:700}
+.note{margin-left:auto;color:#93aebf;font-size:12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.panel{border:1px solid #203b50;border-radius:14px;background:linear-gradient(145deg,#102838,#0b1c29);overflow:hidden}
+.panel-header{display:flex;justify-content:space-between;gap:12px;padding:16px 17px 8px;align-items:baseline}
+.panel h2{font-size:16px;margin:0;letter-spacing:-.01em}.status{font-size:11px;padding:3px 9px;border:1px solid;border-radius:99px;font-weight:800;letter-spacing:.03em}
+.pass{color:#9df2ba;border-color:#386a54;background:#17392e}.fail{color:#ffa3a3;border-color:#754246;background:#392025}
+.panel canvas{width:100%;height:390px;display:block;touch-action:none;cursor:grab}
+.panel canvas:active{cursor:grabbing}
+.details{display:flex;justify-content:space-between;padding:12px 18px 16px;border-top:1px solid #1a3649;color:#afc3d0;font-size:12px}
+.details strong{font-size:15px;color:#f1faf9;font-variant-numeric:tabular-nums}
+.reference{margin-top:14px;display:flex;align-items:center;gap:16px;padding:10px 17px;border:1px solid #264354;border-radius:12px;background:#0d2030}
+.reference img{width:190px;max-width:33%;object-fit:contain;image-rendering:auto;background:#203348;border-radius:7px}
+.reference b{display:block;font-size:13px}.reference span{font-size:12px;color:#a5bbcc}
+footer{font-size:12px;color:#85a2b6;margin-top:17px}
+@media(max-width:810px){main{padding:19px 12px}.grid{grid-template-columns:1fr}.panel canvas{height:315px}.note{flex-basis:100%;margin-left:0}.reference img{width:116px}}
+</style></head><body><main>
+<div class="top"><div><div class="eyebrow">Image → Three.js · geometry review</div><h1>What the 3D reconstruction actually looks like</h1><p>Two real exported mesh assemblies · same camera · synchronized rotation.</p></div>
+<div class="metric">Synthetic A/B · browser geometry evidence</div></div>
+<div class="controls" aria-label="View controls">
+<button data-view="iso" aria-pressed="true">Three-quarter</button>
+<button data-view="top" aria-pressed="false">Top</button>
+<button data-view="side" aria-pressed="false">Side</button>
+<button id="spin" aria-pressed="false">Auto-rotate</button>
+<button id="wire" aria-pressed="false">Wireframe</button>
+<button id="reset">Reset</button>
+<span class="note">Drag either model to rotate · scroll to zoom</span>
+</div>
+<div class="grid"><section class="panel"><div class="panel-header"><h2>Matched geometry</h2><span class="status pass">PASS</span></div>
+<canvas id="matched" aria-label="Interactive 3D mesh of matched vehicle"></canvas><div class="details"><span>Maximum normalized width error</span><strong>__MATCH_ERR__%</strong></div></section>
+<section class="panel"><div class="panel-header"><h2>Constant-width geometry</h2><span class="status fail">FAIL</span></div>
+<canvas id="stadium" aria-label="Interactive 3D mesh of constant-width vehicle"></canvas><div class="details"><span>Maximum normalized width error</span><strong>__FAIL_ERR__%</strong></div></section></div>
+<div class="reference"><img alt="Original synthetic top-view test reference" src="data:image/png;base64,__REF_PNG__"/>
+<div><b>Reference image measured from browser pixels</b><span>Top-down synthetic vehicle, not a Ferrari photo or a claim of real-image reconstruction accuracy. The models above come from exported Three.js mesh coordinates, rendered for inspection in an offline Canvas viewer.</span></div></div>
+<footer>Visual inspection preview · The numerical pass/fail result comes from triangle-plane width measurements, not this viewer's pixels. Models have no downloaded meshes or art assets.</footer>
+</main>
+<script>
+'use strict';
+const sources=__SCENE_JSON__;
+const canvases=[['matched',sources.matching],['stadium',sources.stadium]];
+const state={az:-1.0,el:.43,distance:8.8,wire:false,spin:false};
+const views={iso:[-1.0,.43],top:[-.01,Math.PI/2-.005],side:[-.01,.02]};
+const colors={body:[29,211,142],cabin:[54,118,160],wheel:[29,39,55],default:[115,185,188]};
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const norm=v=>{let l=Math.hypot(...v)||1;return v.map(x=>x/l)};
+const subtract=(a,b)=>a.map((x,i)=>x-b[i]);
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const light=norm([-0.3,1.0,0.7]);
+function buildTriangles(scene){
+  const triangles=[];
+  for(const m of scene){
+    const category=m.name==='vehicle-body'?'body':m.name==='greenhouse'?'cabin':m.name.startsWith('wheel')?'wheel':'default';
+    for(let i=0;i<m.indices.length;i+=3){
+      const a=m.vertices[m.indices[i]],b=m.vertices[m.indices[i+1]],c=m.vertices[m.indices[i+2]];
+      if(!a||!b||!c)continue;
+      const normal=cross(subtract(b,a),subtract(c,a));
+      if(Math.hypot(...normal)<1e-9)continue;
+      triangles.push({p:[a,b,c], normal:norm(normal),color:colors[category],category});
+    }
+  }
+  return triangles;
+}
+const parts=canvases.map(([id,scene])=>({canvas:document.getElementById(id),triangles:buildTriangles(scene)}));
+function projectSetup(w,h){
+  const target=[.70,.40,0],r=state.distance;
+  const camera=[target[0]+r*Math.sin(state.az)*Math.cos(state.el),target[1]+r*Math.sin(state.el),target[2]+r*Math.cos(state.az)*Math.cos(state.el)];
+  const forward=norm(subtract(target,camera)); const right=norm(cross(forward,[0,1,0])); const up=norm(cross(right,forward));
+  const focal=Math.min(w/1.85,h/1.9)/Math.tan(.34);
+  return p=>{const v=subtract(p,camera),z=dot(v,forward);return {x:w/2+dot(v,right)*focal/z,y:h*.53-dot(v,up)*focal/z,z};};
+}
+function render(){
+  for(const {canvas,triangles} of parts){
+    let w=Math.round(canvas.getBoundingClientRect().width),h=Math.round(canvas.getBoundingClientRect().height);
+    if(!w||!h)continue;const dpr=Math.min(window.devicePixelRatio||1,2);
+    if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}
+    const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,h);
+    const grad=ctx.createLinearGradient(0,0,w,h);grad.addColorStop(0,'#123148');grad.addColorStop(1,'#091c2a');ctx.fillStyle=grad;ctx.fillRect(0,0,w,h);
+    const proj=projectSetup(w,h);
+    // Non-scored, lightweight reference ground plane.
+    const gridY=-.08;
+    ctx.strokeStyle='rgba(114,155,179,.13)';ctx.lineWidth=.65;
+    for(let i=-6;i<=6;i++){
+      const lines=[[[i,gridY,-3],[i,gridY,3]],[[-3,gridY,i],[5,gridY,i]]];
+      for(const [a,b] of lines){const A=proj(a),B=proj(b);if(A.z>0&&B.z>0){ctx.beginPath();ctx.moveTo(A.x,A.y);ctx.lineTo(B.x,B.y);ctx.stroke();}}
+    }
+    const draw=[];
+    for(const t of triangles){const a=proj(t.p[0]),b=proj(t.p[1]),c=proj(t.p[2]);if(a.z<=.01||b.z<=.01||c.z<=.01)continue;
+      draw.push({a,b,c,depth:(a.z+b.z+c.z)/3,t});}
+    draw.sort((a,b)=>b.depth-a.depth);
+    for(const item of draw){const {a,b,c,t}=item;let diffuse=.56+.44*Math.max(0,dot(t.normal,light));
+      if(t.category==='cabin')diffuse=Math.max(.68,diffuse);
+      const rgb=t.color.map(x=>clamp(Math.round(x*diffuse),0,255));
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.lineTo(c.x,c.y);ctx.closePath();
+      ctx.fillStyle=`rgb(${rgb.join(',')})`;ctx.fill();
+      if(state.wire){ctx.strokeStyle='rgba(216,255,243,.36)';ctx.lineWidth=.55;ctx.stroke();}
+    }
+    ctx.fillStyle='rgba(183,213,229,.75)';ctx.font='12px system-ui';ctx.fillText('Actual exported mesh triangles',15,h-15);
+  }
+}
+let last=0;
+function animate(now){if(state.spin){state.az+=(now-last)*.00025;render();}last=now;requestAnimationFrame(animate);}requestAnimationFrame(animate);
+for(const {canvas} of parts){let dragging=false,x=0,y=0;
+  canvas.addEventListener('pointerdown',e=>{dragging=true;x=e.clientX;y=e.clientY;canvas.setPointerCapture(e.pointerId);});
+  canvas.addEventListener('pointerup',()=>{dragging=false;});
+  canvas.addEventListener('pointercancel',()=>{dragging=false;});
+  canvas.addEventListener('pointermove',e=>{if(!dragging)return;state.az+=(e.clientX-x)*.007;state.el=clamp(state.el+(e.clientY-y)*.005,-1.2,1.56);x=e.clientX;y=e.clientY;render();});
+  canvas.addEventListener('wheel',e=>{e.preventDefault();state.distance=clamp(state.distance*Math.exp(e.deltaY*.001),4,20);render();},{passive:false});
+}
+for(const b of document.querySelectorAll('[data-view]'))b.addEventListener('click',()=>{
+  const [az,el]=views[b.dataset.view];state.az=az;state.el=el;
+  document.querySelectorAll('[data-view]').forEach(other=>other.setAttribute('aria-pressed',String(other===b)));render();
+});
+document.getElementById('spin').addEventListener('click',e=>{state.spin=!state.spin;e.currentTarget.setAttribute('aria-pressed',String(state.spin));});
+document.getElementById('wire').addEventListener('click',e=>{state.wire=!state.wire;e.currentTarget.setAttribute('aria-pressed',String(state.wire));render();});
+document.getElementById('reset').addEventListener('click',()=>{state.az=views.iso[0];state.el=views.iso[1];state.distance=8.8;state.spin=false;state.wire=false;document.getElementById('spin').setAttribute('aria-pressed','false');document.getElementById('wire').setAttribute('aria-pressed','false');document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view==='iso')));render();});
+window.addEventListener('resize',render);
+window.__VEHICLE_PREVIEW_READY__=true;
+window.__VEHICLE_PREVIEW_TRIANGLES__=parts.map(x=>x.triangles.length);
+render();
+</script></body></html>
