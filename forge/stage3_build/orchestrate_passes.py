@@ -12,6 +12,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
 from feature_acceptance_policy import feature_gate_failures
+from review_completion import VISUAL_PASS_IDS, review_completes_pass
 from status_banner import emit_status
 
 
@@ -25,7 +26,6 @@ DEFAULT_PASS_ORDER = [
     "interaction-pass",
     "optimization-pass",
 ]
-VISUAL_PASS_IDS = set(DEFAULT_PASS_ORDER) - {"optimization-pass"}
 ATTACHMENT_ROLES = {
     "appendage",
     "branch",
@@ -82,22 +82,6 @@ def pass_acceptance(spec: dict[str, Any], pass_id: str) -> list[str]:
 def visual_evidence(entry: dict[str, Any]) -> dict[str, Any]:
     visual = entry.get("visualEvidence")
     return visual if isinstance(visual, dict) else {}
-
-
-def review_completes_pass(spec: dict[str, Any], entry: dict[str, Any], pass_id: str) -> bool:
-    if entry.get("passId") != pass_id or entry.get("action") != "continue":
-        return False
-    if pass_id in VISUAL_PASS_IDS:
-        visual = visual_evidence(entry)
-        if not visual.get("renderScreenshot") or not visual.get("comparisonImage"):
-            return False
-        score = entry.get("aiVisionScore")
-        threshold = entry.get("visualAcceptanceThreshold", 0.7)
-        if not has_number(score) or not has_number(threshold) or float(score) < float(threshold):
-            return False
-        if feature_gate_failures(spec, entry, pass_id):
-            return False
-    return True
 
 
 def completed_passes(spec: dict[str, Any], ids: list[str]) -> list[str]:

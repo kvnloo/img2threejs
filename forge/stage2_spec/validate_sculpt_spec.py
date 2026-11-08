@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stage3_build"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from chirality import CHARACTER_LEFT_SIGN, check_pair, find_pairs  # noqa: E402
 from feature_acceptance_policy import feature_gate_failures, feature_review_policy
+from review_completion import VISUAL_PASS_IDS, review_completes_pass
 from hair_profile import REJECTED_HAIR_PRIMITIVES, validate_hair_profile
 from material_physics import check_material_physics, check_open_boundary_sides
 from sdf_primitives import validate_sdf_descriptor
@@ -551,15 +552,9 @@ def requires_topology_classification(spec: dict[str, Any]) -> bool:
     # topologyClass/topologyRationale requirement, so pre-1.3 specs are not silently
     # broken by a field they were never told to fill in.
     return schema_version_tuple(spec) >= (2, 1)
-VISUAL_PASS_IDS = {
-    "blockout",
-    "structural-pass",
-    "form-refinement",
-    "material-pass",
-    "surface-pass",
-    "lighting-pass",
-    "interaction-pass",
-}
+# Visual acceptance is imported from review_completion; other character pass IDs remain
+# outside the image-gated group.
+
 # proportion-lock and feature-placement are shipped by the base's own character build-pass
 # template (new_sculpt_spec.py: make_character_build_passes); they are legal pipeline passes but
 # NOT visual passes -- their acceptance is gated by domain checks (e.g. humanoid_proportions), not
@@ -2152,30 +2147,6 @@ def validate_build_passes(spec: dict[str, Any], errors: list[str], warnings: lis
         if not ({"material-pass", "surface-pass"} & set(ids)):
             warnings.append("quality: missing material/surface pass; model may stay as flat geometry")
     return ids
-
-
-def review_completes_pass(
-    spec: dict[str, Any],
-    entry: dict[str, Any],
-    pass_id: str,
-) -> bool:
-    if entry.get("passId") != pass_id or entry.get("action") != "continue":
-        return False
-    visual = entry.get("visualEvidence")
-    if pass_id in VISUAL_PASS_IDS:
-        if not (
-            isinstance(visual, dict)
-            and visual.get("renderScreenshot")
-            and visual.get("comparisonImage")
-        ):
-            return False
-        score = entry.get("aiVisionScore")
-        threshold = entry.get("visualAcceptanceThreshold", 0.7)
-        if not is_number(score) or not is_number(threshold) or float(score) < float(threshold):
-            return False
-        if feature_gate_failures(spec, entry, pass_id):
-            return False
-    return True
 
 
 def completed_passes_from_history(spec: dict[str, Any], pass_ids: list[str]) -> list[str]:

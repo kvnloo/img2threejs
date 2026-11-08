@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from feature_acceptance_policy import feature_gate_failures
+from review_completion import VISUAL_PASS_IDS, review_completes_pass
 from status_banner import emit_status
 
 
@@ -31,15 +32,6 @@ def _review_scene_fixture_id(scene_path: Path) -> object:
 
 
 VALID_ACTIONS = {"continue", "refine-spec", "refine-code", "request-input", "stop"}
-VISUAL_PASS_IDS = {
-    "blockout",
-    "structural-pass",
-    "form-refinement",
-    "material-pass",
-    "surface-pass",
-    "lighting-pass",
-    "interaction-pass",
-}
 DEFAULT_PASS_ORDER = [
     "blockout",
     "structural-pass",
@@ -152,32 +144,6 @@ def pass_specific_evidence(pass_id: str) -> list[str]:
             "exposure, tone mapping, background, shadow softness, and contact shadow behavior",
         ]
     return []
-
-
-def review_completes_pass(spec: dict, entry: dict, pass_id: str) -> bool:
-    if entry.get("passId") != pass_id or entry.get("action") != "continue":
-        return False
-    visual = entry.get("visualEvidence")
-    if pass_id == "blockout" and not entry.get("mapStrippedRender"):
-        return False
-    viewpoints = entry.get("reviewViewpoints")
-    if isinstance(viewpoints, list) and pass_id in VISUAL_PASS_IDS:
-        if not {"thickness-axis", "long-axis"}.issubset(set(viewpoints)):
-            return False
-    if pass_id in VISUAL_PASS_IDS and not (isinstance(visual, dict) and visual.get("renderScreenshot")):
-        return False
-    if pass_id in VISUAL_PASS_IDS:
-        score = entry.get("aiVisionScore")
-        threshold = entry.get("visualAcceptanceThreshold", 0.7)
-        if not isinstance(score, (int, float)) or not isinstance(threshold, (int, float)):
-            return False
-        if float(score) < float(threshold):
-            return False
-        if not (isinstance(visual, dict) and visual.get("comparisonImage")):
-            return False
-        if feature_gate_failures(spec, entry, pass_id):
-            return False
-    return True
 
 
 def sync_pipeline(spec: dict) -> None:

@@ -145,6 +145,7 @@ class ReferenceTargetEnvelopeParity(unittest.TestCase):
                 {
                     "passId": "blockout",
                     "action": "continue",
+                    "mapStrippedRender": "unlit.png",
                     "visualEvidence": {"renderScreenshot": "x.png", "comparisonImage": "c.png"},
                     "aiVisionScore": 0.9,
                     "visualAcceptanceThreshold": 0.7,
@@ -219,6 +220,7 @@ class ReferenceTargetSocketEndToEnd(unittest.TestCase):
         acceptance = spec["selfCorrectLoop"]["visualAcceptance"]
         spec["reviewHistory"] = [{
             "passId": FROZEN_PASS_ID, "action": "continue",
+            "mapStrippedRender": "unlit.png",
             "visualEvidence": {"renderScreenshot": "render.png", "comparisonImage": "compare.png"},
             "aiVisionScore": 0.9,
             "layerScores": {layer: 0.9 for layer in acceptance["requiredLayerScores"]},
