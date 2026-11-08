@@ -1,0 +1,54 @@
+name: Reconstruction evidence real-WebGL controls
+
+on:
+  pull_request:
+    paths:
+      - 'integrations/reconstruction_evidence/**'
+      - '.github/workflows/reconstruction-evidence-webgl.yml'
+      - 'forge/stage4_review/evidence_silhouette.py'
+      - 'forge/stage4_review/fit_params.py'
+      - 'forge/stage4_review/reconstruction_evidence_ab.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-browser-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install isolated Three.js and browser controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/img2-evidence-browser-deps"
+          cd "$RUNNER_TEMP/img2-evidence-browser-deps"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --no-save playwright@1.56.0 three@0.169.0
+          npx playwright install --with-deps chromium
+      - name: Test WebGL silhouette critic and evidence shadow parity
+        shell: bash
+        env:
+          IMG2THREEJS_BROWSER_DEPS: ${{ runner.temp }}/img2-evidence-browser-deps
+          IMG2THREEJS_EVIDENCE_OUT: ${{ runner.temp }}/img2-evidence-webgl
+        run: |
+          set -euo pipefail
+          node --check integrations/reconstruction_evidence/browser_silhouette_smoke.mjs
+          python3 -m py_compile integrations/reconstruction_evidence/evaluate_browser_silhouette.py
+          node integrations/reconstruction_evidence/browser_silhouette_smoke.mjs
+      - name: Retain receipts and synthetic WebGL PNGs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-browser-evidence
+          path: ${{ runner.temp }}/img2-evidence-webgl/
+          if-no-files-found: warn
+          retention-days: 7
