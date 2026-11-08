@@ -169,6 +169,55 @@ window.__IMG2THREEJS_CAPTURE__ = {
 If the ready signal, capture contract, canvas, screenshot, or hash check fails, the adapter stops.
 It does not fall back to a Python/Blender image and does not claim that a render happened.
 
+### Recover an interrupted capture batch
+
+The adapter checkpoints each saved view and each v2 pass to the manifest. A later camera,
+render-pass, or screenshot failure preserves earlier image hashes and records the failure in
+`evidence.captureSession`, with the active capture/pass, stage, readiness and error. Browser
+console and page errors are saved in `evidence.consoleErrors`. `--timeout-ms` bounds each browser
+wait, asynchronous capture hook and screenshot; it is not a deadline for the whole batch.
+
+After restoring the same runtime or increasing a timeout, resume the same unchanged build:
+
+```bash
+python3 scripts/capture_threejs_playwright.py \
+  --manifest work/character/render-manifest.json --resume --timeout-ms 60000
+
+# Resume the GLB baseline separately when that mode was interrupted.
+python3 scripts/capture_threejs_playwright.py \
+  --manifest work/character/render-manifest.json --mode reference --resume --timeout-ms 60000
+```
+
+`--resume` skips a view only when its recorded image still matches its hash, its readiness and
+error evidence passed, and its capture receipt matches the camera, runtime, reference and render
+profile inputs. A v2 view also needs all six verified passes; an incomplete view is captured
+again. Reference and procedural captures have separate receipts. Missing or changed files and
+legacy records without receipts are recaptured. Changed shared inputs invalidate old adapter
+receipts in both modes, including unselected views, so a partial recapture cannot validate a
+mixture of configurations. Without `--resume`, selected views are always
+captured again; repeat `--capture-id` to limit the selection.
+
+Use a fresh manifest and output directory after changing the served model, application build or
+correction-loop iteration. Matching screenshot hashes prove that saved files are unchanged; they
+cannot prove that the same URL still serves the same model. Resume is recovery for an interrupted
+batch, and does not replace reopening screenshots, validating the complete manifest or reviewing
+the reference/render comparison.
+
+The optional browser regression uses an original procedural Three.js fixture. With Playwright
+and Chromium installed in your test environment, run:
+
+```bash
+npm install --prefix /tmp/img2threejs-browser-deps --ignore-scripts three@0.180.0
+python3 scripts/test_capture_resume_browser.py \
+  --three-root /tmp/img2threejs-browser-deps/node_modules/three \
+  --out /tmp/img2threejs-capture-recovery
+```
+
+Choose a new output directory on each run. The runner saves PNGs, manifests and logs, forces a
+second-view timeout, verifies that resume leaves the first PNG untouched, and checks tampered-file
+and readiness-error recovery. Its process watchdog stops a hung adapter/browser tree. This is a
+capture-mechanics test, not a reconstruction-fidelity measurement.
+
 For an asynchronously loaded multipart GLB, install the capture API immediately but enumerate its
 meshes and allocate anonymous ID materials only after the route's `ready` promise resolves. Capture
 must fail if the post-ready mesh count differs from the probed contract. Enumerating an empty group
