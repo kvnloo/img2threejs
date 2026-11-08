@@ -135,6 +135,15 @@ class PipelineTest(unittest.TestCase):
         self.assertNotEqual(strict.returncode, 0)
         self.assertIn("strict quality failure", strict.stdout + strict.stderr)
 
+    def test_surface_pass_handles_low_albedo_matte_relief(self):
+        run("stage2_spec/new_sculpt_spec.py", "Matte prop", "--out", self.spec)
+        spec = json.loads(self.spec.read_text())
+        surface = next(item for item in spec["buildPasses"] if item["id"] == "surface-pass")
+        acceptance = " ".join(surface["acceptance"])
+        self.assertIn("low-albedo matte", acceptance)
+        self.assertIn("displacement/geometry relief", acceptance)
+        self.assertIn("noise floor", acceptance)
+
     def test_topology_rejects_missing_classification(self):
         run("stage2_spec/new_sculpt_spec.py", "Oak", "--out", self.spec)
         spec = json.loads(self.spec.read_text())
