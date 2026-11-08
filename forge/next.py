@@ -90,7 +90,13 @@ def main(argv: list[str]) -> int:
     current = current_pass(ids, completed)
 
     if local_state is not None:
-        sync_from_spec(local_state, spec, current)
+        try:
+            sync_from_spec(local_state, spec, current)
+        except WorkflowStateError as error:
+            # A spec can advance beyond the locally recorded gate receipts.
+            # Reject the transition without persisting a partially changed state.
+            print(f"state error: {error}", file=sys.stderr)
+            return 2
         save_state(args.state, local_state)
         payload = status_payload(local_state)
         emit_local_state(payload)

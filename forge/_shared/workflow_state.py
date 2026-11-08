@@ -273,7 +273,17 @@ def next_entry(state: dict[str, Any]) -> dict[str, Any] | None:
     setup_pending = _pending(_entries(state, "setup"))
     if setup_pending:
         return setup_pending[0]
-    if state.get("currentPass") != "complete":
+    # A new workspace has pass rows in its checklist but has not opened a pass yet.
+    # Offering them before the spec establishes a pass lets evidence accumulate in
+    # rows that set_current_pass() will later reset, silently discarding the work.
+    if not state.get("currentPass"):
+        return {
+            "id": "await-pass-start",
+            "scope": "pass",
+            "status": "pending",
+            "command": "Write the sculpt spec, then run python3 forge/next.py --state .img2threejs/state.json {spec}",
+        }
+    if state["currentPass"] != "complete":
         pass_pending = _pending(_entries(state, "pass"))
         if pass_pending:
             return pass_pending[0]
@@ -374,7 +384,41 @@ def set_current_pass(state: dict[str, Any], pass_id: str) -> None:
 
 
 def sync_from_spec(state: dict[str, Any], spec: dict[str, Any], current_pass: str) -> None:
-    set_current_pass(state, current_pass)
+    previous_pass = str(state.get("currentPass") or "")
+    # A review can make the *spec* name the next pass before the agent records
+    # ai-review-recorded and pipeline-sync in the local checklist. Do not archive
+    # and reset those incomplete rows just because the derived spec cursor moved.
+    # The next call to forge/next.py can advance once the rows are accounted for.
+    transition_deferred = (
+        bool(previous_pass)
+        and previous_pass != "complete"
+        and previous_pass != current_pass
+        and bool(_pending(_entries(state, "pass")))
+    )
+    # Advancing one verified pass must not silently skip another. Even if the
+    # currently open checklist is complete, one set of receipts is not evidence
+    # for multiple passes. Explicit buildPasses supplies the authoritative order.
+    configured_passes = spec.get("buildPasses")
+    if isinstance(configured_passes, list) and configured_passes:
+        pass_ids = [
+            row["id"] for row in configured_passes
+            if isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"].strip()
+        ]
+        if pass_ids and not previous_pass and current_pass != pass_ids[0]:
+            raise WorkflowStateError(
+                f"spec starts at {current_pass!r} but checklist has not opened "
+                f"the first pass {pass_ids[0]!r}; restore the recorded state"
+            )
+        if not transition_deferred and previous_pass in pass_ids and current_pass != previous_pass:
+            index = pass_ids.index(previous_pass) + 1
+            expected = pass_ids[index] if index < len(pass_ids) else "complete"
+            if current_pass != expected:
+                raise WorkflowStateError(
+                    f"spec skipped pass boundary after {previous_pass!r}: "
+                    f"expected {expected!r}, got {current_pass!r}"
+                )
+    if not transition_deferred:
+        set_current_pass(state, current_pass)
     history = spec.get("reviewHistory", [])
     if not isinstance(history, list):
         history = []
@@ -387,7 +431,15 @@ def sync_from_spec(state: dict[str, Any], spec: dict[str, Any], current_pass: st
         and entry.get("passId") == current_pass
         and entry.get("action") in REFINE_ACTIONS
     ]
-    if current_pass != "complete" and refinements:
+    # A refine review also needs the current pass's rows recorded before they
+    # are reset. Otherwise next.py erases the render, gate and review receipts.
+    apply_refinement = (
+        not transition_deferred
+        and current_pass != "complete"
+        and bool(refinements)
+        and not _pending(_entries(state, "pass"))
+    )
+    if apply_refinement:
         state.setdefault("passHistory", []).append(
             {
                 "passId": current_pass,
@@ -400,7 +452,10 @@ def sync_from_spec(state: dict[str, Any], spec: dict[str, Any], current_pass: st
             checklist_entry["evidence"] = []
             checklist_entry["reason"] = ""
         state["iterationAction"] = refinements[-1]["action"]
-    state["reviewCursor"] = len(history)
+    # Keep unconsumed reviews visible until the local checklist transition
+    # succeeds; consuming the cursor early would make a later sync lose them.
+    if not transition_deferred and (not refinements or apply_refinement):
+        state["reviewCursor"] = len(history)
     per_pass: dict[str, int] = {}
     total = 0
     for entry in history:
@@ -412,11 +467,12 @@ def sync_from_spec(state: dict[str, Any], spec: dict[str, Any], current_pass: st
     loops = state["loops"]
     loops["perPass"] = per_pass
     loops["total"] = total
-    pass_count = per_pass.get(current_pass, 0)
+    active_pass = str(state.get("currentPass") or "")
+    pass_count = per_pass.get(active_pass, 0)
     if pass_count >= loops["maxPerPass"]:
         state["status"] = "stopped"
         state["currentStep"] = "stopped"
-        state["stopReason"] = f"max-correction-loops-reached:{current_pass}:{pass_count}/{loops['maxPerPass']}"
+        state["stopReason"] = f"max-correction-loops-reached:{active_pass}:{pass_count}/{loops['maxPerPass']}"
     elif total >= loops["maxTotal"]:
         state["status"] = "stopped"
         state["currentStep"] = "stopped"
@@ -430,7 +486,7 @@ def status_payload(state: dict[str, Any]) -> dict[str, Any]:
     current_pass = str(state.get("currentPass") or "")
     loops = state["loops"]
     visible_scopes = {"setup", "final", "rig"}
-    if current_pass != "complete":
+    if current_pass and current_pass != "complete":
         visible_scopes.add("pass")
     return {
         "status": state["status"],

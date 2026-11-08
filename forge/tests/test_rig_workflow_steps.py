@@ -31,6 +31,7 @@ from workflow_state import (  # noqa: E402
     new_state,
     next_entry,
     recompute,
+    set_current_pass,
     status_payload,
 )
 
@@ -125,8 +126,13 @@ class TheDispatcherActuallyReachesThem(unittest.TestCase):
             entry = next_entry(state)
             if entry is None:
                 break
+            if entry["id"] == "await-pass-start":
+                # This dispatcher test does not parse a real spec. Simulate next.py
+                # selecting its first pass once the setup checklist is finished.
+                set_current_pass(state, "blockout")
+                continue
             if entry["id"] == "await-pass-transition":
-                state["currentPass"] = "complete"
+                set_current_pass(state, "complete")
                 continue
             for step in state["checklist"]:
                 if step["id"] == entry["id"]:
