@@ -8,12 +8,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "_shared"))
 sys.path.insert(0, str(ROOT / "stage3_build"))
+from state_integrity import verify_state, write_state
 from status_banner import emit_status
 from orchestrate_passes import current_pass, pass_acceptance, pass_order, completed_passes
 from workflow_state import (
     WorkflowStateError,
     load_state,
-    save_state,
     status_payload,
     sync_from_spec,
 )
@@ -46,7 +46,8 @@ def main(argv: list[str]) -> int:
     if args.state:
         try:
             local_state = load_state(args.state)
-        except WorkflowStateError as error:
+            verify_state(args.state, local_state)
+        except (OSError, WorkflowStateError) as error:
             print(f"state error: {error}", file=sys.stderr)
             return 2
         if spec_path is None:
@@ -90,8 +91,13 @@ def main(argv: list[str]) -> int:
     current = current_pass(ids, completed)
 
     if local_state is not None:
-        sync_from_spec(local_state, spec, current)
-        save_state(args.state, local_state)
+        try:
+            sync_from_spec(local_state, spec, current)
+            write_state(args.state, local_state, action="sync",
+                        steps=("sync",), status=local_state["status"])
+        except (OSError, WorkflowStateError) as error:
+            print(f"state error: {error}", file=sys.stderr)
+            return 2
         payload = status_payload(local_state)
         emit_local_state(payload)
         if payload["status"] == "stopped":
