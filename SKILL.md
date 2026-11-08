@@ -232,6 +232,9 @@ Full flags: `grimoire/scripts.md`. Never let a script *score* visuals — that i
    authored/unwrapped `uvStrategy`. Offline LOD tiers:
    `forge/stage3_build/decimate.py <mesh.json> --ratio <r> --json`.
 7. Render the current pass in a browser/preview, capture a screenshot at a review viewpoint.
+   For `blockout`, capture a separate screenshot from the same viewpoint with material maps disabled
+   (`map`, `normalMap`, `roughnessMap`, `metalnessMap`, `aoMap`). Keep that maps-off evidence
+   alongside the ordinary render; the ordinary render is not a substitute for it.
 7a. **Off-axis and placement gates — a single review viewpoint is not evidence about the model.**
    Capture a turntable, not one frame, and run all three; each catches a defect class the older
    gates pass by construction (a hole through a skull, a hat at hip height and a floating charm all
@@ -246,7 +249,9 @@ Full flags: `grimoire/scripts.md`. Never let a script *score* visuals — that i
 8. **Run deterministic gates before AI vision.** MUST read
    `grimoire/review/gates_reference.md` and `grimoire/review/self_correction.md` completely. Run
    `forge/stage4_review/diagnose_render.py` and record the passing Tier 1 result with
-   `--spec object-sculpt-spec.json --pass-id <pass> --in-place`; for non-planar forms also run
+   `--spec object-sculpt-spec.json --pass-id <pass> --in-place`. For `blockout`, also supply
+   `--map-stripped-render <maps-off-shot>` using the separate maps-disabled capture; without it,
+   Tier 1 records `passed: false`. For non-planar forms also run
    `forge/stage4_review/diagnose_render_multi_angle.py` with the fixed view and at least two
    meaningful orbit views. Then run
    `forge/stage3_build/orchestrate_passes.py check object-sculpt-spec.json --pass-id <pass>`.
@@ -254,6 +259,9 @@ Full flags: `grimoire/scripts.md`. Never let a script *score* visuals — that i
    `forge/stage4_review/make_comparison_sheet.py --reference <img> --render <shot> --out cmp.png --json`.
 10. Record the review (overall + per-layer + per-feature scores + decision):
     `forge/stage4_review/append_review.py object-sculpt-spec.json --pass-id <pass> --fidelity <0-1> --action <continue|refine-spec|refine-code|request-input|stop> --summary "..." --render-screenshot <shot> --comparison-image cmp.png --ai-vision-score <0-1> --layer-scores-json '{...}' --feature-reviews-json <f.json> --in-place`.
+    To credit `blockout` with `--action continue`, also add
+    `--map-stripped-render <maps-off-shot>` from step 7. Credit passes in unlocked order;
+    `--force-out-of-order` is only for deliberate re-review, not a bypass of the evidence gate.
     When a domain plugin contributes a review gate, produce its versioned report first with
     the command that plugin's review step names, then attach it with
     `--domain-review-json <report>.json --review-scene-json <the plugin's scene fixture>`. The
