@@ -125,6 +125,10 @@ class TheDispatcherActuallyReachesThem(unittest.TestCase):
             entry = next_entry(state)
             if entry is None:
                 break
+            if entry["id"] == "await-pass-initialization":
+                # A spec must open the first pass before pass-scope work can be offered.
+                state["currentPass"] = "blockout"
+                continue
             if entry["id"] == "await-pass-transition":
                 state["currentPass"] = "complete"
                 continue
