@@ -162,6 +162,8 @@ def main(argv: list[str]) -> int:
     path = args.image.expanduser().resolve()
     if not path.exists():
         parser.error(f"{path} does not exist")
+    if not path.is_file():
+        parser.error(f"{path} is not a file")
     payload = json.dumps(probe(path), indent=2, ensure_ascii=False)
     if args.out:
         args.out.expanduser().parent.mkdir(parents=True, exist_ok=True)
