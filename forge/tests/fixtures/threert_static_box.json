@@ -1,0 +1,46 @@
+{
+  "targetName": "ThreeRT Static Box",
+  "schemaVersion": "2.1",
+  "suitability": "pass",
+  "coordinateFrame": {},
+  "silhouette": {},
+  "proceduralStrategy": [],
+  "materials": [
+    {
+      "id": "ceramic",
+      "baseColor": "#336699",
+      "roughness": 0.85,
+      "metalness": 0.15
+    }
+  ],
+  "componentTree": [
+    {
+      "id": "static-case",
+      "name": "Static ceramic case",
+      "level": "macro",
+      "role": "body",
+      "primitive": "box",
+      "topologyClass": "assembled-solid",
+      "topologyRationale": "The reference is a six-faced rectangular hard-surface case with no recesses or secondary elements.",
+      "dimensions": {
+        "width": 2,
+        "height": 1.5,
+        "depth": 0.75
+      },
+      "transform": {
+        "position": [
+          0.25,
+          1,
+          -0.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "parent": null,
+      "material": "ceramic"
+    }
+  ]
+}
