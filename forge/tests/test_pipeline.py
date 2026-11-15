@@ -310,6 +310,64 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(second_result.returncode, 0, second_result.stderr)
         self.assertEqual(first.read_bytes(), second.read_bytes())
 
+
+    def test_threert_static_box_opt_in_is_schema_valid_and_default_is_unchanged(self):
+        fixture = SKILL / "forge/tests/fixtures/threert_static_box.json"
+        checked = run("stage2_spec/validate_sculpt_spec.py", fixture)
+        self.assertEqual(checked.returncode, 0, checked.stderr + checked.stdout)
+        default = self.dir / "default.ts"
+        explicit = self.dir / "explicit-threejs.ts"
+        for output, flag in ((default, ()), (explicit, ("--backend", "threejs"))):
+            result = run("stage3_build/generate_threejs_factory.py", fixture, "--out", output, *flag)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(default.read_bytes(), explicit.read_bytes())
+
+        out = self.dir / "static-box.ts"
+        result = run("stage3_build/generate_threejs_factory.py", fixture, "--backend", "threert", "--out", out)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        source = out.read_text(encoding="utf-8")
+        self.assertIn("from '@threert/scene'", source)
+        self.assertIn("const root = new Group();", source)
+        self.assertIn("new BoxGeometry(2.0, 1.5, 0.75)", source)
+        self.assertIn("mesh.position.set(0.25, 1.0, -0.5)", source)
+        self.assertIn("color: 0x336699", source)
+        self.assertIn("roughness: 0.85", source)
+        self.assertIn("metalness: 0.15", source)
+        self.assertNotIn("from 'three'", source)
+        self.assertNotIn("three/examples", source)
+        for forbidden in ("PMREM", "EffectComposer", "RenderPass", "BokehPass",
+                          "UnrealBloomPass", "RoomEnvironment", "OrbitControls", "WebGLRenderer"):
+            self.assertNotIn(forbidden, source)
+
+    def test_threert_rejects_unsupported_features_without_writing_output(self):
+        fixture = SKILL / "forge/tests/fixtures/threert_static_box.json"
+        original = json.loads(fixture.read_text(encoding="utf-8"))
+        cases = {
+            "extrusion": lambda spec: spec["componentTree"][0].update({"primitive": "extrude"}),
+            "texture": lambda spec: spec["materials"][0].update({"map": "case.png"}),
+            "normal_map": lambda spec: spec["materials"][0].update({"normal": {"strength": 0.5}}),
+            "rig": lambda spec: spec.update({"rig": {"bones": [{"id": "root"}]}}),
+            "vertex_paint": lambda spec: spec["componentTree"][0].update({"vertexPaint": {"baseColor": "#ffffff"}}),
+            "geometry_descriptor": lambda spec: spec["componentTree"][0].update({"geometryDescriptor": {"extrude": {"depth": 0.2}}}),
+            "repetition": lambda spec: spec.update({"repetitionSystems": [{"id": "duplicated", "count": 2}]}),
+            "additional_component": lambda spec: spec["componentTree"].append({**spec["componentTree"][0], "id": "extra"}),
+            "material_effect": lambda spec: spec["materials"][0].update({"transmission": 0.7}),
+            "nonfinite_size": lambda spec: spec["componentTree"][0]["dimensions"].update({"width": float("inf")}),
+            "size_conflict": lambda spec: spec["componentTree"][0]["transform"].update({"scale": [1, 1, 1]}),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(unsupported=name):
+                spec = json.loads(json.dumps(original))
+                mutate(spec)
+                path = self.dir / f"{name}.json"
+                path.write_text(json.dumps(spec), encoding="utf-8")
+                out = self.dir / f"{name}.ts"
+                result = run("stage3_build/generate_threejs_factory.py", path,
+                             "--backend", "threert", "--out", out)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("threert backend:", result.stderr)
+                self.assertFalse(out.exists(), "an unsupported spec must not produce degraded geometry")
+
     def test_generate_factory_emits_f3_f4_material_and_environment(self):
         # Plan 1.3 F.3/F.4: previously-missing MeshPhysicalMaterial properties and the
         # environment map must both appear in the generated code (codegen-output test,

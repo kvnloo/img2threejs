@@ -4046,10 +4046,170 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
     return "\n".join(lines)
 
 
+
+def _threert_unsupported(path: str) -> None:
+    """Refuse anything the static scene adapter would otherwise drop."""
+    raise ValueError(f"threert backend: unsupported {path}; only one static, untextured box is supported")
+
+
+def _threert_fields(record: dict[str, Any], allowed: set[str], path: str) -> None:
+    for key in sorted(record.keys() - allowed):
+        _threert_unsupported(f"{path}.{key}")
+
+
+def _threert_triplet(value: Any, path: str, *, positive: bool = False) -> tuple[float, float, float]:
+    if not isinstance(value, list) or len(value) != 3:
+        raise ValueError(f"threert backend: {path} must contain three numbers")
+    result = []
+    for number in value:
+        if isinstance(number, bool) or not isinstance(number, (float, int)) or not math.isfinite(number):
+            raise ValueError(f"threert backend: {path} must contain finite numbers")
+        if positive and number <= 0:
+            raise ValueError(f"threert backend: {path} must contain positive dimensions")
+        result.append(float(number))
+    return tuple(result)
+
+
+def _threert_scalar(value: Any, path: str, fallback: float) -> float:
+    if value is None:
+        return fallback
+    if isinstance(value, dict):
+        _threert_fields(value, {"base"}, path)
+        value = value.get("base")
+    if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or not 0 <= value <= 1:
+        raise ValueError(f"threert backend: {path} must be a scalar between 0 and 1")
+    return float(value)
+
+
+def _threert_static_box(spec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+    """Validate a deliberately tiny contract before emitting any TS or writing output.
+
+    Authoring/quality metadata may be present, but any render-affecting field outside
+    this exact static-box subset is an error, never silently downgraded to a box.
+    """
+    _threert_fields(spec, {
+        "targetName", "targetId", "schemaVersion", "suitability", "coordinateFrame",
+        "silhouette", "proceduralStrategy", "materials", "componentTree",
+        "sourceImage", "scores", "preSpecAssessment", "qualityContract",
+        "qualityTargets", "terminologyProfile", "selfCorrectLoop",
+        "featureReviewTargets", "buildPasses", "sculptPipeline", "reviewHistory",
+        "visualEvidence", "viewEvidence", "assumptions", "risks",
+    }, "spec")
+    for key in ("coordinateFrame", "silhouette", "proceduralStrategy"):
+        if spec.get(key):
+            _threert_unsupported(f"spec.{key}")
+    if not isinstance(spec.get("componentTree"), list) or len(spec["componentTree"]) != 1:
+        _threert_unsupported("spec.componentTree (requires exactly one component)")
+    if not isinstance(spec.get("materials"), list) or len(spec["materials"]) != 1:
+        _threert_unsupported("spec.materials (requires exactly one material)")
+    component = spec["componentTree"][0]
+    material = spec["materials"][0]
+    if not isinstance(component, dict) or not isinstance(material, dict):
+        _threert_unsupported("spec.componentTree/materials")
+    _threert_fields(component, {
+        "id", "name", "primitive", "material", "parent", "topologyClass",
+        "topologyRationale", "level", "role", "dimensions", "transform",
+        "evidenceRefs", "importance", "confidence", "fidelityTier",
+    }, "component")
+    if component.get("primitive") != "box":
+        _threert_unsupported("component.primitive")
+    if component.get("topologyClass") not in (None, "assembled-solid"):
+        _threert_unsupported("component.topologyClass")
+    if component.get("parent") is not None or component.get("level", "macro") != "macro":
+        _threert_unsupported("component.parent/level")
+    if component.get("fidelityTier") not in (None, "blockout"):
+        _threert_unsupported("component.fidelityTier")
+    _threert_fields(material, {
+        "id", "name", "type", "shaderModel", "baseColor", "color", "roughness", "metalness",
+    }, "material")
+    if component.get("material") != material.get("id") or not isinstance(material.get("id"), str):
+        _threert_unsupported("component.material")
+    if material.get("type", "standard") != "standard":
+        _threert_unsupported("material.type")
+    if material.get("shaderModel") not in (None, "MeshStandardMaterial / PBR approximation"):
+        _threert_unsupported("material.shaderModel")
+    color = material.get("baseColor", material.get("color"))
+    if not isinstance(color, str) or not re.fullmatch(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?", color):
+        _threert_unsupported("material.baseColor")
+    if material.get("color", color).lower() != color.lower():
+        _threert_unsupported("material.color (conflicts with baseColor)")
+    _threert_scalar(material.get("roughness"), "material.roughness", 1.0)
+    _threert_scalar(material.get("metalness"), "material.metalness", 0.0)
+    dimensions = component.get("dimensions")
+    dimensions_vector = None
+    if dimensions is not None:
+        if not isinstance(dimensions, dict):
+            _threert_unsupported("component.dimensions")
+        _threert_fields(dimensions, {"width", "height", "depth", "units", "confidence"}, "component.dimensions")
+        if not all(k in dimensions for k in ("width", "height", "depth")):
+            _threert_unsupported("component.dimensions (width/height/depth required)")
+        dimensions_vector = _threert_triplet(
+            [dimensions["width"], dimensions["height"], dimensions["depth"]],
+            "component.dimensions", positive=True,
+        )
+        if dimensions.get("units") not in (None, "relative", "m", "meters"):
+            _threert_unsupported("component.dimensions.units")
+    transform = component.get("transform", {})
+    if not isinstance(transform, dict):
+        _threert_unsupported("component.transform")
+    _threert_fields(transform, {"position", "rotation", "scale"}, "component.transform")
+    position = _threert_triplet(transform.get("position", [0, 0, 0]), "component.transform.position")
+    rotation = _threert_triplet(transform.get("rotation", [0, 0, 0]), "component.transform.rotation")
+    scaled = (
+        _threert_triplet(transform["scale"], "component.transform.scale", positive=True)
+        if "scale" in transform else None
+    )
+    if scaled is not None and dimensions_vector is not None and scaled != dimensions_vector:
+        _threert_unsupported("component.dimensions/transform.scale (conflicting box sizes)")
+    size = scaled or dimensions_vector
+    if size is None:
+        _threert_unsupported("component.dimensions/transform.scale (missing box size)")
+    target = spec.get("targetName")
+    if not isinstance(target, str) or not target.strip() or not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", pascal_case(target)):
+        _threert_unsupported("spec.targetName")
+    return component, material, size, position, rotation
+
+
+def generate_threert(spec: dict[str, Any], pass_id: str) -> str:
+    """Emit only a static ThreeRT scene graph; no browser renderer/addon shims."""
+    component, material, size, position, rotation = _threert_static_box(spec)
+    errors, _warnings = validate_spec(spec)
+    if errors:
+        raise ValueError(f"spec validation failed: {'; '.join(errors)}")
+    target = str(spec["targetName"])
+    function_name = f"create{pascal_case(target)}Model"
+    def triple(values: tuple[float, float, float]) -> str:
+        return ", ".join(repr(value) for value in values)
+    return "\n".join([
+        "import { BoxGeometry, Group, Mesh, MeshStandardMaterial } from '@threert/scene';",
+        "",
+        f"// Generated from ObjectSculptSpec target: {target}",
+        f"// Sculpt build pass: {pass_id}",
+        f"export function {function_name}(): Group {{",
+        "  const root = new Group();",
+        f"  root.name = {json.dumps(target, ensure_ascii=False)};",
+        f"  const geometry = new BoxGeometry({triple(size)});",
+        "  const material = new MeshStandardMaterial({",
+        f"    color: {hex_to_number(material['baseColor'] if 'baseColor' in material else material['color'])},",
+        f"    roughness: {repr(_threert_scalar(material.get('roughness'), 'material.roughness', 1.0))},",
+        f"    metalness: {repr(_threert_scalar(material.get('metalness'), 'material.metalness', 0.0))},",
+        "  });",
+        "  const mesh = new Mesh(geometry, material);",
+        f"  mesh.name = {json.dumps(str(component.get('name') or component['id']), ensure_ascii=False)};",
+        f"  mesh.position.set({triple(position)});",
+        f"  mesh.rotation.set({triple(rotation)});",
+        "  root.add(mesh);",
+        "  return root;",
+        "}",
+        "",
+    ])
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("spec", type=Path)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--backend", choices=("threejs", "threert"), default="threejs")
     parser.add_argument(
         "--pass-id",
         help="Build pass to generate. Defaults to the current unlocked sculptPipeline pass.",
@@ -4069,6 +4229,11 @@ def main(argv: list[str]) -> int:
 
     spec_path = args.spec.expanduser().resolve()
     spec = load_spec(spec_path)
+    if args.backend == "threert":
+        try:
+            _threert_static_box(spec)
+        except ValueError as exc:
+            parser.error(str(exc))
     _errors, warnings, strict_failures = strict_quality_failures(spec)
     if strict_failures and not args.allow_nonstrict:
         emit_blocked(
@@ -4095,7 +4260,7 @@ def main(argv: list[str]) -> int:
         parser.error(f"{output} already exists; use --force to overwrite")
     output.parent.mkdir(parents=True, exist_ok=True)
     try:
-        rendered = generate(spec, pass_id)
+        rendered = generate_threert(spec, pass_id) if args.backend == "threert" else generate(spec, pass_id)
     except GeometryNotImplementedError as exc:
         parser.error(
             f"primitive {str(exc)!r} is accepted by validation but has no codegen "
