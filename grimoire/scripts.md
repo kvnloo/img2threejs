@@ -203,6 +203,12 @@ Evidence flags: `--matched --mismatches --spec-fixes --code-fixes --evidence --r
 --feature-reviews-json f.json --ai-vision-notes "..." --visual-threshold 0-1 --camera-view NAME
 --require-screenshot-files`. Layer keys: `silhouetteProportion, componentStructure, formDetail,
 materialSurface, lightingCamera`. Records one self-correction entry into `reviewHistory`.
+For a workspace with a non-`generic` domain profile in `.img2threejs/state.json`, a
+`continue` decision must carry a passing `--domain-review-json` report. The CLI looks for
+state beside the spec, then under the current workspace. Use `--state PATH` to select
+another state file; an explicit missing or malformed state is an error. Without a
+workspace state, legacy spec-only calls remain valid. Refinement, input requests, and
+stop decisions do not require domain evidence.
 
 ## GLB-mediated v2 render profile
 
